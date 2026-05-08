@@ -60,8 +60,8 @@ services:
     volumes:
       - gitea-data:/data
     ports:
-      - "300:3000"
-      - "222:22"
+      - "13000:3000"
+      - "12200:22"
     networks:
       - warp-network
     restart: unless-stopped
@@ -95,7 +95,7 @@ services:
 
   warp-station:
     user: "root"
-    image: ghcr.io/wp-labs/wp-station:latest
+    image: ghcr.io/wp-labs/wp-station:v0.1.10-alpha
     # depends_on:
     #   warp-toolchain:
     #     condition: service_completed_successfully
@@ -124,7 +124,7 @@ services:
     volumes:
       - ./station/config/config.toml:/app/config/config.toml
       - ./station/default_configs:/app/default_configs
-      # - ./station/project_root:/app/project_root
+      - ./station/tls:/app/tls:ro
       - warp-toolchain-data:/app/toolchain:ro
     ports:  
       - "18081:8081"

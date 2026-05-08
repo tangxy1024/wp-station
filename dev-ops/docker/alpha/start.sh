@@ -2,7 +2,7 @@
 
 set -u
 
-. "$(cd -- "$(dirname -- "$0")/../scripts" && pwd)/compose-common.sh"
+. "$(cd -- "$(dirname -- "$0")/../../scripts" && pwd)/compose-common.sh"
 
 create_env_if_missing() {
   local env_file="$SCRIPT_DIR/.env"
@@ -96,11 +96,7 @@ start_compose() {
 
 print_access_entries() {
   printf '\n访问入口：\n'
-  printf '  - warp-station: http://localhost:8081 (宿主机端口: 8081)\n'
-  printf '其他非关键服务入口：\n'
-  printf '  - gitea Web: http://localhost:3000 (宿主机端口: 3000)\n'
-  printf '  - gitea SSH: ssh://git@localhost:222 (宿主机端口: 222)\n'
-}
+  printf '  - warp-station: http://localhost:18081 (宿主机端口: 18081)\n'
 
 main() {
   find_compose_file
