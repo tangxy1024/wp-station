@@ -146,12 +146,16 @@ pub async fn start() -> std::io::Result<()> {
 
     info!("数据库迁移完成");
 
-    // 启动时预加载 WarpParse TLS 证书，确保证书问题在启动阶段暴露。
-    WarpParseService::preload_tls(&setting.warparse).map_err(|e| {
-        error!("WarpParse TLS 证书加载失败: {}", e);
-        std::io::Error::other(format!("WarpParse TLS 证书加载失败: {}", e))
-    })?;
-    info!("WarpParse TLS 证书加载完成");
+    // 启动时仅在 HTTPS 模式预加载 WarpParse TLS 证书，确保证书问题在启动阶段暴露。
+    if setting.warparse.enabled {
+        WarpParseService::preload_tls(&setting.warparse).map_err(|e| {
+            error!("WarpParse TLS 证书加载失败: {}", e);
+            std::io::Error::other(format!("WarpParse TLS 证书加载失败: {}", e))
+        })?;
+        info!("WarpParse 访问协议: https，TLS 证书加载完成");
+    } else {
+        info!("WarpParse 访问协议: http，已跳过 TLS 证书加载");
+    }
 
     // 启动发布任务调度器
     spawn_release_task_runner(setting.warparse.clone());

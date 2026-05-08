@@ -189,6 +189,7 @@ fn project_version_for_group(
 
 pub struct WarpParseService {
     client: Client,
+    scheme: &'static str,
 }
 
 impl WarpParseService {
@@ -221,6 +222,11 @@ impl WarpParseService {
 
     pub fn preload_tls(conf: &WarparseConf) -> Result<(), ServiceError> {
         if WARPASE_CA_PEM.get().is_some() {
+            return Ok(());
+        }
+
+        if !conf.enabled {
+            let _ = WARPASE_CA_PEM.set(None);
             return Ok(());
         }
 
@@ -265,6 +271,7 @@ impl WarpParseService {
         timeout: Option<Duration>,
     ) -> Result<Self, ServiceError> {
         let mut builder = Client::builder();
+        let scheme = if conf.enabled { "https" } else { "http" };
 
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
@@ -280,12 +287,16 @@ impl WarpParseService {
             .build()
             .map_err(|e| ServiceError::Network(e.to_string()))?;
 
-        Ok(WarpParseService { client })
+        Ok(WarpParseService { client, scheme })
     }
 
     fn load_ca_pem(conf: &WarparseConf) -> Result<Option<Vec<u8>>, ServiceError> {
         if let Some(cached) = WARPASE_CA_PEM.get() {
             return Ok(cached.clone());
+        }
+
+        if !conf.enabled {
+            return Ok(None);
         }
 
         if conf.ca_file.trim().is_empty() {
@@ -523,11 +534,11 @@ impl WarpParseService {
 
     /// 构建完整 URL
     fn build_url(&self, device: &Device, path: &str) -> Result<String, ServiceError> {
-        let base = Self::device_endpoint(device)?;
+        let base = self.device_endpoint(device)?;
         Ok(format!("{}{}", base, path))
     }
 
-    fn device_endpoint(device: &Device) -> Result<String, ServiceError> {
+    fn device_endpoint(&self, device: &Device) -> Result<String, ServiceError> {
         if device.ip.trim().is_empty() {
             return Err(ServiceError::InvalidState(
                 "设备未配置 IP，无法连接".to_string(),
@@ -539,7 +550,12 @@ impl WarpParseService {
             ));
         }
 
-        Ok(format!("https://{}:{}", device.ip.trim(), device.port))
+        Ok(format!(
+            "{}://{}:{}",
+            self.scheme,
+            device.ip.trim(),
+            device.port
+        ))
     }
 }
 

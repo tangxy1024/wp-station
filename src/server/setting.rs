@@ -138,6 +138,7 @@ pub struct AssistConf {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct WarparseConf {
+    pub enabled: bool,
     #[serde(default)]
     pub ca_file: String,
     #[serde(default = "default_poll_interval")]
@@ -146,17 +147,6 @@ pub struct WarparseConf {
     pub poll_timeout_seconds: u64,
     #[serde(default = "default_max_retries_warparse")]
     pub max_retries: u32,
-}
-
-impl Default for WarparseConf {
-    fn default() -> Self {
-        WarparseConf {
-            ca_file: String::new(),
-            poll_interval_seconds: default_poll_interval(),
-            poll_timeout_seconds: default_poll_timeout(),
-            max_retries: default_max_retries_warparse(),
-        }
-    }
 }
 
 fn default_poll_interval() -> u64 {
@@ -202,7 +192,6 @@ pub struct Setting {
     pub gitea: GiteaConf,
     #[serde(default)]
     pub assist: AssistConf,
-    #[serde(default)]
     pub warparse: WarparseConf,
     #[serde(default)]
     pub features: FeaturesConf,
@@ -232,7 +221,13 @@ impl Default for Setting {
             project_infra: default_project_infra(),
             gitea: GiteaConf::default(),
             assist: AssistConf::default(),
-            warparse: WarparseConf::default(),
+            warparse: WarparseConf {
+                enabled: true,
+                ca_file: String::new(),
+                poll_interval_seconds: default_poll_interval(),
+                poll_timeout_seconds: default_poll_timeout(),
+                max_retries: default_max_retries_warparse(),
+            },
             features: FeaturesConf::default(),
         }
     }
