@@ -124,7 +124,7 @@ services:
     volumes:
       - ./station/config/config.toml:/app/config/config.toml
       - ./station/default_configs:/app/default_configs
-      # - ./station/project_root:/app/project_root
+      - ./station/tls:/app/tls:ro
       - warp-toolchain-data:/app/toolchain:ro
     ports:  
       - "18081:8081"
