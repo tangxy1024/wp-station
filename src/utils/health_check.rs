@@ -5,7 +5,6 @@
 use crate::db::{
     DeviceStatus, find_device_by_id, update_device_runtime_state, update_device_status,
 };
-use crate::server::Setting;
 use crate::utils::WarpParseService;
 use chrono::Utc;
 
@@ -24,11 +23,10 @@ pub async fn check_device_health(device_id: i32) -> bool {
         }
     };
 
-    let setting = Setting::load();
     let service = WarpParseService::default();
 
     // 检查在线状态
-    match service.check_online(&device, &setting.warparse).await {
+    match service.check_online(&device).await {
         Ok(status) => {
             let is_online = status.is_online;
 

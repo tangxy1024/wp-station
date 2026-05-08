@@ -88,6 +88,13 @@ pub const STAGE_CALL_CLIENT: &str = "调用客户端";
 /// 发布阶段标签：运行状态检查
 pub const STAGE_RUNTIME: &str = "运行状态";
 
+// ============ WarpParse 调用 ============
+
+/// WarpParse 发布接口路径。
+pub const WARPARSE_DEPLOY_PATH: &str = "/admin/v1/reloads/model";
+/// WarpParse 状态接口路径。
+pub const WARPARSE_STATUS_PATH: &str = "/admin/v1/runtime/status";
+
 // ============ 工具函数 ============
 
 /// 统一 sink 文件路径的规范化形式，用于模糊匹配时消除路径分隔符和大小写差异。

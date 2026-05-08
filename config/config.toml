@@ -28,5 +28,8 @@ password = "123456"
 # base_url = "http://117.72.103.91:8888"
 base_url = "http://127.0.0.1:8888"
 
+[warparse]
+ca_file = "./tls/CA.crt"
+
 [features]
 data_collect_url = "http://159.75.67.240:18080/"

@@ -138,12 +138,8 @@ pub struct AssistConf {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct WarparseConf {
-    #[serde(default = "default_base_url")]
-    pub base_url: String,
-    #[serde(default = "default_deploy_path")]
-    pub deploy_path: String,
-    #[serde(default = "default_status_path")]
-    pub status_path: String,
+    #[serde(default)]
+    pub ca_file: String,
     #[serde(default = "default_poll_interval")]
     pub poll_interval_seconds: u64,
     #[serde(default = "default_poll_timeout")]
@@ -155,26 +151,12 @@ pub struct WarparseConf {
 impl Default for WarparseConf {
     fn default() -> Self {
         WarparseConf {
-            base_url: default_base_url(),
-            deploy_path: default_deploy_path(),
-            status_path: default_status_path(),
+            ca_file: String::new(),
             poll_interval_seconds: default_poll_interval(),
             poll_timeout_seconds: default_poll_timeout(),
             max_retries: default_max_retries_warparse(),
         }
     }
-}
-
-fn default_base_url() -> String {
-    "http://127.0.0.1:19090".to_string()
-}
-
-fn default_deploy_path() -> String {
-    "/admin/v1/reloads/model".to_string()
-}
-
-fn default_status_path() -> String {
-    "/admin/v1/runtime/status".to_string()
 }
 
 fn default_poll_interval() -> u64 {
