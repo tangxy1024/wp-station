@@ -1,6 +1,6 @@
 //! 沙盒模块集成测试。
 //!
-//! 覆盖工作区管理（输出收集、目录渲染、日志写入）和进程管理（版本查询）。
+//! 覆盖工作区管理（输出收集、目录渲染、日志打包）和进程管理（命令检测、版本查询）。
 
 use std::collections::HashMap;
 use std::fs;
@@ -99,32 +99,6 @@ fn display_relative_prefers_workspace_root() {
 }
 
 #[test]
-fn write_text_log_writes_to_logs_dir() {
-    let base = temp_dir("write-log");
-    let logs_dir = base.join("logs");
-    fs::create_dir_all(&logs_dir).unwrap();
-    let project_dir = base.join("project");
-    fs::create_dir_all(&project_dir).unwrap();
-
-    let workspace = SandboxWorkspace {
-        root: base.clone(),
-        project_dir: project_dir.clone(),
-        logs_dir: logs_dir.clone(),
-        source_models_root: base.join("models"),
-        source_infra_root: base.join("infra"),
-    };
-
-    let log_path = workspace
-        .write_text_log("run.log", "line-a\nline-b\n")
-        .expect("write text log");
-    let content = fs::read_to_string(&log_path).unwrap();
-    assert_eq!(log_path, logs_dir.join("run.log"));
-    assert!(content.contains("line-a"));
-
-    fs::remove_dir_all(&base).unwrap();
-}
-
-#[test]
 fn render_tree_listing_displays_structure() {
     let base = temp_dir("render-tree");
     let logs_dir = base.join("logs");
@@ -137,8 +111,8 @@ fn render_tree_listing_displays_structure() {
         root: base.clone(),
         project_dir: project_dir.clone(),
         logs_dir,
-        source_models_root: base.join("models"),
-        source_infra_root: base.join("infra"),
+        source_models_root: base.join("source-models"),
+        source_infra_root: base.join("source-infra"),
     };
 
     let listing = workspace

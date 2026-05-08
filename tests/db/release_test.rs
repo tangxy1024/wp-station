@@ -1,8 +1,8 @@
 use crate::common::{rand_suffix, setup_db};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use wp_station::db::{
-    NewRelease, ReleaseGroup, ReleaseStatus, create_release, find_all_releases,
-    find_latest_draft_release, find_release_by_id, update_release_pipeline, update_release_status,
+    NewRelease, ReleaseStatus, create_release, find_all_releases, find_latest_draft_release,
+    find_release_by_id, touch_release_as_draft, update_release_status,
 };
 use wp_station_migrations::entity::release::{Column as ReleaseColumn, Entity as ReleaseEntity};
 
@@ -22,7 +22,7 @@ async fn test_release_crud_flow() {
 
     let release = NewRelease {
         version: version.clone(),
-        release_group: ReleaseGroup::Models.as_ref().to_string(),
+        release_group: "models".to_string(),
         pipeline: Some("auto".to_string()),
         created_by: Some("tester".to_string()),
         stages: Some("[]".to_string()),
@@ -54,9 +54,9 @@ async fn test_release_crud_flow() {
     assert!(total >= 1);
     assert!(items.iter().any(|item| item.id == release_id));
 
-    update_release_pipeline(release_id, Some("auto-updated"))
+    touch_release_as_draft(release_id, &version, "draft", Some("[]"))
         .await
-        .expect("update pipeline");
+        .expect("touch as draft");
 
     let draft_version = format!("{}-draft", prefix);
     let draft_id = create_release(NewRelease {

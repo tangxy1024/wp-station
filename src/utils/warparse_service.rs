@@ -5,8 +5,12 @@
 use crate::db::Device;
 use crate::db::ReleaseGroup;
 use crate::server::setting::WarparseConf;
-use reqwest::Client;
+use crate::utils::common::{WARPARSE_DEPLOY_PATH, WARPARSE_STATUS_PATH};
+use reqwest::{Certificate, Client};
 use serde::{Deserialize, Serialize};
+use std::error::Error;
+use std::fs;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 // ============ 错误类型 ============
@@ -14,6 +18,9 @@ use std::time::Duration;
 #[derive(Debug)]
 pub enum ServiceError {
     Network(String),
+    Timeout(String),
+    Connect(String),
+    Tls(String),
     Response(String),
     InvalidState(String),
 }
@@ -22,6 +29,9 @@ impl std::fmt::Display for ServiceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ServiceError::Network(msg) => write!(f, "网络错误: {}", msg),
+            ServiceError::Timeout(msg) => write!(f, "请求超时: {}", msg),
+            ServiceError::Connect(msg) => write!(f, "连接失败: {}", msg),
+            ServiceError::Tls(msg) => write!(f, "TLS 失败: {}", msg),
             ServiceError::Response(msg) => write!(f, "响应错误: {}", msg),
             ServiceError::InvalidState(msg) => write!(f, "状态异常: {}", msg),
         }
@@ -104,6 +114,8 @@ pub struct DeployCheckResult {
     pub is_reloading: bool,
 }
 
+static WARPASE_CA_PEM: OnceLock<Option<Vec<u8>>> = OnceLock::new();
+
 fn normalize_version_for_compare(version: &str) -> &str {
     version
         .strip_prefix('v')
@@ -180,33 +192,121 @@ pub struct WarpParseService {
 }
 
 impl WarpParseService {
+    fn error_chain(err: &(dyn Error + 'static)) -> String {
+        let mut parts = vec![err.to_string()];
+        let mut current = err.source();
+        while let Some(source) = current {
+            parts.push(source.to_string());
+            current = source.source();
+        }
+        parts.join(" -> ")
+    }
+
+    fn classify_reqwest_error(err: &reqwest::Error) -> ServiceError {
+        let message = Self::error_chain(err);
+        let lower = message.to_ascii_lowercase();
+        if err.is_timeout() {
+            ServiceError::Timeout(message)
+        } else if err.is_connect() {
+            ServiceError::Connect(message)
+        } else if lower.contains("tls")
+            || lower.contains("certificate")
+            || lower.contains("handshake")
+        {
+            ServiceError::Tls(message)
+        } else {
+            ServiceError::Network(message)
+        }
+    }
+
+    pub fn preload_tls(conf: &WarparseConf) -> Result<(), ServiceError> {
+        if WARPASE_CA_PEM.get().is_some() {
+            return Ok(());
+        }
+
+        if conf.ca_file.trim().is_empty() {
+            return Err(ServiceError::InvalidState(
+                "WarpParse TLS 证书未配置".to_string(),
+            ));
+        }
+
+        let ca_pem = Some(fs::read(&conf.ca_file).map_err(|e| {
+            ServiceError::Network(format!(
+                "读取 WarpParse 证书失败: path={}, error={}",
+                conf.ca_file, e
+            ))
+        })?);
+
+        if let Some(ca_pem) = ca_pem.as_ref() {
+            Certificate::from_pem(ca_pem).map_err(|e| {
+                ServiceError::Tls(format!(
+                    "解析 WarpParse 证书失败: path={}, error={}",
+                    conf.ca_file, e
+                ))
+            })?;
+        }
+
+        let _ = WARPASE_CA_PEM.set(ca_pem);
+        Ok(())
+    }
+
     pub fn new() -> Result<Self, ServiceError> {
-        let client = Client::builder()
-            .danger_accept_invalid_certs(true)
+        let setting = crate::server::Setting::load();
+        Self::from_warparse_conf(&setting.warparse, None)
+    }
+
+    pub fn with_timeout(timeout: Duration) -> Result<Self, ServiceError> {
+        let setting = crate::server::Setting::load();
+        Self::from_warparse_conf(&setting.warparse, Some(timeout))
+    }
+
+    pub fn from_warparse_conf(
+        conf: &WarparseConf,
+        timeout: Option<Duration>,
+    ) -> Result<Self, ServiceError> {
+        let mut builder = Client::builder();
+
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+
+        if let Some(ca_bytes) = Self::load_ca_pem(conf)? {
+            let ca = Certificate::from_pem(&ca_bytes)
+                .map_err(|e| ServiceError::Tls(format!("解析 WarpParse 证书失败: error={}", e)))?;
+            builder = builder.add_root_certificate(ca);
+        }
+
+        let client = builder
             .build()
             .map_err(|e| ServiceError::Network(e.to_string()))?;
 
         Ok(WarpParseService { client })
     }
 
-    pub fn with_timeout(timeout: Duration) -> Result<Self, ServiceError> {
-        let client = Client::builder()
-            .danger_accept_invalid_certs(true)
-            .timeout(timeout)
-            .build()
-            .map_err(|e| ServiceError::Network(e.to_string()))?;
+    fn load_ca_pem(conf: &WarparseConf) -> Result<Option<Vec<u8>>, ServiceError> {
+        if let Some(cached) = WARPASE_CA_PEM.get() {
+            return Ok(cached.clone());
+        }
 
-        Ok(WarpParseService { client })
+        if conf.ca_file.trim().is_empty() {
+            return Err(ServiceError::InvalidState(
+                "WarpParse TLS 证书未配置".to_string(),
+            ));
+        }
+
+        let ca_pem = fs::read(&conf.ca_file).map_err(|e| {
+            ServiceError::Network(format!(
+                "读取 WarpParse 证书失败: path={}, error={}",
+                conf.ca_file, e
+            ))
+        })?;
+        Ok(Some(ca_pem))
     }
 
     /// 检查设备是否在线
     /// 判断标准：accepting_commands == true
-    pub async fn check_online(
-        &self,
-        device: &Device,
-        conf: &WarparseConf,
-    ) -> Result<OnlineStatus, ServiceError> {
-        let status = self.fetch_status(device, conf).await?;
+    pub async fn check_online(&self, device: &Device) -> Result<OnlineStatus, ServiceError> {
+        let status = self.fetch_status(device).await?;
 
         let is_online = status.accepting_commands.unwrap_or(false);
 
@@ -221,11 +321,10 @@ impl WarpParseService {
     pub async fn deploy(
         &self,
         device: &Device,
-        conf: &WarparseConf,
         target_version: &str,
         group: ReleaseGroup,
     ) -> Result<DeployResult, ServiceError> {
-        let url = self.build_url(device, &conf.deploy_path)?;
+        let url = self.build_url(device, WARPARSE_DEPLOY_PATH)?;
 
         let body = ReloadRequest {
             wait: true,
@@ -253,8 +352,9 @@ impl WarpParseService {
             .send()
             .await
             .map_err(|e| {
-                warn!("部署 API 网络请求失败: {}", e);
-                ServiceError::Network(e.to_string())
+                let error = Self::classify_reqwest_error(&e);
+                warn!("部署 API 请求失败: kind=deploy, error={}", error);
+                error
             })?;
 
         let status = resp.status();
@@ -294,12 +394,11 @@ impl WarpParseService {
     pub async fn check_deploy_success(
         &self,
         device: &Device,
-        conf: &WarparseConf,
         target_version: &str,
         group: ReleaseGroup,
         expected_request_id: Option<&str>,
     ) -> Result<DeployCheckResult, ServiceError> {
-        let status = self.fetch_status(device, conf).await?;
+        let status = self.fetch_status(device).await?;
         let config_version = project_version_summary(status.project_version.as_ref());
         let current_version = project_version_for_group(status.project_version.as_ref(), group);
 
@@ -379,12 +478,8 @@ impl WarpParseService {
     }
 
     /// 获取设备状态（内部方法）
-    async fn fetch_status(
-        &self,
-        device: &Device,
-        conf: &WarparseConf,
-    ) -> Result<StatusResponse, ServiceError> {
-        let url = self.build_url(device, &conf.status_path)?;
+    async fn fetch_status(&self, device: &Device) -> Result<StatusResponse, ServiceError> {
+        let url = self.build_url(device, WARPARSE_STATUS_PATH)?;
 
         debug!("调用 WarpParse 状态 API: url={}", url);
 
@@ -394,7 +489,11 @@ impl WarpParseService {
             .header("Authorization", format!("Bearer {}", device.token))
             .send()
             .await
-            .map_err(|e| ServiceError::Network(e.to_string()))?;
+            .map_err(|e| {
+                let error = Self::classify_reqwest_error(&e);
+                warn!("状态 API 请求失败: kind=status, error={}", error);
+                error
+            })?;
 
         let status = resp.status();
         debug!("状态 API 响应状态: {}", status);
@@ -440,7 +539,7 @@ impl WarpParseService {
             ));
         }
 
-        Ok(format!("http://{}:{}", device.ip.trim(), device.port))
+        Ok(format!("https://{}:{}", device.ip.trim(), device.port))
     }
 }
 

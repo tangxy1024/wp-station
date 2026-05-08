@@ -1,7 +1,12 @@
 // 应用启动逻辑
 
-use crate::db::{DeviceStatus, find_all_devices, get_pool, init_pool};
+use crate::db::{
+    DeviceStatus, find_all_devices, get_pool, init_default_configs_to_infra,
+    init_default_configs_to_models, init_pool,
+};
 use crate::server::release_task_runner::spawn_release_task_runner;
+use crate::server::sync::init_gitea_repo;
+use crate::utils::WarpParseService;
 use crate::utils::check_device_health;
 use crate::{
     api,
@@ -13,6 +18,7 @@ use rust_embed::RustEmbed;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use wp_model_core::model::DataRecord;
+use wp_station_migrations::MigratorTrait;
 
 // SharedRecord 类型定义
 pub type SharedRecord = Arc<Mutex<Option<DataRecord>>>;
@@ -131,20 +137,26 @@ pub async fn start() -> std::io::Result<()> {
 
     // 运行数据库迁移
     let pool = get_pool();
-    use wp_station_migrations::{Migrator, MigratorTrait};
-    Migrator::up(pool.inner(), None).await.map_err(|e| {
-        error!("数据库迁移失败: {}", e);
-        std::io::Error::other(format!("数据库迁移失败: {}", e))
-    })?;
+    wp_station_migrations::Migrator::up(pool.inner(), None)
+        .await
+        .map_err(|e| {
+            error!("数据库迁移失败: {}", e);
+            std::io::Error::other(format!("数据库迁移失败: {}", e))
+        })?;
 
     info!("数据库迁移完成");
 
+    // 启动时预加载 WarpParse TLS 证书，确保证书问题在启动阶段暴露。
+    WarpParseService::preload_tls(&setting.warparse).map_err(|e| {
+        error!("WarpParse TLS 证书加载失败: {}", e);
+        std::io::Error::other(format!("WarpParse TLS 证书加载失败: {}", e))
+    })?;
+    info!("WarpParse TLS 证书加载完成");
+
     // 启动发布任务调度器
-    let warparse_conf = setting.warparse.clone();
-    spawn_release_task_runner(warparse_conf);
+    spawn_release_task_runner(setting.warparse.clone());
 
     // 双仓库默认配置只补齐缺失文件，不覆盖用户编辑。
-    use crate::db::{init_default_configs_to_infra, init_default_configs_to_models};
     init_default_configs_to_models(&setting.project_models).map_err(|e| {
         error!("加载默认 models 配置失败: {}", e);
         std::io::Error::other(format!("加载默认配置失败: {}", e))
@@ -160,7 +172,6 @@ pub async fn start() -> std::io::Result<()> {
     // 检查双仓库本地 Git 是否已初始化。
     if !layout.models_root.join(".git").exists() || !layout.infra_root.join(".git").exists() {
         info!("本地 Git 仓库未初始化，开始初始化双 Gitea 仓库");
-        use crate::server::sync::init_gitea_repo;
         init_gitea_repo().await.map_err(|e| {
             error!("初始化 Gitea 仓库失败: {}", e);
             std::io::Error::other(format!("初始化 Gitea 仓库失败: {}", e))

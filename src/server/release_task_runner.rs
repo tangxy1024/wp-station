@@ -44,7 +44,6 @@ pub fn spawn_release_task_runner(conf: WarparseConf) {
 }
 
 struct ReleaseTaskRunner {
-    conf: WarparseConf,
     poll_interval: ChronoDuration,
     poll_timeout: ChronoDuration,
     max_retries: i32,
@@ -59,7 +58,6 @@ impl ReleaseTaskRunner {
         let service = WarpParseService::default();
 
         ReleaseTaskRunner {
-            conf,
             poll_interval,
             poll_timeout,
             max_retries,
@@ -180,10 +178,7 @@ impl ReleaseTaskRunner {
         // 使用新服务发起部署
         let release_group = crate::db::ReleaseGroup::parse(&target.release_group)
             .map_err(|err| anyhow::anyhow!(err.to_string()))?;
-        let result = self
-            .service
-            .deploy(device, &self.conf, version, release_group)
-            .await;
+        let result = self.service.deploy(device, version, release_group).await;
 
         let resp = match result {
             Ok(resp) => resp,
@@ -278,13 +273,7 @@ impl ReleaseTaskRunner {
         // 使用新服务检查部署成功
         match self
             .service
-            .check_deploy_success(
-                device,
-                &self.conf,
-                version,
-                release_group,
-                expected_request_id,
-            )
+            .check_deploy_success(device, version, release_group, expected_request_id)
             .await
         {
             Ok(result) => {

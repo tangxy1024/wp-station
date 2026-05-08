@@ -1,6 +1,5 @@
 use crate::common::{rand_suffix, remove_project_path, setup_db, test_project_layout};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-use wp_station::db::{NewRelease, ReleaseStatus, RuleType, create_release};
+use wp_station::db::RuleType;
 use wp_station::server::rules::{
     RuleFilesQuery, create_rule_file_logic, delete_rule_file_logic, get_rule_content_logic,
     get_rule_files_logic, save_rule_logic,
@@ -10,8 +9,6 @@ use wp_station::utils::{
     read_knowledge_files, read_rule_content, write_knowdb_config, write_knowledge_files,
     write_rule_content, write_wpl_sample_content,
 };
-use wp_station_migrations::entity::release::{Column as ReleaseColumn, Entity as ReleaseEntity};
-
 fn cleanup_knowledge(file: &str) {
     remove_project_path(format!("models/knowledge/{file}"));
 }
@@ -28,14 +25,6 @@ fn cleanup_rule(rule_type: RuleType, file: &str) {
         RuleType::SinkConnect => remove_project_path(format!("connectors/sink.d/{file}")),
         RuleType::Knowledge | RuleType::All => {}
     }
-}
-
-async fn cleanup_release(version: &str) {
-    let pool = wp_station::db::get_pool();
-    let _ = ReleaseEntity::delete_many()
-        .filter(ReleaseColumn::Version.eq(version))
-        .exec(pool.inner())
-        .await;
 }
 
 #[tokio::test]
@@ -107,19 +96,6 @@ async fn test_create_and_delete_knowledge_rule_via_logic() {
 async fn test_save_rule_logic_creates_and_updates_rule() {
     setup_db().await;
     let file = format!("wpl-{}", rand_suffix());
-    let draft_version = format!("draft-{}", rand_suffix());
-
-    // 确保 handle_draft_release 能找到草稿记录
-    create_release(NewRelease {
-        version: draft_version.clone(),
-        release_group: "draft".to_string(),
-        pipeline: Some("draft".to_string()),
-        created_by: Some("tester".to_string()),
-        stages: None,
-        status: Some(ReleaseStatus::WAIT),
-    })
-    .await
-    .expect("create draft release");
 
     save_rule_logic(
         RuleType::Wpl,
@@ -145,7 +121,6 @@ async fn test_save_rule_logic_creates_and_updates_rule() {
     assert!(content.contains("chars:name"));
 
     cleanup_rule(RuleType::Wpl, &file);
-    cleanup_release(&draft_version).await;
 }
 
 #[tokio::test]

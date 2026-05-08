@@ -8,8 +8,7 @@ use crate::db::{
 };
 use crate::error::AppError;
 use crate::server::{
-    OperationLogAction, OperationLogBiz, OperationLogParams, Setting,
-    write_operation_log_for_result,
+    OperationLogAction, OperationLogBiz, OperationLogParams, write_operation_log_for_result,
 };
 use crate::utils::WarpParseService;
 use crate::utils::check_device_health;
@@ -154,7 +153,6 @@ async fn validate_device_reachable_after_create(
     device_id: i32,
     req: &CreateDeviceRequest,
 ) -> Result<(), AppError> {
-    let setting = Setting::load();
     let service = WarpParseService::with_timeout(CREATE_DEVICE_CONNECT_TIMEOUT)
         .map_err(AppError::internal)?;
     let now = Utc::now();
@@ -174,7 +172,7 @@ async fn validate_device_reachable_after_create(
         updated_at: now,
     };
 
-    match service.check_online(&device, &setting.warparse).await {
+    match service.check_online(&device).await {
         Ok(status) if status.is_online => {
             update_device_status(device_id, DeviceStatus::Active)
                 .await
