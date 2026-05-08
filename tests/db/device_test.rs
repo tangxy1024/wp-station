@@ -1,5 +1,5 @@
 use crate::common::{rand_suffix, setup_db, unique_name};
-use rand::Rng;
+use rand::RngExt;
 use sea_orm::EntityTrait;
 use wp_station::db::{
     DeviceStatus, NewDevice, create_device, delete_device, find_all_devices, find_device_by_id,
@@ -8,18 +8,18 @@ use wp_station::db::{
 use wp_station_migrations::entity::device::Entity as DeviceEntity;
 
 fn make_device_payload() -> NewDevice {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let ip = format!(
         "10.{}.{}.{}",
-        rng.gen_range(0..=250),
-        rng.gen_range(0..=250),
-        rng.gen_range(1..=250)
+        rng.random_range(0..=250),
+        rng.random_range(0..=250),
+        rng.random_range(1..=250)
     );
 
     NewDevice {
         name: Some(unique_name("device")),
         ip,
-        port: rng.gen_range(1000..9999),
+        port: rng.random_range(1000..9999),
         remark: Some(format!("test-{}", rand_suffix())),
         token: format!("token-{}", rand_suffix()),
         status: Some(DeviceStatus::Unknown),

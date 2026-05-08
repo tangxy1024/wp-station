@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use rand::{Rng, distributions::Alphanumeric};
+use rand::{RngExt, distr::Alphanumeric};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
@@ -303,8 +303,8 @@ impl SandboxRun {
     /// 构造新的运行记录，并根据阶段顺序初始化等待状态。
     pub fn new(release_id: i32, overrides: Vec<FileOverride>, options: RunOptions) -> Self {
         let created_at = Utc::now();
-        let random_suffix: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
+        let random_suffix: String = (&mut rand::rng())
+            .sample_iter(Alphanumeric)
             .take(6)
             .map(char::from)
             .collect();

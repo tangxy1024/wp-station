@@ -7,7 +7,7 @@ use crate::server::{
 };
 use crate::utils::pagination::{PageQuery, PageResponse};
 use bcrypt::{DEFAULT_COST, hash, verify};
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 
 // ============ 请求参数结构体 ============
@@ -100,7 +100,7 @@ fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
 
 /// 生成强随机密码（16位：大写字母、小写字母、数字、特殊字符各至少2个）
 fn generate_strong_password() -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     // 定义字符集
     let uppercase = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -112,16 +112,16 @@ fn generate_strong_password() -> String {
 
     // 确保每种字符至少有2个
     for _ in 0..2 {
-        password.push(uppercase[rng.gen_range(0..uppercase.len())]);
+        password.push(uppercase[rng.random_range(0..uppercase.len())]);
     }
     for _ in 0..2 {
-        password.push(lowercase[rng.gen_range(0..lowercase.len())]);
+        password.push(lowercase[rng.random_range(0..lowercase.len())]);
     }
     for _ in 0..2 {
-        password.push(digits[rng.gen_range(0..digits.len())]);
+        password.push(digits[rng.random_range(0..digits.len())]);
     }
     for _ in 0..2 {
-        password.push(special[rng.gen_range(0..special.len())]);
+        password.push(special[rng.random_range(0..special.len())]);
     }
 
     // 剩余8位从所有字符集中随机选择
@@ -134,12 +134,12 @@ fn generate_strong_password() -> String {
         .collect();
 
     for _ in 0..8 {
-        password.push(all_chars[rng.gen_range(0..all_chars.len())]);
+        password.push(all_chars[rng.random_range(0..all_chars.len())]);
     }
 
     // 打乱顺序
     for i in (1..password.len()).rev() {
-        let j = rng.gen_range(0..=i);
+        let j = rng.random_range(0..=i);
         password.swap(i, j);
     }
 
@@ -415,8 +415,8 @@ pub async fn login_logic(req: LoginRequest) -> Result<LoginResponse, AppError> {
         }
 
         // 生成简单的 token（使用时间戳 + 随机数）
-        let mut rng = rand::thread_rng();
-        let random_num: u64 = rng.r#gen();
+        let mut rng = rand::rng();
+        let random_num: u64 = rng.random();
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| AppError::internal(format!("获取系统时间失败: {}", e)))?
