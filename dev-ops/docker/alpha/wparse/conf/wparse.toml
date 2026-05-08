@@ -38,7 +38,7 @@ target = "*"
 
 [admin_api]
 enabled = true
-bind = "127.0.0.1:19090"
+bind = "0.0.0.0:19090"
 request_timeout_ms = 15000
 max_body_bytes = 4096
 
@@ -51,7 +51,8 @@ enabled = true
 cert_file = "/root/.warp_parse/tls/server.crt"
 key_file = "/root/.warp_parse/tls/server.key"
 
+
 [project_remote]
 enabled = true
-repo = "http://localhost:3000/gitea/project_root.git"
+repo = "${GIT_REPO}"
 init_version = "1.0.0"
