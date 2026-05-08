@@ -1,15 +1,15 @@
 use crate::common::{rand_suffix, setup_db};
 use actix_web::{App, http::StatusCode, test};
-use rand::Rng;
+use rand::RngExt;
 use wp_station::db::{DeviceStatus, NewDevice, create_device as create_device_record};
 use wp_station::server::{CreateDeviceRequest, UpdateDeviceRequest};
 
 fn device_payload() -> CreateDeviceRequest {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     CreateDeviceRequest {
         name: Some(format!("api-device-{}", rand_suffix())),
         ip: "127.0.0.1".to_string(),
-        port: rng.gen_range(2000..9000),
+        port: rng.random_range(2000..9000),
         remark: Some("api integration".to_string()),
         token: format!("token-{}", rand_suffix()),
     }

@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::RngExt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -120,7 +120,7 @@ pub fn remove_project_path(relative: impl AsRef<std::path::Path>) {
 }
 
 pub fn rand_suffix() -> String {
-    rand::thread_rng().gen_range(10_000..99_999).to_string()
+    rand::rng().random_range(10_000..99_999).to_string()
 }
 
 pub fn unique_name(prefix: &str) -> String {

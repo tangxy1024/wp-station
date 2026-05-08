@@ -15,7 +15,7 @@ use crate::utils::AssistServiceError;
 use crate::utils::pagination::{PageQuery, PageResponse};
 use crate::utils::{AiAnalyzeRequest, AssistResultResponse, AssistService, ManualTicketRequest};
 use chrono::Utc;
-use rand::{Rng, distributions::Alphanumeric};
+use rand::{RngExt, distr::Alphanumeric};
 use serde::{Deserialize, Serialize};
 
 // ============ 请求/响应结构体 ============
@@ -430,8 +430,8 @@ pub async fn assist_submit_logic(
     );
 
     // 生成全局唯一 task_id
-    let random_suffix: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
+    let random_suffix: String = (&mut rand::rng())
+        .sample_iter(Alphanumeric)
         .take(6)
         .map(char::from)
         .collect();
