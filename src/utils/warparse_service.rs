@@ -8,8 +8,8 @@ use crate::server::setting::WarparseConf;
 use crate::utils::common::{WARPARSE_DEPLOY_PATH, WARPARSE_STATUS_PATH};
 use reqwest::{Certificate, Client};
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::error::Error;
+use std::fs;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -271,9 +271,8 @@ impl WarpParseService {
         }
 
         if let Some(ca_bytes) = Self::load_ca_pem(conf)? {
-            let ca = Certificate::from_pem(&ca_bytes).map_err(|e| {
-            ServiceError::Tls(format!("解析 WarpParse 证书失败: error={}", e))
-        })?;
+            let ca = Certificate::from_pem(&ca_bytes)
+                .map_err(|e| ServiceError::Tls(format!("解析 WarpParse 证书失败: error={}", e)))?;
             builder = builder.add_root_certificate(ca);
         }
 
