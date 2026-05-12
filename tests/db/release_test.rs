@@ -9,7 +9,7 @@ use wp_station_migrations::entity::release::{Column as ReleaseColumn, Entity as 
 async fn cleanup_releases(prefix: &str) {
     let pool = wp_station::db::get_pool();
     let _ = ReleaseEntity::delete_many()
-        .filter(ReleaseColumn::Version.like(&format!("%{}%", prefix)))
+        .filter(ReleaseColumn::Version.like(format!("%{}%", prefix)))
         .exec(pool.inner())
         .await;
 }

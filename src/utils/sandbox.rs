@@ -20,8 +20,7 @@ use tokio::time::sleep;
 use crate::error::AppError;
 use crate::server::{FileOverride, Setting, sandbox::OutputFileStatus};
 use crate::utils::common::{
-    BUSINESS_SINK_OVERRIDE, OUTPUT_PATHS, SANDBOX_RUNTIME_HEADER_MODE, SANDBOX_RUNTIME_OUTPUT_ADDR,
-    SANDBOX_RUNTIME_OUTPUT_CONNECTOR, SANDBOX_RUNTIME_PROTOCOL, SANDBOX_RUNTIME_SOURCE_ADDR,
+    BUSINESS_SINK_OVERRIDE, OUTPUT_PATHS, SANDBOX_RUNTIME_OUTPUT_CONNECTOR,
     SANDBOX_RUNTIME_SOURCE_CONNECTOR, SANDBOX_RUNTIME_SOURCE_KEY, SANDBOX_RUNTIME_UDP_PORT,
 };
 use crate::utils::compose_project_layout_into;
@@ -81,8 +80,7 @@ impl SandboxWorkspace {
         compose_project_layout_into(&layout, &project_dir)?;
 
         apply_overrides(&project_dir, overrides)?;
-        apply_static_overrides(&project_dir)?;
-        ensure_sandbox_runtime_configs(&project_dir)?;
+        apply_sandbox_runtime_overrides(&project_dir)?;
 
         Ok(SandboxWorkspace {
             root: base_dir,
@@ -184,16 +182,6 @@ fn apply_overrides(project_dir: &Path, overrides: &[FileOverride]) -> Result<(),
     Ok(())
 }
 
-/// 应用沙盒必需的静态文件覆盖，如 business sink 配置。
-fn apply_static_overrides(project_dir: &Path) -> Result<(), AppError> {
-    write_override_file(
-        project_dir,
-        "topology/sinks/business.d/sink.toml",
-        BUSINESS_SINK_OVERRIDE,
-    )?;
-    Ok(())
-}
-
 /// 将指定内容写入 project_dir 内的相对路径文件。
 fn write_override_file(project_dir: &Path, relative: &str, content: &str) -> Result<(), AppError> {
     validate_override_path(relative)?;
@@ -205,27 +193,132 @@ fn write_override_file(project_dir: &Path, relative: &str, content: &str) -> Res
     Ok(())
 }
 
-/// 生成并写入沙盒运行时必需的配置文件（UDP source、wpgen 配置、禁用 admin API）。
-fn ensure_sandbox_runtime_configs(project_dir: &Path) -> Result<(), AppError> {
-    disable_wparse_admin_api(project_dir)?;
-    let sandbox_source_override = build_sandbox_udp_source_override();
-    write_override_file(
-        project_dir,
-        "topology/sources/wpsrc.toml",
-        &sandbox_source_override,
-    )?;
-    let sandbox_wpgen_override = build_sandbox_wpgen_override();
-    write_override_file(project_dir, "conf/wpgen.toml", &sandbox_wpgen_override)?;
+#[derive(Clone, Copy)]
+enum SandboxOverrideKind {
+    PatchWparseAdminApi,
+    PatchWpsrcRuntime,
+    PatchWpgenRuntime,
+    RewriteBusinessSink,
+}
+
+#[derive(Clone, Copy)]
+struct SandboxOverrideSpec {
+    relative_path: &'static str,
+    kind: SandboxOverrideKind,
+}
+
+const SANDBOX_OVERRIDE_SPECS: [SandboxOverrideSpec; 4] = [
+    SandboxOverrideSpec {
+        relative_path: "conf/wparse.toml",
+        kind: SandboxOverrideKind::PatchWparseAdminApi,
+    },
+    SandboxOverrideSpec {
+        relative_path: "topology/sources/wpsrc.toml",
+        kind: SandboxOverrideKind::PatchWpsrcRuntime,
+    },
+    SandboxOverrideSpec {
+        relative_path: "conf/wpgen.toml",
+        kind: SandboxOverrideKind::PatchWpgenRuntime,
+    },
+    SandboxOverrideSpec {
+        relative_path: "topology/sinks/business.d/sink.toml",
+        kind: SandboxOverrideKind::RewriteBusinessSink,
+    },
+];
+
+impl SandboxOverrideSpec {
+    fn summary(self) -> String {
+        match self.kind {
+            SandboxOverrideKind::PatchWparseAdminApi => "admin_api.enabled=false".to_string(),
+            SandboxOverrideKind::PatchWpsrcRuntime => format!(
+                "connect={}, port={}",
+                SANDBOX_RUNTIME_SOURCE_CONNECTOR, SANDBOX_RUNTIME_UDP_PORT
+            ),
+            SandboxOverrideKind::PatchWpgenRuntime => format!(
+                "connect={}, port={}",
+                SANDBOX_RUNTIME_OUTPUT_CONNECTOR, SANDBOX_RUNTIME_UDP_PORT
+            ),
+            SandboxOverrideKind::RewriteBusinessSink => "已固定复写为沙盒输出 sink".to_string(),
+        }
+    }
+
+    fn apply(self, project_dir: &Path) -> Result<(), AppError> {
+        match self.kind {
+            SandboxOverrideKind::PatchWparseAdminApi => patch_override_file(
+                project_dir,
+                self.relative_path,
+                patch_wparse_admin_api_runtime,
+            ),
+            SandboxOverrideKind::PatchWpsrcRuntime => {
+                patch_override_file(project_dir, self.relative_path, patch_wpsrc_runtime)
+            }
+            SandboxOverrideKind::PatchWpgenRuntime => {
+                patch_override_file(project_dir, self.relative_path, patch_wpgen_runtime)
+            }
+            SandboxOverrideKind::RewriteBusinessSink => {
+                write_override_file(project_dir, self.relative_path, BUSINESS_SINK_OVERRIDE)
+            }
+        }
+    }
+}
+
+/// 统一应用沙盒运行时文件覆盖，避免覆盖逻辑分散在多个函数中。
+fn apply_sandbox_runtime_overrides(project_dir: &Path) -> Result<(), AppError> {
+    for spec in SANDBOX_OVERRIDE_SPECS {
+        spec.apply(project_dir)?;
+    }
     Ok(())
 }
 
-/// 禁用 wparse 管理 API，避免沙盒环境中的 admin_api 与真实设备冲突。
-fn disable_wparse_admin_api(project_dir: &Path) -> Result<(), AppError> {
-    let wparse_path = project_dir.join("conf").join("wparse.toml");
-    let content = fs::read_to_string(&wparse_path).map_err(AppError::internal)?;
-    let patched = patch_admin_api_enabled_false(&content);
-    fs::write(&wparse_path, patched).map_err(AppError::internal)?;
+/// 输出沙盒运行时覆盖摘要，供 prepare.log 与前端诊断展示复用。
+pub(crate) fn sandbox_runtime_override_log_lines(workspace: &SandboxWorkspace) -> Vec<String> {
+    SANDBOX_OVERRIDE_SPECS
+        .iter()
+        .map(|spec| {
+            format!(
+                "{} -> {}",
+                workspace.display_relative(&workspace.project_dir.join(spec.relative_path)),
+                spec.summary()
+            )
+        })
+        .collect()
+}
+
+/// 读取并补丁 project_dir 内现有文件，保留未修改部分内容。
+fn patch_override_file(
+    project_dir: &Path,
+    relative: &str,
+    patcher: fn(&str) -> Result<String, AppError>,
+) -> Result<(), AppError> {
+    validate_override_path(relative)?;
+    let target = project_dir.join(relative);
+    let content = fs::read_to_string(&target).map_err(AppError::internal)?;
+    let patched = patcher(&content)?;
+    fs::write(&target, patched).map_err(AppError::internal)?;
     Ok(())
+}
+
+/// 将 wparse.toml 的 admin_api.enabled 固定关闭。
+fn patch_wparse_admin_api_runtime(content: &str) -> Result<String, AppError> {
+    Ok(patch_admin_api_enabled_false(content))
+}
+
+/// 将 wpsrc.toml 中 gen_udp source 的 connector 与端口切到沙盒运行时值。
+fn patch_wpsrc_runtime(content: &str) -> Result<String, AppError> {
+    patch_wpsrc_source_runtime(
+        content,
+        SANDBOX_RUNTIME_SOURCE_CONNECTOR,
+        SANDBOX_RUNTIME_UDP_PORT,
+    )
+}
+
+/// 将 wpgen.toml 的输出 connector 与端口切到沙盒运行时值。
+fn patch_wpgen_runtime(content: &str) -> Result<String, AppError> {
+    patch_wpgen_output_runtime(
+        content,
+        SANDBOX_RUNTIME_OUTPUT_CONNECTOR,
+        SANDBOX_RUNTIME_UDP_PORT,
+    )
 }
 
 /// 将 wparse.toml 中 [admin_api] 节的 enabled 设为 false。
@@ -298,60 +391,251 @@ fn patch_admin_api_enabled_false(content: &str) -> String {
     output
 }
 
-/// 构建沙盒 UDP source 的 TOML 配置片段。
-fn build_sandbox_udp_source_override() -> String {
-    format!(
-        r#"[[sources]]
-key = "{key}"
-enable = true
-connect = "{connect}"
+/// 在保留原格式与注释的前提下，仅更新 wpsrc.toml 中目标 source 的 connector 和端口。
+fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result<String, AppError> {
+    let mut lines = Vec::new();
+    let mut block_lines: Vec<String> = Vec::new();
+    let mut block_connect_value: Option<String> = None;
+    let mut block_enable_index: Option<usize> = None;
+    let mut block_connect_index: Option<usize> = None;
+    let mut block_port_index: Option<usize> = None;
+    let mut in_sources_block = false;
+    let mut in_source_params = false;
+    let mut found_target = false;
+    let mut patched_connect = false;
+    let mut patched_port = false;
 
-[sources.params]
-addr = "{addr}"
-port = {port}
-protocol = "{protocol}"
-header_mode = "{header_mode}"
-"#,
-        key = SANDBOX_RUNTIME_SOURCE_KEY,
-        connect = SANDBOX_RUNTIME_SOURCE_CONNECTOR,
-        addr = SANDBOX_RUNTIME_SOURCE_ADDR,
-        port = SANDBOX_RUNTIME_UDP_PORT,
-        protocol = SANDBOX_RUNTIME_PROTOCOL,
-        header_mode = SANDBOX_RUNTIME_HEADER_MODE,
-    )
+    let flush_source_block = |lines: &mut Vec<String>,
+                              block_lines: &mut Vec<String>,
+                              block_connect_value: &mut Option<String>,
+                              block_enable_index: &mut Option<usize>,
+                              block_connect_index: &mut Option<usize>,
+                              block_port_index: &mut Option<usize>,
+                              found_target: &mut bool,
+                              patched_connect: &mut bool,
+                              patched_port: &mut bool| {
+        if block_connect_value.as_deref() == Some(connect) {
+            *found_target = true;
+            if let Some(index) = *block_enable_index {
+                if let Some(line) = block_lines.get(index) {
+                    let indent = line
+                        .chars()
+                        .take_while(|ch| ch.is_whitespace())
+                        .collect::<String>();
+                    block_lines[index] = format!("{indent}enable = true");
+                }
+            } else {
+                let insert_at = block_connect_index.unwrap_or(block_lines.len());
+                block_lines.insert(insert_at, "enable = true".to_string());
+            }
+            if let Some(index) = *block_connect_index
+                && let Some(line) = block_lines.get(index)
+            {
+                let indent = line
+                    .chars()
+                    .take_while(|ch| ch.is_whitespace())
+                    .collect::<String>();
+                block_lines[index] = format!("{indent}connect = \"{connect}\"");
+                *patched_connect = true;
+            }
+            if let Some(index) = *block_port_index {
+                if let Some(line) = block_lines.get(index) {
+                    let indent = line
+                        .chars()
+                        .take_while(|ch| ch.is_whitespace())
+                        .collect::<String>();
+                    block_lines[index] = format!("{indent}port = {port}");
+                    *patched_port = true;
+                }
+            } else {
+                block_lines.push(format!("params = {{ addr = \"0.0.0.0\", port = {port} }}"));
+                *patched_port = true;
+            }
+        }
+
+        lines.append(block_lines);
+        *block_connect_value = None;
+        *block_enable_index = None;
+        *block_connect_index = None;
+        *block_port_index = None;
+    };
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let is_array_section = trimmed.starts_with("[[") && trimmed.ends_with("]]");
+        let is_section = !is_array_section && trimmed.starts_with('[') && trimmed.ends_with(']');
+
+        if is_array_section {
+            if in_sources_block {
+                flush_source_block(
+                    &mut lines,
+                    &mut block_lines,
+                    &mut block_connect_value,
+                    &mut block_enable_index,
+                    &mut block_connect_index,
+                    &mut block_port_index,
+                    &mut found_target,
+                    &mut patched_connect,
+                    &mut patched_port,
+                );
+            }
+
+            in_sources_block = trimmed == "[[sources]]";
+            in_source_params = false;
+            if in_sources_block {
+                block_lines.push(line.to_string());
+            } else {
+                lines.push(line.to_string());
+            }
+            continue;
+        }
+
+        if in_sources_block {
+            if is_section {
+                in_source_params = trimmed == "[sources.params]";
+            }
+
+            if block_connect_value.is_none()
+                && let Some(value) = parse_toml_string_assignment(trimmed, "connect")
+            {
+                block_connect_value = Some(value);
+            }
+
+            if !in_source_params && trimmed.starts_with("enable") {
+                block_enable_index = Some(block_lines.len());
+            }
+
+            if !in_source_params && trimmed.starts_with("connect") {
+                block_connect_index = Some(block_lines.len());
+            }
+
+            if in_source_params && trimmed.starts_with("port") {
+                block_port_index = Some(block_lines.len());
+            }
+
+            block_lines.push(line.to_string());
+            continue;
+        }
+
+        lines.push(line.to_string());
+    }
+
+    if in_sources_block {
+        flush_source_block(
+            &mut lines,
+            &mut block_lines,
+            &mut block_connect_value,
+            &mut block_enable_index,
+            &mut block_connect_index,
+            &mut block_port_index,
+            &mut found_target,
+            &mut patched_connect,
+            &mut patched_port,
+        );
+    }
+
+    if !found_target {
+        if !lines.last().is_none_or(|line| line.trim().is_empty()) {
+            lines.push(String::new());
+        }
+        lines.push("[[sources]]".to_string());
+        lines.push(format!("key = \"{}\"", SANDBOX_RUNTIME_SOURCE_KEY));
+        lines.push("enable = true".to_string());
+        lines.push(format!("connect = \"{connect}\""));
+        lines.push(format!("params = {{ addr = \"0.0.0.0\", port = {port} }}"));
+        patched_connect = true;
+        patched_port = true;
+    }
+
+    if !patched_connect {
+        return Err(AppError::validation(
+            "wpsrc.toml 未能应用沙盒输入 connector 覆盖".to_string(),
+        ));
+    }
+
+    if !patched_port {
+        return Err(AppError::validation(
+            "wpsrc.toml 未能应用沙盒输入端口覆盖".to_string(),
+        ));
+    }
+
+    let mut output = lines.join("\n");
+    if content.ends_with('\n') {
+        output.push('\n');
+    }
+    Ok(output)
 }
 
-/// 构建沙盒 wpgen 的 TOML 配置片段，统一输出到本地 UDP sink。
-fn build_sandbox_wpgen_override() -> String {
-    format!(
-        r#"version = "1.0"
+/// 在保留原格式与注释的前提下，仅更新 wpgen.toml 的输出 connector 和端口。
+fn patch_wpgen_output_runtime(content: &str, connect: &str, port: u16) -> Result<String, AppError> {
+    let mut lines = Vec::new();
+    let mut in_output = false;
+    let mut in_output_params = false;
+    let mut found_output = false;
+    let mut found_output_params = false;
+    let mut patched_connect = false;
+    let mut patched_port = false;
 
-[generator]
-count = 10
-speed = 1000
-parallel = 1
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let is_section = trimmed.starts_with('[') && trimmed.ends_with(']');
 
-[output]
-connect = "{connect}"
+        if is_section {
+            in_output = trimmed == "[output]";
+            in_output_params = trimmed == "[output.params]";
+            found_output |= in_output;
+            found_output_params |= in_output_params;
+        }
 
-[output.params]
-addr = "{addr}"
-port = {port}
-protocol = "{protocol}"
+        if in_output && trimmed.starts_with("connect") {
+            let indent = line
+                .chars()
+                .take_while(|ch| ch.is_whitespace())
+                .collect::<String>();
+            lines.push(format!("{indent}connect = \"{connect}\""));
+            patched_connect = true;
+            continue;
+        }
 
-[logging]
-level = ""
-module_levels = []
-output = ""
-file_path = "./data/logs"
+        if in_output_params && trimmed.starts_with("port") {
+            let indent = line
+                .chars()
+                .take_while(|ch| ch.is_whitespace())
+                .collect::<String>();
+            lines.push(format!("{indent}port = {port}"));
+            patched_port = true;
+            continue;
+        }
 
-[presets]
-"#,
-        connect = SANDBOX_RUNTIME_OUTPUT_CONNECTOR,
-        addr = SANDBOX_RUNTIME_OUTPUT_ADDR,
-        port = SANDBOX_RUNTIME_UDP_PORT,
-        protocol = SANDBOX_RUNTIME_PROTOCOL,
-    )
+        lines.push(line.to_string());
+    }
+
+    if !found_output || !patched_connect {
+        return Err(AppError::validation(
+            "wpgen.toml 缺少 [output] 或 connect 配置，无法应用沙盒输出覆盖".to_string(),
+        ));
+    }
+
+    if !found_output_params || !patched_port {
+        return Err(AppError::validation(
+            "wpgen.toml 缺少 [output.params] 或 port 配置，无法应用沙盒输出覆盖".to_string(),
+        ));
+    }
+
+    let mut output = lines.join("\n");
+    if content.ends_with('\n') {
+        output.push('\n');
+    }
+    Ok(output)
+}
+
+/// 解析形如 `key = "value"` 的 TOML 字符串赋值。
+fn parse_toml_string_assignment(line: &str, key: &str) -> Option<String> {
+    let value = line.strip_prefix(key)?.trim_start();
+    let value = value.strip_prefix('=')?.trim_start();
+    let value = value.strip_prefix('"')?;
+    let end = value.find('"')?;
+    Some(value[..end].to_string())
 }
 
 /// 校验用户提交的文件覆盖路径为 project_root 内的安全相对路径，

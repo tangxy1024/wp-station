@@ -160,28 +160,7 @@ async fn stage_prepare_workspace(
         Err(err) => log_lines.push(format!("生成目录树失败: {}", err)),
     }
     log_lines.push("\n沙盒运行时 UDP 配置:".to_string());
-    log_lines.push(format!(
-        "{} -> admin_api.enabled=false",
-        workspace.display_relative(&workspace.project_dir.join("conf/wparse.toml")),
-    ));
-    log_lines.push(format!(
-        "{} -> connect=syslog_udp_src, port={}",
-        workspace.display_relative(&workspace.project_dir.join("topology/sources/wpsrc.toml")),
-        SANDBOX_RUNTIME_UDP_PORT
-    ));
-    log_lines.push(format!(
-        "{} -> connect=syslog_udp_sink, port={}",
-        workspace.display_relative(&workspace.project_dir.join("conf/wpgen.toml")),
-        SANDBOX_RUNTIME_UDP_PORT
-    ));
-    log_lines.push(format!(
-        "{} -> 已固定复写为沙盒输出 sink",
-        workspace.display_relative(
-            &workspace
-                .project_dir
-                .join("topology/sinks/business.d/sink.toml"),
-        )
-    ));
+    log_lines.extend(sandbox::sandbox_runtime_override_log_lines(&workspace));
     let log_path = workspace
         .write_text_log("prepare.log", &log_lines.join("\n"))
         .map_err(to_stage_error)?;

@@ -21,7 +21,7 @@ async fn test_config_file_crud_via_api() {
 
     let create_req = test::TestRequest::post()
         .uri("/api/config/files")
-        .set_json(&serde_json::json!({
+        .set_json(serde_json::json!({
             "rule_type": "source",
             "file": file.clone(),
         }))
@@ -36,7 +36,7 @@ async fn test_config_file_crud_via_api() {
 
     let save_req = test::TestRequest::post()
         .uri("/api/config")
-        .set_json(&serde_json::json!({
+        .set_json(serde_json::json!({
             "rule_type": "source",
             "file": file.clone(),
             "content": format!("[[sources]]\nkey = \"{}\"", rand_suffix()),

@@ -1,6 +1,6 @@
 [package]
 name = "wp-station"
-version = "0.2.0" #@gxl:set(version)
+version = "0.2.1" #@gxl:set(version)
 edition = "2024"
 build = "build.rs"
 
@@ -28,9 +28,9 @@ rand = "0.10.1"
 regex = "1"
 urlencoding = "2.1"
 
-wp_oml        = { package = "wp-oml",        git = "https://github.com/wp-labs/wp-motor", tag = "v1.21.11" }
-wp-proj       = { package = "wp-proj",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.21.11" }
-wp_data_utils = { package = "wp-data-utils", git = "https://github.com/wp-labs/wp-motor", tag = "v1.21.11" }
+wp_oml        = { package = "wp-oml",        git = "https://github.com/wp-labs/wp-motor", tag = "v1.22.0" }
+wp-proj       = { package = "wp-proj",       git = "https://github.com/wp-labs/wp-motor", tag = "v1.22.0" }
+wp_data_utils = { package = "wp-data-utils", git = "https://github.com/wp-labs/wp-motor", tag = "v1.22.0" }
 wp-knowledge  = "0.13"
 wp-model-core = "0.8"
 wp-parse-api = "0.10"

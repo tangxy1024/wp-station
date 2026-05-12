@@ -22,7 +22,7 @@ async fn test_rule_file_crud_and_validation() {
 
     let create_req = test::TestRequest::post()
         .uri("/api/config/rules/files")
-        .set_json(&serde_json::json!({
+        .set_json(serde_json::json!({
             "rule_type": "wpl",
             "file": file.clone(),
         }))
@@ -32,7 +32,7 @@ async fn test_rule_file_crud_and_validation() {
 
     let save_req = test::TestRequest::post()
         .uri("/api/config/rules/save")
-        .set_json(&serde_json::json!({
+        .set_json(serde_json::json!({
             "rule_type": "wpl",
             "file": file.clone(),
             "content": "package test { rule sample { digit:a } }",
@@ -61,7 +61,7 @@ async fn test_rule_file_crud_and_validation() {
 
     let validate_req = test::TestRequest::post()
         .uri("/api/config/rules/validate")
-        .set_json(&serde_json::json!({
+        .set_json(serde_json::json!({
             "rule_type": "wpl",
             "file": file.clone(),
         }))

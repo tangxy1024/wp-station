@@ -21,7 +21,7 @@ async fn test_debug_api_endpoints_cover_all_handlers() {
     let layout = test_project_layout();
     let existing_knowdb = read_knowdb_config(&layout)
         .expect("read knowdb")
-        .and_then(|(content, _)| Some(content))
+        .map(|(content, _)| content)
         .unwrap_or_else(|| "version = 2\n".to_string());
     let updated_knowdb = format!(
         r#"{existing}
@@ -69,7 +69,7 @@ max = 10
     // parse logs with WPL rules and ensure response contains JSON payload
     let parse_req = test::TestRequest::post()
         .uri("/api/debug/parse")
-        .set_json(&serde_json::json!({
+        .set_json(serde_json::json!({
             "rules": "package demo { rule entry { ( chars:name ) } }",
             "logs": "alice"
         }))
@@ -82,7 +82,7 @@ max = 10
     // run a simple SQL query via knowledge API
     let query_req = test::TestRequest::post()
         .uri("/api/debug/knowledge/query")
-        .set_json(&serde_json::json!({
+        .set_json(serde_json::json!({
             "table": know_file,
             "sql": "SELECT 1 as value"
         }))
@@ -119,7 +119,7 @@ max = 10
     // start a performance task and fetch it back
     let run_req = test::TestRequest::post()
         .uri("/api/debug/performance/run")
-        .set_json(&serde_json::json!({
+        .set_json(serde_json::json!({
             "sample": "{\"msg\": \"hello\"}",
             "config": "{\"concurrency\":1}"
         }))
