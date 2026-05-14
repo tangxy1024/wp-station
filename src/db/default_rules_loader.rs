@@ -64,7 +64,7 @@ fn init_default_configs_with_mappings(
     init_from_embedded_defaults(&project_dir, scope, mappings)
 }
 
-fn runtime_default_configs_dir() -> Option<PathBuf> {
+pub fn runtime_default_configs_dir() -> Option<PathBuf> {
     let candidate = std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("default_configs");

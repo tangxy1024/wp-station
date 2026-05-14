@@ -14,10 +14,10 @@ pub const WPL_SAMPLE_FILENAME: &str = "sample.dat";
 /// sink 配置文件在没有自定义展示名称时的兜底标签
 pub const SINK_DISPLAY_FALLBACKS: &[(&str, &str)] = &[
     ("business.d/sink.toml", "输出配置"),
-    ("infra.d/error.toml", "异常数据"),
+    ("infra.d/monitor.toml", "监控数据"),
     ("infra.d/miss.toml", "未命中WPL数据"),
     ("infra.d/default.toml", "未命中OML数据"),
-    ("infra.d/monitor.toml", "监控数据"),
+    ("infra.d/error.toml", "异常数据"),
     ("infra.d/residue.toml", "残留数据"),
     ("infra.d/intercept.toml", "拦截数据"),
     ("privacy.toml", "隐私数据"),

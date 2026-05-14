@@ -17,6 +17,7 @@ use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
 
+use crate::db::default_rules_loader::runtime_default_configs_dir;
 use crate::error::AppError;
 use crate::server::{FileOverride, Setting, sandbox::OutputFileStatus};
 use crate::utils::common::{
@@ -81,6 +82,7 @@ impl SandboxWorkspace {
 
         apply_overrides(&project_dir, overrides)?;
         apply_sandbox_runtime_overrides(&project_dir)?;
+        apply_sandbox_default_infra_sink_overrides(&project_dir)?;
 
         Ok(SandboxWorkspace {
             root: base_dir,
@@ -231,7 +233,7 @@ impl SandboxOverrideSpec {
         match self.kind {
             SandboxOverrideKind::PatchWparseAdminApi => "admin_api.enabled=false".to_string(),
             SandboxOverrideKind::PatchWpsrcRuntime => format!(
-                "connect={}, port={}",
+                "仅保留沙盒 UDP 输入: connect={}, port={}, 其他 source 全部 disable",
                 SANDBOX_RUNTIME_SOURCE_CONNECTOR, SANDBOX_RUNTIME_UDP_PORT
             ),
             SandboxOverrideKind::PatchWpgenRuntime => format!(
@@ -270,9 +272,60 @@ fn apply_sandbox_runtime_overrides(project_dir: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
+/// 沙盒环境中强制使用仓库 default_configs 的 infra sink，避免用户自定义外部输出影响模拟。
+fn apply_sandbox_default_infra_sink_overrides(project_dir: &Path) -> Result<(), AppError> {
+    let Some(default_root) = runtime_default_configs_dir() else {
+        return Err(AppError::internal(
+            "沙盒覆盖 infra sink 失败: 未找到 default_configs 目录".to_string(),
+        ));
+    };
+
+    let source_dir = default_root.join("topology").join("sinks").join("infra.d");
+    if !source_dir.is_dir() {
+        return Err(AppError::internal(format!(
+            "沙盒覆盖 infra sink 失败: 默认目录不存在 {}",
+            source_dir.display()
+        )));
+    }
+
+    let target_dir = project_dir.join("topology").join("sinks").join("infra.d");
+    if target_dir.exists() {
+        fs::remove_dir_all(&target_dir).map_err(AppError::internal)?;
+    }
+    fs::create_dir_all(&target_dir).map_err(AppError::internal)?;
+
+    copy_dir_replace_all(&source_dir, &target_dir)
+}
+
+/// 递归复制目录，目标存在时直接覆盖同名文件。
+fn copy_dir_replace_all(source_dir: &Path, target_dir: &Path) -> Result<(), AppError> {
+    for entry in fs::read_dir(source_dir).map_err(AppError::internal)? {
+        let entry = entry.map_err(AppError::internal)?;
+        let source_path = entry.path();
+        let target_path = target_dir.join(entry.file_name());
+
+        if source_path.is_dir() {
+            fs::create_dir_all(&target_path).map_err(AppError::internal)?;
+            copy_dir_replace_all(&source_path, &target_path)?;
+            continue;
+        }
+
+        if !source_path.is_file() {
+            continue;
+        }
+
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent).map_err(AppError::internal)?;
+        }
+        fs::copy(&source_path, &target_path).map_err(AppError::internal)?;
+    }
+
+    Ok(())
+}
+
 /// 输出沙盒运行时覆盖摘要，供 prepare.log 与前端诊断展示复用。
 pub(crate) fn sandbox_runtime_override_log_lines(workspace: &SandboxWorkspace) -> Vec<String> {
-    SANDBOX_OVERRIDE_SPECS
+    let mut lines: Vec<String> = SANDBOX_OVERRIDE_SPECS
         .iter()
         .map(|spec| {
             format!(
@@ -281,7 +334,10 @@ pub(crate) fn sandbox_runtime_override_log_lines(workspace: &SandboxWorkspace) -
                 spec.summary()
             )
         })
-        .collect()
+        .collect();
+    lines
+        .push("topology/sinks/infra.d/*.toml -> 强制使用 default_configs 默认配置覆盖".to_string());
+    lines
 }
 
 /// 读取并补丁 project_dir 内现有文件，保留未修改部分内容。
@@ -303,7 +359,7 @@ fn patch_wparse_admin_api_runtime(content: &str) -> Result<String, AppError> {
     Ok(patch_admin_api_enabled_false(content))
 }
 
-/// 将 wpsrc.toml 中 gen_udp source 的 connector 与端口切到沙盒运行时值。
+/// 将 wpsrc.toml 中 gen_udp source 切到沙盒运行时值，并关闭其他所有输入源。
 fn patch_wpsrc_runtime(content: &str) -> Result<String, AppError> {
     patch_wpsrc_source_runtime(
         content,
@@ -391,14 +447,16 @@ fn patch_admin_api_enabled_false(content: &str) -> String {
     output
 }
 
-/// 在保留原格式与注释的前提下，仅更新 wpsrc.toml 中目标 source 的 connector 和端口。
+/// 在保留原格式与注释的前提下，仅保留沙盒 UDP source，其他 source 全部改为关闭。
 fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result<String, AppError> {
     let mut lines = Vec::new();
     let mut block_lines: Vec<String> = Vec::new();
-    let mut block_connect_value: Option<String> = None;
+    let mut block_key_value: Option<String> = None;
+    let mut block_key_index: Option<usize> = None;
     let mut block_enable_index: Option<usize> = None;
     let mut block_connect_index: Option<usize> = None;
     let mut block_port_index: Option<usize> = None;
+    let mut block_has_params_section = false;
     let mut in_sources_block = false;
     let mut in_source_params = false;
     let mut found_target = false;
@@ -407,27 +465,20 @@ fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result
 
     let flush_source_block = |lines: &mut Vec<String>,
                               block_lines: &mut Vec<String>,
-                              block_connect_value: &mut Option<String>,
+                              block_key_value: &mut Option<String>,
+                              block_key_index: &mut Option<usize>,
                               block_enable_index: &mut Option<usize>,
                               block_connect_index: &mut Option<usize>,
                               block_port_index: &mut Option<usize>,
+                              block_has_params_section: &mut bool,
                               found_target: &mut bool,
                               patched_connect: &mut bool,
                               patched_port: &mut bool| {
-        if block_connect_value.as_deref() == Some(connect) {
+        let is_target = block_key_value.as_deref() == Some(SANDBOX_RUNTIME_SOURCE_KEY);
+
+        if is_target {
             *found_target = true;
-            if let Some(index) = *block_enable_index {
-                if let Some(line) = block_lines.get(index) {
-                    let indent = line
-                        .chars()
-                        .take_while(|ch| ch.is_whitespace())
-                        .collect::<String>();
-                    block_lines[index] = format!("{indent}enable = true");
-                }
-            } else {
-                let insert_at = block_connect_index.unwrap_or(block_lines.len());
-                block_lines.insert(insert_at, "enable = true".to_string());
-            }
+
             if let Some(index) = *block_connect_index
                 && let Some(line) = block_lines.get(index)
             {
@@ -437,7 +488,14 @@ fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result
                     .collect::<String>();
                 block_lines[index] = format!("{indent}connect = \"{connect}\"");
                 *patched_connect = true;
+            } else {
+                let insert_at = source_block_insert_after_key(block_lines, *block_key_index);
+                block_lines.insert(insert_at, format!("connect = \"{connect}\""));
+                *patched_connect = true;
             }
+
+            patch_or_insert_source_enable(block_lines, block_enable_index, *block_key_index, true);
+
             if let Some(index) = *block_port_index {
                 if let Some(line) = block_lines.get(index) {
                     let indent = line
@@ -448,16 +506,26 @@ fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result
                     *patched_port = true;
                 }
             } else {
-                block_lines.push(format!("params = {{ addr = \"0.0.0.0\", port = {port} }}"));
+                if !*block_has_params_section {
+                    if !block_lines.last().is_none_or(|line| line.trim().is_empty()) {
+                        block_lines.push(String::new());
+                    }
+                    block_lines.push("[sources.params]".to_string());
+                }
+                block_lines.push(format!("port = {port}"));
                 *patched_port = true;
             }
+        } else {
+            patch_or_insert_source_enable(block_lines, block_enable_index, *block_key_index, false);
         }
 
         lines.append(block_lines);
-        *block_connect_value = None;
+        *block_key_value = None;
+        *block_key_index = None;
         *block_enable_index = None;
         *block_connect_index = None;
         *block_port_index = None;
+        *block_has_params_section = false;
     };
 
     for line in content.lines() {
@@ -470,10 +538,12 @@ fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result
                 flush_source_block(
                     &mut lines,
                     &mut block_lines,
-                    &mut block_connect_value,
+                    &mut block_key_value,
+                    &mut block_key_index,
                     &mut block_enable_index,
                     &mut block_connect_index,
                     &mut block_port_index,
+                    &mut block_has_params_section,
                     &mut found_target,
                     &mut patched_connect,
                     &mut patched_port,
@@ -493,12 +563,19 @@ fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result
         if in_sources_block {
             if is_section {
                 in_source_params = trimmed == "[sources.params]";
+                if in_source_params {
+                    block_has_params_section = true;
+                }
             }
 
-            if block_connect_value.is_none()
-                && let Some(value) = parse_toml_string_assignment(trimmed, "connect")
+            if block_key_value.is_none()
+                && let Some(value) = parse_toml_string_assignment(trimmed, "key")
             {
-                block_connect_value = Some(value);
+                block_key_value = Some(value);
+            }
+
+            if !in_source_params && trimmed.starts_with("key") {
+                block_key_index = Some(block_lines.len());
             }
 
             if !in_source_params && trimmed.starts_with("enable") {
@@ -524,10 +601,12 @@ fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result
         flush_source_block(
             &mut lines,
             &mut block_lines,
-            &mut block_connect_value,
+            &mut block_key_value,
+            &mut block_key_index,
             &mut block_enable_index,
             &mut block_connect_index,
             &mut block_port_index,
+            &mut block_has_params_section,
             &mut found_target,
             &mut patched_connect,
             &mut patched_port,
@@ -542,7 +621,9 @@ fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result
         lines.push(format!("key = \"{}\"", SANDBOX_RUNTIME_SOURCE_KEY));
         lines.push("enable = true".to_string());
         lines.push(format!("connect = \"{connect}\""));
-        lines.push(format!("params = {{ addr = \"0.0.0.0\", port = {port} }}"));
+        lines.push(String::new());
+        lines.push("[sources.params]".to_string());
+        lines.push(format!("port = {port}"));
         patched_connect = true;
         patched_port = true;
     }
@@ -564,6 +645,37 @@ fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result
         output.push('\n');
     }
     Ok(output)
+}
+
+/// 计算 source 级别字段的默认插入位置，优先放在 `key` 后面。
+fn source_block_insert_after_key(block_lines: &[String], key_index: Option<usize>) -> usize {
+    key_index
+        .map(|index| index.saturating_add(1))
+        .unwrap_or(1)
+        .min(block_lines.len())
+}
+
+/// 将 source block 的 `enable` 字段改写为指定值；若不存在则插入。
+fn patch_or_insert_source_enable(
+    block_lines: &mut Vec<String>,
+    block_enable_index: &mut Option<usize>,
+    block_key_index: Option<usize>,
+    enabled: bool,
+) {
+    if let Some(index) = *block_enable_index
+        && let Some(line) = block_lines.get(index)
+    {
+        let indent = line
+            .chars()
+            .take_while(|ch| ch.is_whitespace())
+            .collect::<String>();
+        block_lines[index] = format!("{indent}enable = {enabled}");
+        return;
+    }
+
+    let insert_at = source_block_insert_after_key(block_lines, block_key_index);
+    block_lines.insert(insert_at, format!("enable = {enabled}"));
+    *block_enable_index = Some(insert_at);
 }
 
 /// 在保留原格式与注释的前提下，仅更新 wpgen.toml 的输出 connector 和端口。

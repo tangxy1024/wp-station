@@ -23,19 +23,6 @@ output = "Console"
 [log_conf.file]
 path = "./data/logs"
 
-[stat]
-[[stat.pick]]
-key = "pick_stat"
-target = "*"
-
-[[stat.parse]]
-key = "parse_stat"
-target = "*"
-
-[[stat.sink]]
-key = "sink_stat"
-target = "*"
-
 [admin_api]
 enabled = true
 bind = "127.0.0.1:19090"

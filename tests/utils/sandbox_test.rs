@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::common::{setup_db, test_infra_root};
 use wp_station::server::Setting;
 use wp_station::utils::common::OUTPUT_PATHS;
 use wp_station::utils::sandbox::{SandboxWorkspace, collect_output_checks, command_version_output};
@@ -154,4 +155,84 @@ async fn command_version_output_reports_failure() {
         .await
         .expect_err("failing script should error");
     assert!(format!("{}", err).contains("返回非 0"));
+}
+
+#[test]
+fn patch_wpsrc_runtime_disables_non_udp_sources() {
+    let runtime = tokio::runtime::Runtime::new().expect("create runtime");
+    runtime.block_on(setup_db());
+
+    let input = r#"[[sources]]
+key = "gen_udp"
+enable = false
+connect = "old_udp"
+
+[sources.params]
+addr = "127.0.0.1"
+port = 10000
+protocol = "udp"
+
+[[sources]]
+key = "gen_kafka"
+enable = true
+connect = "kafka_src"
+
+[sources.params]
+brokers = "localhost:9092"
+topic = "demo"
+
+[[sources]]
+key = "gen_ps"
+connect = "ps_src"
+
+[sources.params]
+endpoint = "ps://127.0.0.1:6650"
+"#;
+
+    let source_file = test_infra_root().join("topology/sources/wpsrc.toml");
+    fs::write(&source_file, input).expect("write custom source config");
+
+    let workspace = SandboxWorkspace::prepare("sandbox-source-runtime", &[])
+        .expect("prepare sandbox workspace");
+    let output = fs::read_to_string(workspace.project_dir.join("topology/sources/wpsrc.toml"))
+        .expect("read patched source config");
+
+    assert!(output.contains("key = \"gen_udp\"\nenable = true\nconnect = \"syslog_udp_src\""));
+    assert!(output.contains("[sources.params]\naddr = \"127.0.0.1\"\nport = 31601"));
+    assert!(output.contains("key = \"gen_kafka\"\nenable = false\nconnect = \"kafka_src\""));
+    assert!(output.contains("key = \"gen_ps\"\nenable = false\nconnect = \"ps_src\""));
+
+    let _ = fs::remove_dir_all(workspace.root);
+}
+
+#[test]
+fn sandbox_prepare_overrides_infra_sinks_with_defaults() {
+    let runtime = tokio::runtime::Runtime::new().expect("create runtime");
+    runtime.block_on(setup_db());
+
+    let user_infra_file = test_infra_root().join("topology/sinks/infra.d/error.toml");
+    fs::write(
+        &user_infra_file,
+        "version = \"9.9\"\n[sink_group]\nname = \"custom\"\n",
+    )
+    .expect("write custom infra sink");
+
+    let workspace = SandboxWorkspace::prepare("sandbox-infra-defaults", &[])
+        .expect("prepare sandbox workspace");
+
+    let sandbox_file = workspace
+        .project_dir
+        .join("topology/sinks/infra.d/error.toml");
+    let content = fs::read_to_string(&sandbox_file).expect("read sandbox infra sink");
+
+    assert!(
+        content.contains("connect = \"file_raw_sink\""),
+        "sandbox infra sink should fall back to default config: {content}"
+    );
+    assert!(
+        !content.contains("version = \"9.9\""),
+        "sandbox should not keep user customized infra sink content: {content}"
+    );
+
+    let _ = fs::remove_dir_all(workspace.root);
 }

@@ -38,8 +38,19 @@ const CONNECTION_FILE_ORDER = Object.freeze([
   '101-http.toml',
 ]);
 
-const sortSinkItems = (items = []) =>
-  items
+const SINK_FILE_ORDER = Object.freeze([
+  'business.d/sink.toml',
+  'infra.d/monitor.toml',
+  'infra.d/miss.toml',
+  'infra.d/default.toml',
+  'infra.d/error.toml',
+  'infra.d/residue.toml',
+]);
+
+const sortSinkItems = (items = []) => {
+  const orderMap = new Map(SINK_FILE_ORDER.map((file, index) => [file, index]));
+
+  return items
     .map((item) => {
       if (!item?.file) {
         return null;
@@ -54,7 +65,17 @@ const sortSinkItems = (items = []) =>
       };
     })
     .filter(Boolean)
-    .sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'));
+    .sort((a, b) => {
+      const aOrder = orderMap.has(a.file) ? orderMap.get(a.file) : Number.MAX_SAFE_INTEGER;
+      const bOrder = orderMap.has(b.file) ? orderMap.get(b.file) : Number.MAX_SAFE_INTEGER;
+
+      if (aOrder !== bOrder) {
+        return aOrder - bOrder;
+      }
+
+      return a.displayName.localeCompare(b.displayName, 'zh-CN');
+    });
+};
 
 function ConfigManagePage() {
   const { t } = useTranslation();
