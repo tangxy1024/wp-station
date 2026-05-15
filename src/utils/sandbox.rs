@@ -864,6 +864,8 @@ pub struct WpgenOutput {
     pub exit_code: Option<i32>,
     /// 输出日志文件路径。
     pub log_path: PathBuf,
+    /// 实际执行命令，供阶段日志展示。
+    pub command_line: String,
 }
 
 impl DaemonProcess {
@@ -926,7 +928,10 @@ impl DaemonProcess {
 pub async fn spawn_daemon(project_dir: &Path, log_path: &Path) -> Result<DaemonProcess, AppError> {
     let binary = resolve_toolchain_command("wparse");
     let mut cmd = Command::new(&binary);
+    let command_line = format!("{} daemon", binary.display());
     let log_file = File::create(log_path).map_err(AppError::internal)?;
+    writeln!(&log_file, "执行命令: {}", command_line).map_err(AppError::internal)?;
+    writeln!(&log_file).map_err(AppError::internal)?;
     let stdout = log_file.try_clone().map_err(AppError::internal)?;
     let stderr = log_file.try_clone().map_err(AppError::internal)?;
     cmd.arg("daemon")
@@ -954,8 +959,15 @@ pub async fn run_wpgen(
     timeout: Duration,
 ) -> Result<WpgenOutput, AppError> {
     let binary = resolve_toolchain_command("wpgen");
+    let command_line = format!(
+        "{} sample -w . -n {} --print_stat",
+        binary.display(),
+        sample_count
+    );
     let mut cmd = Command::new(&binary);
     let log_file = File::create(log_path).map_err(AppError::internal)?;
+    writeln!(&log_file, "执行命令: {}", command_line).map_err(AppError::internal)?;
+    writeln!(&log_file).map_err(AppError::internal)?;
     let stdout = log_file.try_clone().map_err(AppError::internal)?;
     let stderr = log_file.try_clone().map_err(AppError::internal)?;
     cmd.args([
@@ -986,6 +998,7 @@ pub async fn run_wpgen(
     Ok(WpgenOutput {
         exit_code: status.code(),
         log_path: log_path.to_path_buf(),
+        command_line,
     })
 }
 

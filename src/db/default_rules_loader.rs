@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use crate::server::Setting;
 use crate::utils::project::resolve_project_root;
 use rust_embed::RustEmbed;
 use std::{
@@ -65,9 +66,7 @@ fn init_default_configs_with_mappings(
 }
 
 pub fn runtime_default_configs_dir() -> Option<PathBuf> {
-    let candidate = std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("default_configs");
+    let candidate = Setting::workspace_root().join("default_configs");
 
     if candidate.is_dir() {
         Some(candidate)

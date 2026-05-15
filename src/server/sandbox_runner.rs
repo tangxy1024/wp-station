@@ -444,7 +444,10 @@ async fn stage_run_wpgen(
     metrics.input_count = count;
     metrics.wpgen_generated = Some(count);
 
-    Ok(format!("wpgen已启动, 已发送{}条消息", count))
+    Ok(format!(
+        "wpgen已启动, 已发送{}条消息。命令: {}",
+        count, output.command_line
+    ))
 }
 
 async fn stage_analyse_runtime_output(

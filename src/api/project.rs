@@ -1,8 +1,8 @@
-use actix_web::{HttpRequest, HttpResponse, post};
+use actix_web::{HttpRequest, HttpResponse, post, web};
 use urlencoding::decode;
 
 use crate::error::AppError;
-use crate::server::project::import_project_from_files_logic;
+use crate::server::project::{ProjectImportRequest, import_project_from_files_logic};
 
 fn operator_from_request(req: &HttpRequest) -> Option<String> {
     req.headers().get("x-operator").and_then(|value| {
@@ -18,8 +18,11 @@ fn operator_from_request(req: &HttpRequest) -> Option<String> {
 }
 
 #[post("/api/project/import")]
-pub async fn import_project_from_files(http_req: HttpRequest) -> Result<HttpResponse, AppError> {
+pub async fn import_project_from_files(
+    http_req: HttpRequest,
+    req: web::Json<ProjectImportRequest>,
+) -> Result<HttpResponse, AppError> {
     let operator = operator_from_request(&http_req);
-    let resp = import_project_from_files_logic(operator).await?;
+    let resp = import_project_from_files_logic(operator, req.into_inner()).await?;
     Ok(HttpResponse::Ok().json(resp))
 }

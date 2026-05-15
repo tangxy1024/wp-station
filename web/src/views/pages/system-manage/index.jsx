@@ -45,6 +45,7 @@ function SystemManagePage() {
   const [importLoading, setImportLoading] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [importError, setImportError] = useState('');
+  const [importSourceDir, setImportSourceDir] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -117,6 +118,7 @@ function SystemManagePage() {
     setImportModalVisible(true);
     setImportResult(null);
     setImportError('');
+    setImportSourceDir('');
   };
 
   const closeImportModal = () => {
@@ -124,14 +126,22 @@ function SystemManagePage() {
     setImportModalVisible(false);
     setImportResult(null);
     setImportError('');
+    setImportSourceDir('');
   };
 
   const handleStartImport = async () => {
+    if (!importSourceDir.trim()) {
+      message.warning(t('systemManage.initImportSourceDirRequired'));
+      return;
+    }
+
     setImportLoading(true);
     setImportResult(null);
     setImportError('');
     try {
-      const response = await importProjectFromFiles();
+      const response = await importProjectFromFiles({
+        sourceDir: importSourceDir.trim(),
+      });
       setImportResult(response);
       message.success(t('systemManage.initImportSuccess'));
     } catch (error) {
@@ -769,6 +779,20 @@ function SystemManagePage() {
                   <li key={index}>{item}</li>
                 ))}
             </ol>
+            <div style={{ marginTop: 16 }}>
+              <p style={{ marginBottom: 8, fontWeight: 500, color: '#1f2937' }}>
+                {t('systemManage.initImportSourceDirLabel')}
+              </p>
+              <Input
+                value={importSourceDir}
+                onChange={(event) => setImportSourceDir(event.target.value)}
+                placeholder={t('systemManage.initImportSourceDirPlaceholder')}
+                disabled={importLoading}
+              />
+              <p style={{ marginTop: 8, marginBottom: 0, fontSize: 12, color: '#64748b' }}>
+                {t('systemManage.initImportSourceDirHelp')}
+              </p>
+            </div>
           </>
         )}
 
@@ -878,24 +902,64 @@ function SystemManagePage() {
                 </div>
               )}
 
-              <div style={{ marginTop: 16 }}>
-                <p style={{ margin: 0, color: '#475569', fontWeight: 500 }}>
-                  {t('systemManage.initImportProjectRoot')}
-                </p>
-                <code
-                  style={{
-                    display: 'block',
-                    marginTop: 6,
-                    padding: '8px 10px',
-                    background: '#fff',
-                    borderRadius: 8,
-                    border: '1px solid #e2e8f0',
-                    fontFamily: 'monospace',
-                    color: '#0f172a',
-                  }}
-                >
-                  {importSummary?.project_root || '-'}
-                </code>
+              <div style={{ marginTop: 16, display: 'grid', gap: 12 }}>
+                <div>
+                  <p style={{ margin: 0, color: '#475569', fontWeight: 500 }}>
+                    {t('systemManage.initImportSourceDirLabel')}
+                  </p>
+                  <code
+                    style={{
+                      display: 'block',
+                      marginTop: 6,
+                      padding: '8px 10px',
+                      background: '#fff',
+                      borderRadius: 8,
+                      border: '1px solid #e2e8f0',
+                      fontFamily: 'monospace',
+                      color: '#0f172a',
+                    }}
+                  >
+                    {importSummary?.source_dir || '-'}
+                  </code>
+                </div>
+                <div>
+                  <p style={{ margin: 0, color: '#475569', fontWeight: 500 }}>
+                    {t('systemManage.initImportProjectModels')}
+                  </p>
+                  <code
+                    style={{
+                      display: 'block',
+                      marginTop: 6,
+                      padding: '8px 10px',
+                      background: '#fff',
+                      borderRadius: 8,
+                      border: '1px solid #e2e8f0',
+                      fontFamily: 'monospace',
+                      color: '#0f172a',
+                    }}
+                  >
+                    {importSummary?.project_models || '-'}
+                  </code>
+                </div>
+                <div>
+                  <p style={{ margin: 0, color: '#475569', fontWeight: 500 }}>
+                    {t('systemManage.initImportProjectInfra')}
+                  </p>
+                  <code
+                    style={{
+                      display: 'block',
+                      marginTop: 6,
+                      padding: '8px 10px',
+                      background: '#fff',
+                      borderRadius: 8,
+                      border: '1px solid #e2e8f0',
+                      fontFamily: 'monospace',
+                      color: '#0f172a',
+                    }}
+                  >
+                    {importSummary?.project_infra || '-'}
+                  </code>
+                </div>
               </div>
             </div>
 

@@ -32,8 +32,22 @@ fn repo_name_for_group(group: ReleaseGroup) -> &'static str {
     }
 }
 
+fn should_skip_gitea_sync() -> bool {
+    std::env::var("WARP_STATION_SKIP_GITEA")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 /// 同步指定分组仓库到 Gitea（支持自动处理冲突）
 pub async fn sync_to_gitea(commit_message: &str, group: ReleaseGroup) {
+    if should_skip_gitea_sync() {
+        info!(
+            "跳过 Gitea 同步: group={}, reason=WARP_STATION_SKIP_GITEA",
+            group.as_ref()
+        );
+        return;
+    }
+
     let setting = Setting::load();
     let layout = setting.project_layout();
 
@@ -68,6 +82,11 @@ const REPO_BASELINE_TAG: &str = "baseline";
 
 /// 初始化双仓库 Gitea 仓库和基线 tag（系统首次启动且本地 .git 不存在时调用）
 pub async fn init_gitea_repo() -> Result<(), AppError> {
+    if should_skip_gitea_sync() {
+        info!("跳过 Gitea 仓库初始化: reason=WARP_STATION_SKIP_GITEA");
+        return Ok(());
+    }
+
     let setting = Setting::load();
     let layout = setting.project_layout();
     let gitea_client = build_gitea_client(&setting)

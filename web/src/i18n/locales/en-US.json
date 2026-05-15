@@ -558,10 +558,14 @@
     "initImport": "Initialize Configuration",
     "initImportWarningTitle": "Please double-check before continuing:",
     "initImportWarningList": [
-      "The desired version has been fully copied into the server project_root directory",
-      "This action will wipe all rule/config/knowledge records in the database",
+      "Enter the legacy single-project directory path. It must contain conf, connectors, topology, and models",
+      "The import will split and overwrite files into the server project_models and project_infra directories",
       "Avoid editing configs on the page while the import is running"
     ],
+    "initImportSourceDirLabel": "Source Directory",
+    "initImportSourceDirPlaceholder": "Enter the legacy project directory path",
+    "initImportSourceDirHelp": "The system will read conf / connectors / topology / models from this directory and split them into the dual-repo layout.",
+    "initImportSourceDirRequired": "Please enter the source directory to import",
     "initImportConfirm": "Start Import",
     "initImportProcessing": "Importing...",
     "initImportSuccess": "Configuration import completed",
@@ -576,7 +580,8 @@
     "initImportResultFailure": "{{count}} failed",
     "initImportValidationPassed": "Validation Passed",
     "initImportValidationFailed": "Validation Failed",
-    "initImportProjectRoot": "Project Root",
+    "initImportProjectModels": "Models Directory",
+    "initImportProjectInfra": "Infra Directory",
     "initImportWarnings": "Warnings",
     "initImportClose": "Close",
     "initImportRetry": "Run Again"

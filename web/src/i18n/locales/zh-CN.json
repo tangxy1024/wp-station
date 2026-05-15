@@ -668,10 +668,14 @@
     "initImport": "初始化更新配置",
     "initImportWarningTitle": "请确认以下事项后再执行：",
     "initImportWarningList": [
-      "已经将目标版本完整覆盖到服务器上的 project_root 目录",
-      "导入过程会清空当前数据库中的规则、配置和知识库数据",
+      "请输入旧单目录项目路径，目录下至少需要包含 conf、connectors、topology、models 四个目录",
+      "导入过程会按目录拆分覆盖到服务器上的 project_models 和 project_infra",
       "导入期间请勿在页面上编辑任何配置"
     ],
+    "initImportSourceDirLabel": "源目录",
+    "initImportSourceDirPlaceholder": "请输入旧项目目录绝对路径或相对路径",
+    "initImportSourceDirHelp": "系统会从该目录读取 conf / connectors / topology / models，并拆分覆盖到双仓库目录。",
+    "initImportSourceDirRequired": "请输入待导入的源目录",
     "initImportConfirm": "立即导入",
     "initImportProcessing": "正在导入...",
     "initImportSuccess": "初始化更新配置完成",
@@ -686,7 +690,8 @@
     "initImportResultFailure": "失败 {{count}} 条",
     "initImportValidationPassed": "校验通过",
     "initImportValidationFailed": "校验失败",
-    "initImportProjectRoot": "目标目录",
+    "initImportProjectModels": "Models 目录",
+    "initImportProjectInfra": "Infra 目录",
     "initImportWarnings": "警告",
     "initImportClose": "关闭",
     "initImportRetry": "再次导入"
