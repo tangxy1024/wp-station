@@ -199,7 +199,6 @@ pub async fn get_config_logic(
 
     serde_json::to_value(items).map_err(AppError::internal)
 }
-
 /// 保存配置文件内容
 pub async fn save_config_logic(
     rule_type: RuleType,

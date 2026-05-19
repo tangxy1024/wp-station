@@ -6,7 +6,7 @@ WarpParse 配置与发布控制台。把规则维护、知识库管理、调试�
 
 - **设备管理**：维护设备 IP、端口、Token、在线状态、客户端版本、配置版本，支持一键刷新单台设备状态。
 - **规则管理**：维护 `wpl`、`oml`、`knowledge` 等规则文件，支持格式化、校验、保存。
-- **配置管理**：维护 `parse`、`source`、`sink`、`source_connect`、`sink_connect` 配置。
+- **配置管理**：维护 `parse`、`source`、`sink`、`source_connect`、`sink_connect` 配置；`来源配置` 与 `业务 sink 配置` 支持按 connector 模板实时追加片段。
 - **知识库**：维护知识库配置、建表 SQL、插入 SQL、样例数据，支持 SQL 查询。
 - **调试**：日志解析、知识库查询、WPL/OML 格式化、性能任务占位。
 - **发布**：按设备维度驱动发布、轮询状态、失败重试、人工回滚；支持填写发布备注。
@@ -16,17 +16,18 @@ WarpParse 配置与发布控制台。把规则维护、知识库管理、调试�
 
 ## 系统定位
 
-运行中的 `wp-station` 有 5 个核心角色：
+运行中的 `wp-station` 有 6 个核心角色：
 
 | 角色 | 说明 |
 |------|------|
 | Rust 后端 | 提供 API、持久化、任务调度、规则校验、设备健康检查 |
 | React 前端 | 控制台 UI，通过 `/api` 调后端 |
 | PostgreSQL | 系统数据库，承载设备、发布、用户、操作日志等运行态数据 |
-| `project_root` | 规则、配置、知识库的主数据源，供 Gitea 和设备发布使用 |
+| `project_models` | `wpl` / `oml` / `knowledge` 等 model 侧文件主数据源 |
+| `project_infra` | `conf` / `connectors` / `topology` 等 infra 侧文件主数据源 |
 | Gitea / WarpParse 设备 | 分别承接配置版本化和远端配置加载 |
 
-> `project_root` 是规则、配置、知识库的运行时来源。`default_configs/` 是初始化种子，只补齐缺失文件，不覆盖用户已编辑内容。
+> 当前运行时采用双仓库布局：`project_models` 保存 `models/*`，`project_infra` 保存 `conf`、`connectors`、`topology`。`default_configs/` 只补齐缺失文件，不覆盖用户已编辑内容。
 
 ## 前置依赖
 
@@ -53,6 +54,9 @@ WarpParse 配置与发布控制台。把规则维护、知识库管理、调试�
 host = "0.0.0.0"
 port = 8081
 
+project_models = "./project_models"
+project_infra = "./project_infra"
+
 [database]
 host = "localhost"
 port = 5432
@@ -68,11 +72,15 @@ password = "123456"
 [assist]
 base_url = "http://localhost:8888"
 
+[warparse]
+enabled = false
+ca_file = "./tls/CA.crt"
+
 [features]
 data_collect_url = "http://localhost:18080/wp-monitor"
 ```
 
-> 未配置 `project_root` 时默认使用 `./project_root`；WarpParse 客户端 API 路径固定为 `/admin/v1/reloads/model` 与 `/admin/v1/runtime/status`，设备的 IP/端口由设备记录决定。
+> `project_models` 默认 `./project_models`，`project_infra` 默认 `./project_infra`。配置文件支持环境变量覆盖，例如 `WP_STATION__WEB__PORT=8082`、`WP_STATION__PROJECT_INFRA=/data/project_infra`。WarpParse 客户端 API 路径固定为 `/admin/v1/reloads/model` 与 `/admin/v1/runtime/status`，设备的 IP/端口由设备记录决定。
 
 ### 2. 启动后端
 
@@ -106,6 +114,14 @@ npm run dev
 npm run build
 ```
 
+## 配置管理最新变化
+
+- `来源配置` 页新增 `新增输入源` 按钮，编辑的是 `project_infra/topology/sources/wpsrc.toml`。
+- `输出配置` 页在 `business.d/*` 文件下新增 `新增输出源` 按钮，编辑的是 `project_infra/topology/sinks/business.d/*.toml`。
+- 模板列表来自运行时扫描的 `project_infra/connectors/source.d` 与 `project_infra/connectors/sink.d`，不是后端内置常量表。
+- 弹窗会展示 `必填参数`、`默认带出参数`、`已省略高级调优参数`；`batch`、`poll_interval_ms`、`error_backoff_ms`、`connect_timeout_secs`、`query_timeout_secs` 等高级字段默认不自动插入。
+- 重复打开模板弹窗会重新读取 connector 文件；弹窗打开期间不会自动热刷新。
+
 ## 当前状态与已知问题
 
 1. 可运行的产品骨架，不是 demo，仍有工程收尾项。
@@ -116,6 +132,7 @@ npm run build
 6. `web/vite.config.js` 代理端口和 `config/config.toml` 监听端口须保持一致（默认均为 8081）。
 7. `web/dist/` 是构建产物，不是源代码，不要在此改功能。
 8. `web/src/views/pages/simulate-debug/index-old.jsx` 和 `index-backup.jsx` 是遗留文件。
+9. 连接配置左侧展示名仍依赖 `web/src/services/config.js` 中的 `LEGACY_CONNECTION_DISPLAY_NAMES` 做兼容映射。
 
 ## 开发指南
 

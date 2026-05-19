@@ -3,6 +3,7 @@
 pub mod app;
 pub mod assist_task;
 pub mod config;
+pub mod config_templates;
 pub mod debug;
 pub mod device;
 pub mod knowledge;
@@ -30,6 +31,11 @@ pub use config::{
     ConfigFilesQuery, ConfigQuery, CreateConfigFileRequest, DeleteConfigFileQuery,
     SaveConfigRequest, create_config_file_logic, delete_config_file_logic, get_config_files_logic,
     get_config_logic, save_config_logic,
+};
+pub use config_templates::{
+    ConfigTemplateFieldItem, ConfigTemplateItem, ConfigTemplateListResponse, ConfigTemplateQuery,
+    RenderConfigTemplateRequest, RenderConfigTemplateResponse, get_config_templates_logic,
+    render_config_template_logic,
 };
 pub use debug::{
     DebugKnowledgeQueryRequest, DebugKnowledgeStatusQuery, DebugParseRequest,

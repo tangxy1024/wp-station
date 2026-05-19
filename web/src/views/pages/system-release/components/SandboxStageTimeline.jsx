@@ -63,10 +63,14 @@ function SandboxStageTimeline({
             hoverable
             onClick={() => onSelectStage && onSelectStage(stageKey)}
             style={{
+              width: '100%',
+              minWidth: 0,
+              maxWidth: '100%',
+              overflow: 'hidden',
               borderLeft: `4px solid ${stageStatusColor[stage.status] || '#d9d9d9'}`,
               background: isActive ? 'rgba(39,94,254,0.06)' : 'transparent',
             }}
-            bodyStyle={{ padding: 16 }}
+            bodyStyle={{ padding: 16, minWidth: 0, overflow: 'hidden' }}
           >
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               <div
@@ -75,10 +79,11 @@ function SandboxStageTimeline({
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   gap: 12,
-                  flexWrap: 'wrap',
+                  flexWrap: 'nowrap',
+                  minWidth: 0,
                 }}
               >
-                <Text strong>
+                <Text strong style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
                   {t(`sandbox.stage.${stageKey}`, {
                     defaultValue: stageKey,
                   })}
@@ -89,26 +94,32 @@ function SandboxStageTimeline({
                     flexDirection: 'column',
                     alignItems: 'center',
                     minWidth: 72,
+                    flexShrink: 0,
                   }}
                 >
                   {statusIcons[stage.status] || null}
                   {stage.duration_ms != null && (
-                    <Text type="secondary" style={{ fontSize: 12, marginTop: 4 }}>
+                    <Text
+                      type="secondary"
+                      style={{ fontSize: 12, marginTop: 4, textAlign: 'center' }}
+                    >
                       {formatStageDuration(stage.duration_ms)}
                     </Text>
                   )}
                 </div>
               </div>
               {shouldShowSummary && (
-                <Paragraph style={{ marginBottom: 4 }}>{stage.summary}</Paragraph>
+                <Paragraph style={{ marginBottom: 4, overflowWrap: 'anywhere' }}>
+                  {stage.summary}
+                </Paragraph>
               )}
               {diagnostics.length > 0 && (
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <Text type="secondary">{t('sandbox.stageDiagnostics')}</Text>
-                  <ul style={{ paddingLeft: 18, marginBottom: 0, marginTop: 4 }}>
+                  <ul style={{ paddingLeft: 18, marginBottom: 0, marginTop: 4, minWidth: 0 }}>
                     {diagnostics.map((item, index) => (
                       <li key={`${stageKey}-diag-${index}`}>
-                        <Text>{item.suggestion}</Text>
+                        <Text style={{ overflowWrap: 'anywhere' }}>{item.suggestion}</Text>
                       </li>
                     ))}
                   </ul>

@@ -15,7 +15,8 @@ pub mod user;
 
 pub use assist_task::{assist_cancel, assist_get, assist_list, assist_reply, assist_submit};
 pub use config::{
-    create_config_file, delete_config_file, get_config, get_config_files, save_config,
+    create_config_file, delete_config_file, get_config, get_config_files, get_config_templates,
+    render_config_template, save_config,
 };
 pub use debug::{
     debug_examples, debug_knowledge_query, debug_knowledge_status, debug_parse,

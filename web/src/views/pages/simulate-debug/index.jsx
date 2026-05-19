@@ -68,6 +68,14 @@ const buildTypedName = (i18nT, type, number) => {
   return `${prefix}${spacer}${number}`;
 };
 
+const getErrorMessage = (error, fallback) => (
+  error?.response?.data?.error?.message
+  || error?.data?.error?.message
+  || error?.responseData?.error?.message
+  || error?.message
+  || fallback
+);
+
 const shouldNormalizeTypedName = (name) => {
   if (!name) return true;
   if (name.includes('{number}') || name.includes('{{number}}')) return true;
@@ -159,8 +167,8 @@ function SimulateDebugPage() {
         currentRule,
       });
       message.success(t('assistTask.aiSubmitQueued'));
-    } catch {
-      message.error(t('assistTask.submitFailed'));
+    } catch (error) {
+      message.error(getErrorMessage(error, t('assistTask.submitFailed')));
     }
   };
 
@@ -186,7 +194,7 @@ function SimulateDebugPage() {
       });
       message.success(t('assistTask.manualSubmitQueued'));
     } catch (error) {
-      message.error(t('assistTask.submitFailed'));
+      message.error(getErrorMessage(error, t('assistTask.submitFailed')));
     }
   };
 

@@ -25,8 +25,8 @@ username = "gitea"
 password = "123456"
 
 [assist]
-# base_url = "http://117.72.103.91:8888"
 base_url = "https://analyze.warpparse.ai"
+callback_base_url = "https://analyze.warpparse.ai"
 
 [warparse]
 enabled = false

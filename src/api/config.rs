@@ -5,9 +5,10 @@ use urlencoding::decode;
 
 use crate::error::AppError;
 use crate::server::{
-    ConfigFilesQuery, ConfigQuery, CreateConfigFileRequest, DeleteConfigFileQuery,
-    SaveConfigRequest, create_config_file_logic, delete_config_file_logic, get_config_files_logic,
-    get_config_logic, save_config_logic,
+    ConfigFilesQuery, ConfigQuery, ConfigTemplateQuery, CreateConfigFileRequest,
+    DeleteConfigFileQuery, RenderConfigTemplateRequest, SaveConfigRequest,
+    create_config_file_logic, delete_config_file_logic, get_config_files_logic, get_config_logic,
+    get_config_templates_logic, render_config_template_logic, save_config_logic,
 };
 
 /// 配置管理：获取配置文件列表
@@ -21,11 +22,33 @@ pub async fn get_config_files(
     Ok(HttpResponse::Ok().json(resp))
 }
 
+/// 配置管理：获取来源 / 输出模板列表
+#[get("/api/config/templates")]
+pub async fn get_config_templates(
+    query: web::Query<ConfigTemplateQuery>,
+) -> Result<HttpResponse, AppError> {
+    let resp = get_config_templates_logic(query.scope).await?;
+
+    Ok(HttpResponse::Ok().json(resp))
+}
+
 /// 配置管理：获取配置内容
 #[get("/api/config")]
 pub async fn get_config(query: web::Query<ConfigQuery>) -> Result<HttpResponse, AppError> {
     // 查询配置文件内容
     let resp = get_config_logic(query.rule_type, query.file.clone()).await?;
+
+    Ok(HttpResponse::Ok().json(resp))
+}
+
+/// 配置管理：渲染来源 / 输出配置模板片段
+#[post("/api/config/templates/render")]
+pub async fn render_config_template(
+    req: web::Json<RenderConfigTemplateRequest>,
+) -> Result<HttpResponse, AppError> {
+    let resp =
+        render_config_template_logic(req.scope, req.template_id.clone(), req.content.clone())
+            .await?;
 
     Ok(HttpResponse::Ok().json(resp))
 }

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Input, message, Modal } from 'antd';
+import { Input, Pagination, message, Modal } from 'antd';
 import {
   RuleType,
+  fetchConfigTemplates,
   fetchRuleConfig,
   validateRuleConfig,
   saveRuleConfig,
@@ -10,6 +11,7 @@ import {
   fetchConnectionFiles,
   createConnectionConfigFile,
   deleteConnectionConfigFile,
+  renderConfigTemplate,
 } from '@/services/config';
 import CodeEditor from '@/views/components/CodeEditor/CodeEditor';
 import ValidateResultModal from '@/components/ValidateResultModal';
@@ -46,6 +48,7 @@ const SINK_FILE_ORDER = Object.freeze([
   'infra.d/error.toml',
   'infra.d/residue.toml',
 ]);
+const TEMPLATE_PAGE_SIZE = 10;
 
 const sortSinkItems = (items = []) => {
   const orderMap = new Map(SINK_FILE_ORDER.map((file, index) => [file, index]));
@@ -98,6 +101,15 @@ function ConfigManagePage() {
   const [newDisplayName, setNewDisplayName] = useState('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalContent, setOriginalContent] = useState('');
+  const [templateModalVisible, setTemplateModalVisible] = useState(false);
+  const [templateScope, setTemplateScope] = useState(RuleType.SOURCE);
+  const [templateList, setTemplateList] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const [templatePreview, setTemplatePreview] = useState(null);
+  const [templatePreviewLoading, setTemplatePreviewLoading] = useState(false);
+  const [templatePage, setTemplatePage] = useState(1);
+  const [templateSearch, setTemplateSearch] = useState('');
 
   const getConnectionLabel = React.useCallback(
     (file, displayName) => {
@@ -160,6 +172,27 @@ function ConfigManagePage() {
     [connectionFiles.sinks, sortConnectionItems],
   );
   const displayedSinkFiles = useMemo(() => sortSinkItems(sinkFiles), [sinkFiles]);
+  const filteredTemplateList = useMemo(() => {
+    const keyword = templateSearch.trim().toLowerCase();
+    if (!keyword) {
+      return templateList;
+    }
+
+    return templateList.filter((item) =>
+      [item?.displayName, item?.templateFile, item?.connect]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(keyword)),
+    );
+  }, [templateList, templateSearch]);
+  const selectedTemplate = useMemo(
+    () => filteredTemplateList.find((item) => item?.templateId === selectedTemplateId) || null,
+    [filteredTemplateList, selectedTemplateId],
+  );
+  const pagedTemplateList = useMemo(() => {
+    const start = (templatePage - 1) * TEMPLATE_PAGE_SIZE;
+    return filteredTemplateList.slice(start, start + TEMPLATE_PAGE_SIZE);
+  }, [filteredTemplateList, templatePage]);
+  const supportsSinkTemplate = activeSinkFile.startsWith('business.d/');
 
   const getDefaultFileForKey = (key) => {
     if (key === RuleType.PARSE) {
@@ -313,6 +346,73 @@ function ConfigManagePage() {
   useEffect(() => {
     setHasUnsavedChanges(content !== originalContent);
   }, [content, originalContent]);
+
+  useEffect(() => {
+    if (!templateModalVisible || !selectedTemplateId) {
+      setTemplatePreview(null);
+      return undefined;
+    }
+
+    let canceled = false;
+    setTemplatePreviewLoading(true);
+
+    renderConfigTemplate({
+      scope: templateScope,
+      templateId: selectedTemplateId,
+      content: content || '',
+    })
+      .then((response) => {
+        if (!canceled) {
+          setTemplatePreview(response);
+        }
+      })
+      .catch((error) => {
+        if (!canceled) {
+          setTemplatePreview(null);
+          message.error(t('configManage.templateRenderFailed', { message: error.message }));
+        }
+      })
+      .finally(() => {
+        if (!canceled) {
+          setTemplatePreviewLoading(false);
+        }
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, [content, selectedTemplateId, templateModalVisible, templateScope, t]);
+
+  useEffect(() => {
+    if (!templateModalVisible) {
+      return;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(filteredTemplateList.length / TEMPLATE_PAGE_SIZE));
+    if (templatePage > totalPages) {
+      setTemplatePage(totalPages);
+    }
+  }, [filteredTemplateList.length, templateModalVisible, templatePage]);
+
+  useEffect(() => {
+    if (!templateModalVisible) {
+      return;
+    }
+
+    if (!filteredTemplateList.length) {
+      if (selectedTemplateId) {
+        setSelectedTemplateId('');
+      }
+      return;
+    }
+
+    const selectedInCurrentPage = pagedTemplateList.some(
+      (item) => item.templateId === selectedTemplateId,
+    );
+    if (!selectedInCurrentPage) {
+      setSelectedTemplateId(pagedTemplateList[0].templateId);
+    }
+  }, [filteredTemplateList.length, pagedTemplateList, selectedTemplateId, templateModalVisible]);
 
   const confirmBeforeSwitch = (onConfirm) => {
     if (!hasUnsavedChanges) {
@@ -523,11 +623,107 @@ function ConfigManagePage() {
     }
   };
 
-  const renderSingleConfig = (fileName, language = 'toml') => (
+  const closeTemplateModal = () => {
+    setTemplateModalVisible(false);
+    setTemplateList([]);
+    setSelectedTemplateId('');
+    setTemplatePreview(null);
+    setTemplateLoading(false);
+    setTemplatePreviewLoading(false);
+    setTemplatePage(1);
+    setTemplateSearch('');
+  };
+
+  const openTemplateModal = async (scope) => {
+    if (scope === RuleType.SINK && !supportsSinkTemplate) {
+      message.warning(t('configManage.templateBusinessOnly'));
+      return;
+    }
+
+    setTemplateScope(scope);
+    setTemplateModalVisible(true);
+    setTemplateList([]);
+    setSelectedTemplateId('');
+    setTemplatePreview(null);
+    setTemplateLoading(true);
+    setTemplatePage(1);
+    setTemplateSearch('');
+
+    try {
+      const response = await fetchConfigTemplates(scope);
+      const items = Array.isArray(response?.items) ? response.items : [];
+      setTemplateList(items);
+      setSelectedTemplateId(items[0]?.templateId || '');
+    } catch (error) {
+      message.error(t('configManage.templateLoadFailed', { message: error.message }));
+      closeTemplateModal();
+    } finally {
+      setTemplateLoading(false);
+    }
+  };
+
+  const handleApplyTemplate = () => {
+    if (!templatePreview?.content) {
+      message.warning(t('configManage.templateNoData'));
+      return;
+    }
+
+    setContent(templatePreview.content);
+    closeTemplateModal();
+    message.success(
+      t('configManage.templateApplySuccess', {
+        name: templatePreview.displayName || templatePreview.templateId,
+      }),
+    );
+  };
+
+  const handleTemplatePageChange = (page) => {
+    setTemplatePage(page);
+  };
+
+  const renderFieldTags = (items = [], tone = 'default') =>
+    items.length ? (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {items.map((item) => (
+          <span
+            key={item}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '4px 10px',
+              borderRadius: 999,
+              fontSize: 12,
+              lineHeight: 1,
+              border: '1px solid',
+              borderColor:
+                tone === 'warning'
+                  ? 'rgba(250, 173, 20, 0.35)'
+                  : tone === 'muted'
+                    ? 'rgba(0, 0, 0, 0.08)'
+                    : 'rgba(39, 94, 254, 0.18)',
+              background:
+                tone === 'warning'
+                  ? 'rgba(250, 173, 20, 0.08)'
+                  : tone === 'muted'
+                    ? 'rgba(0, 0, 0, 0.03)'
+                    : 'rgba(39, 94, 254, 0.08)',
+              color: tone === 'warning' ? '#ad6800' : 'var(--text-primary)',
+            }}
+          >
+            {item}
+          </span>
+        ))}
+      </div>
+    ) : (
+      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{t('common.noData')}</div>
+    );
+
+  const renderSingleConfig = (fileName, language = 'toml', extraActions = null) => (
     <div className="single-config">
       <header className="single-config-header">
         <span className="single-config-name">{fileName}</span>
         <div className="single-config-actions">
+          {extraActions}
           <button type="button" className="btn tertiary" onClick={handleValidate}>
             {t('configManage.validate')}
           </button>
@@ -573,6 +769,20 @@ function ConfigManagePage() {
         <div className="repo-toolbar">
           <div className="repo-path">{activeSinkFile || t('configManage.noFileSelected')}</div>
           <div className="editor-actions">
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => openTemplateModal(RuleType.SINK)}
+              disabled={!supportsSinkTemplate}
+              title={!supportsSinkTemplate ? t('configManage.templateBusinessOnly') : undefined}
+              style={
+                !supportsSinkTemplate
+                  ? { opacity: 0.55, cursor: 'not-allowed' }
+                  : undefined
+              }
+            >
+              {t('configManage.addSinkTemplate')}
+            </button>
             <button type="button" className="btn tertiary" onClick={handleValidate}>
               {t('configManage.validate')}
             </button>
@@ -843,13 +1053,224 @@ function ConfigManagePage() {
             {activeKey === RuleType.PARSE
               ? renderSingleConfig('wparse.toml')
               : activeKey === RuleType.SOURCE
-                ? renderSingleConfig('wpsrc.toml')
+                ? renderSingleConfig(
+                    'wpsrc.toml',
+                    'toml',
+                    <button
+                      type="button"
+                      className="btn ghost"
+                      onClick={() => openTemplateModal(RuleType.SOURCE)}
+                    >
+                      {t('configManage.addSourceTemplate')}
+                    </button>,
+                  )
                 : activeKey === RuleType.SINK
                   ? renderSinkConfig()
                   : renderConnectionConfig()}
           </section>
         </article>
       </section>
+
+      <Modal
+        title={
+          templateScope === RuleType.SINK
+            ? t('configManage.selectSinkTemplate')
+            : t('configManage.selectSourceTemplate')
+        }
+        open={templateModalVisible}
+        onCancel={closeTemplateModal}
+        footer={null}
+        width={960}
+      >
+        <div style={{ display: 'flex', gap: 16, minHeight: 420 }}>
+          <aside
+            style={{
+              width: 260,
+              borderRight: '1px solid var(--panel-border)',
+              paddingRight: 16,
+            }}
+          >
+            <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--muted)' }}>
+              {templateScope === RuleType.SINK
+                ? t('configManage.selectSinkTemplateDesc')
+                : t('configManage.selectSourceTemplateDesc')}
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <Input
+                size="small"
+                allowClear
+                placeholder={t('configManage.templateSearchPlaceholder')}
+                value={templateSearch}
+                onChange={(event) => {
+                  setTemplateSearch(event.target.value);
+                  setTemplatePage(1);
+                }}
+              />
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                minHeight: 372,
+              }}
+            >
+              {templateLoading ? (
+                <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                  {t('configManage.loadingPlaceholder')}
+                </div>
+              ) : filteredTemplateList.length ? (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
+                    {pagedTemplateList.map((item) => (
+                      <button
+                        key={item.templateId}
+                        type="button"
+                        className="modal-option"
+                        style={{
+                          textAlign: 'left',
+                          padding: '12px 14px',
+                          border: '1px solid',
+                          borderColor:
+                            selectedTemplateId === item.templateId
+                              ? 'var(--primary)'
+                              : 'var(--panel-border)',
+                          borderRadius: 12,
+                          background:
+                            selectedTemplateId === item.templateId
+                              ? 'rgba(39, 94, 254, 0.08)'
+                              : 'white',
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => setSelectedTemplateId(item.templateId)}
+                      >
+                        <div style={{ fontWeight: 600, marginBottom: 4 }}>{item.displayName}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.templateFile}</div>
+                      </button>
+                    ))}
+                  </div>
+                  {filteredTemplateList.length > TEMPLATE_PAGE_SIZE ? (
+                    <div style={{ paddingTop: 8 }}>
+                      <Pagination
+                        current={templatePage}
+                        total={filteredTemplateList.length}
+                        pageSize={TEMPLATE_PAGE_SIZE}
+                        size="small"
+                        onChange={handleTemplatePageChange}
+                        showSizeChanger={false}
+                      />
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                  {t('configManage.templateNoData')}
+                </div>
+              )}
+            </div>
+          </aside>
+          <section style={{ flex: 1, minWidth: 0 }}>
+            {selectedTemplate ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 6 }}>
+                    {selectedTemplate.displayName}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                    {t('configManage.templateConnect')} <code>{selectedTemplate.connect}</code>
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+                    {t('configManage.requiredParams')}
+                  </div>
+                  {renderFieldTags(selectedTemplate.requiredFields)}
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+                    {t('configManage.defaultParams')}
+                  </div>
+                  {renderFieldTags(selectedTemplate.insertedFields, 'muted')}
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+                    {t('configManage.omittedAdvancedParams')}
+                  </div>
+                  {renderFieldTags(selectedTemplate.omittedFields, 'warning')}
+                </div>
+
+                {templatePreview?.warnings?.length ? (
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#ad6800' }}>
+                      {t('configManage.templateWarnings')}
+                    </div>
+                    <div
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: 12,
+                        background: 'rgba(250, 173, 20, 0.08)',
+                        color: '#ad6800',
+                        fontSize: 13,
+                        whiteSpace: 'pre-wrap',
+                      }}
+                    >
+                      {templatePreview.warnings.join('\n')}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+                    {t('configManage.templatePreview')}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                    {t('configManage.templateInstance', {
+                      name: templatePreview?.instanceName || selectedTemplate.templateId,
+                    })}
+                  </div>
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: '14px 16px',
+                      borderRadius: 12,
+                      background: '#0b1020',
+                      color: '#d5def5',
+                      fontSize: 12,
+                      lineHeight: 1.6,
+                      overflow: 'auto',
+                      minHeight: 180,
+                    }}
+                  >
+                    {templatePreviewLoading
+                      ? t('configManage.loadingPlaceholder')
+                      : templatePreview?.snippet || ''}
+                  </pre>
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                {t('configManage.templateNoData')}
+              </div>
+            )}
+          </section>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
+          <button type="button" className="btn ghost" onClick={closeTemplateModal}>
+            {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={handleApplyTemplate}
+            disabled={!templatePreview?.content || templatePreviewLoading}
+          >
+            {t('common.confirm')}
+          </button>
+        </div>
+      </Modal>
 
       <Modal
         title={t('configManage.selectConfigType')}

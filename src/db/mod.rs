@@ -64,8 +64,8 @@ pub use operation_log::{create_operation_log, find_logs_page};
 
 // 导出 assist_task 函数
 pub use assist_task::{
-    create_assist_task, find_assist_task_by_id, list_assist_tasks, update_assist_task_reply,
-    update_assist_task_status,
+    create_assist_task, find_active_assist_task_by_type, find_assist_task_by_id, list_assist_tasks,
+    update_assist_task_reply, update_assist_task_status,
 };
 
 // 导出默认配置加载函数

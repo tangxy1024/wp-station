@@ -5,6 +5,7 @@
 
 pub mod assist_service;
 pub mod common;
+pub mod config_templates;
 pub mod health_check;
 pub mod knowledge;
 pub mod oml;
@@ -20,6 +21,11 @@ pub use assist_service::{
     ManualTicketRequest,
 };
 pub use common::format_beijing_time;
+pub use config_templates::{
+    ConfigTemplateDef, ConfigTemplateField, RenderedConfigTemplate, display_name_from_file,
+    list_config_templates, list_config_templates_from_layout, render_config_template,
+    template_id_from_file,
+};
 pub use health_check::check_device_health;
 pub use knowledge::{
     configured_provider_name, is_knowledge_loaded, load_knowledge, load_sqlite_knowledge,

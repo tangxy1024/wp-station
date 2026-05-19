@@ -1,8 +1,17 @@
-use crate::common::{rand_suffix, remove_project_path, setup_db};
+use crate::common::{rand_suffix, remove_project_path, resolve_project_path, setup_db};
 use actix_web::{App, http::StatusCode, test};
+use std::fs;
 
 fn cleanup_source(file: &str) {
     remove_project_path(format!("topology/sources/{file}"));
+}
+
+fn write_source_connector_template(file: &str, content: &str) {
+    let path = resolve_project_path(format!("connectors/source.d/{file}"));
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("create source connector parent");
+    }
+    fs::write(path, content).expect("write source connector template");
 }
 
 #[actix_web::test]
@@ -86,4 +95,151 @@ async fn test_get_config_not_found_returns_placeholder() {
         payload.get("file").and_then(|f| f.as_str()),
         Some("non-existent.toml")
     );
+}
+
+#[actix_web::test]
+async fn test_get_source_templates_via_api() {
+    setup_db().await;
+    write_source_connector_template(
+        "51-dmdb-endpoint.toml",
+        r#"[[connectors]]
+id = "dmdb_endpoint_src"
+type = "dmdb"
+allow_override = ["endpoint", "driver", "username", "password", "table", "cursor_column", "cursor_type", "start_from", "batch", "poll_interval_ms", "error_backoff_ms", "connect_timeout_secs", "query_timeout_secs"]
+[connectors.params]
+endpoint = "159.75.175.212:5236"
+driver = "DM8 ODBC DRIVER"
+username = "SYSDBA"
+password = "SYSDBA"
+table = "nginx_logs"
+cursor_column = "id"
+cursor_type = "int"
+start_from = "0"
+batch = 512
+poll_interval_ms = 1000
+error_backoff_ms = 2000
+connect_timeout_secs = 8
+query_timeout_secs = 15
+"#,
+    );
+    let app = test::init_service(App::new().service(wp_station::api::get_config_templates)).await;
+
+    let req = test::TestRequest::get()
+        .uri("/api/config/templates?scope=source")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let payload: serde_json::Value = test::read_body_json(resp).await;
+    let items = payload
+        .get("items")
+        .and_then(|value| value.as_array())
+        .expect("items should be an array");
+
+    assert!(
+        items.iter().any(|item| {
+            item.get("template_id").and_then(|value| value.as_str()) == Some("dmdb-endpoint")
+        }),
+        "source templates should include dmdb-endpoint"
+    );
+}
+
+#[actix_web::test]
+async fn test_render_source_template_omits_advanced_fields() {
+    setup_db().await;
+    write_source_connector_template(
+        "51-dmdb-endpoint.toml",
+        r#"[[connectors]]
+id = "dmdb_endpoint_src"
+type = "dmdb"
+allow_override = ["endpoint", "driver", "username", "password", "table", "cursor_column", "cursor_type", "start_from", "batch", "poll_interval_ms", "error_backoff_ms", "connect_timeout_secs", "query_timeout_secs"]
+[connectors.params]
+endpoint = "159.75.175.212:5236"
+driver = "DM8 ODBC DRIVER"
+username = "SYSDBA"
+password = "SYSDBA"
+table = "nginx_logs"
+cursor_column = "id"
+cursor_type = "int"
+start_from = "0"
+batch = 512
+poll_interval_ms = 1000
+error_backoff_ms = 2000
+connect_timeout_secs = 8
+query_timeout_secs = 15
+"#,
+    );
+    let app = test::init_service(App::new().service(wp_station::api::render_config_template)).await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/config/templates/render")
+        .set_json(serde_json::json!({
+            "scope": "source",
+            "template_id": "dmdb-endpoint",
+            "content": ""
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let payload: serde_json::Value = test::read_body_json(resp).await;
+    let snippet = payload
+        .get("snippet")
+        .and_then(|value| value.as_str())
+        .expect("snippet should be string");
+    let omitted_fields = payload
+        .get("omitted_fields")
+        .and_then(|value| value.as_array())
+        .expect("omitted_fields should be array");
+
+    assert!(snippet.contains("connect = \"dmdb_endpoint_src\""));
+    assert!(snippet.contains("cursor_column = \"id\""));
+    assert!(!snippet.contains("batch = 512"));
+    assert!(
+        omitted_fields
+            .iter()
+            .any(|field| field.as_str() == Some("batch"))
+    );
+    assert!(
+        omitted_fields
+            .iter()
+            .any(|field| field.as_str() == Some("query_timeout_secs"))
+    );
+}
+
+#[actix_web::test]
+async fn test_render_sink_template_adds_skeleton_and_unique_name() {
+    setup_db().await;
+    let app = test::init_service(App::new().service(wp_station::api::render_config_template)).await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/config/templates/render")
+        .set_json(serde_json::json!({
+            "scope": "sink",
+            "template_id": "elasticsearch",
+            "content": "[[sink_group.sinks]]\nname = \"all_elasticsearch\"\nconnect = \"elasticsearch_sink\"\n"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let payload: serde_json::Value = test::read_body_json(resp).await;
+    let snippet = payload
+        .get("snippet")
+        .and_then(|value| value.as_str())
+        .expect("snippet should be string");
+    let content = payload
+        .get("content")
+        .and_then(|value| value.as_str())
+        .expect("content should be string");
+    let instance_name = payload
+        .get("instance_name")
+        .and_then(|value| value.as_str())
+        .expect("instance_name should be string");
+
+    assert_eq!(instance_name, "all_elasticsearch_2");
+    assert!(snippet.contains("version = \"1.0\""));
+    assert!(snippet.contains("[sink_group]"));
+    assert!(snippet.contains("name = \"all_elasticsearch_2\""));
+    assert!(content.contains("name = \"all_elasticsearch_2\""));
 }

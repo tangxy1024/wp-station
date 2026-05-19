@@ -238,7 +238,9 @@ pub async fn start() -> std::io::Result<()> {
             .service(api::validate_rule)
             // 配置管理 API（解析配置也复用配置接口）
             .service(api::get_config_files)
+            .service(api::get_config_templates)
             .service(api::get_config)
+            .service(api::render_config_template)
             .service(api::save_config)
             .service(api::create_config_file)
             .service(api::delete_config_file)

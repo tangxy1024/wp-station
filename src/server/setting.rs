@@ -134,6 +134,8 @@ impl Default for GiteaConf {
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct AssistConf {
     pub base_url: String,
+    #[serde(default)]
+    pub callback_base_url: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]

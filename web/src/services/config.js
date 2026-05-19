@@ -38,8 +38,12 @@ const LEGACY_CONNECTION_DISPLAY_NAMES = Object.freeze({
   '10-syslog-udp.toml': 'Syslog (UDP)',
   '11-syslog-tcp.toml': 'Syslog (TCP)',
   '12-tcp.toml': 'TCP',
+  '13-count.toml': 'Count',
   '30-kafka.toml': 'Kafka',
   '40-mysql.toml': 'MySQL',
+  '50-dmdb-connect_string.toml': 'DMDB (Connection String)',
+  '51-dmdb-endpoint.toml': 'DMDB (Endpoint)',
+  '52-dmdb-dsn.toml': 'DMDB (DSN)',
   '00-blackhole-sink.toml': 'Blackhole',
   '01-file-prototext.toml': 'File (Prototext)',
   '02-file-json.toml': 'File (JSON)',
@@ -55,6 +59,9 @@ const LEGACY_CONNECTION_DISPLAY_NAMES = Object.freeze({
   '90-elasticsearch.toml': 'Elasticsearch',
   '100-clickhouse.toml': 'ClickHouse',
   '101-http.toml': 'HTTP',
+  '110-dmdb-connect_string.toml': 'DMDB (Connection String)',
+  '111-dmdb-endpoint.toml': 'DMDB (Endpoint)',
+  '112-dmdb-dsn.toml': 'DMDB (DSN)',
 });
 
 const getConnectionDisplayName = (file, displayName) => {
@@ -1003,6 +1010,81 @@ export async function deleteConnectionConfigFile(options) {
       file,
     },
   });
+}
+
+/**
+ * 获取来源 / 输出配置模板列表
+ * @param {'source'|'sink'} scope
+ */
+export async function fetchConfigTemplates(scope) {
+  if (scope !== RuleType.SOURCE && scope !== RuleType.SINK) {
+    throw new Error('配置模板 scope 仅支持 source 或 sink');
+  }
+
+  const response = await httpRequest.get('/config/templates', {
+    params: {
+      scope,
+    },
+  });
+
+  return {
+    items: Array.isArray(response?.items)
+      ? response.items.map((item) => ({
+          scope: item?.scope,
+          templateFile: item?.template_file,
+          templateId: item?.template_id,
+          displayName: item?.display_name,
+          connect: item?.connect,
+          requiredFields: Array.isArray(item?.required_fields) ? item.required_fields : [],
+          insertedFields: Array.isArray(item?.inserted_fields) ? item.inserted_fields : [],
+          omittedFields: Array.isArray(item?.omitted_fields) ? item.omitted_fields : [],
+          fields: Array.isArray(item?.fields)
+            ? item.fields.map((field) => ({
+                name: field?.name,
+                required: Boolean(field?.required),
+                defaultValue: field?.default_value,
+                advanced: Boolean(field?.advanced),
+              }))
+            : [],
+        }))
+      : [],
+  };
+}
+
+/**
+ * 渲染来源 / 输出配置模板片段
+ * @param {Object} options
+ * @param {'source'|'sink'} options.scope
+ * @param {string} options.templateId
+ * @param {string} options.content
+ */
+export async function renderConfigTemplate(options) {
+  const { scope, templateId, content } = options || {};
+
+  if ((scope !== RuleType.SOURCE && scope !== RuleType.SINK) || !templateId) {
+    throw new Error('渲染配置模板时必须提供有效的 scope 和 templateId');
+  }
+
+  const response = await httpRequest.post('/config/templates/render', {
+    scope,
+    template_id: templateId,
+    content: content || '',
+  });
+
+  return {
+    scope: response?.scope,
+    templateFile: response?.template_file,
+    templateId: response?.template_id,
+    displayName: response?.display_name,
+    connect: response?.connect,
+    instanceName: response?.instance_name,
+    requiredFields: Array.isArray(response?.required_fields) ? response.required_fields : [],
+    insertedFields: Array.isArray(response?.inserted_fields) ? response.inserted_fields : [],
+    omittedFields: Array.isArray(response?.omitted_fields) ? response.omitted_fields : [],
+    warnings: Array.isArray(response?.warnings) ? response.warnings : [],
+    snippet: response?.snippet || '',
+    content: response?.content || '',
+  };
 }
 
 /**

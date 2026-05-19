@@ -3,7 +3,7 @@
 use crate::db::get_pool;
 use crate::error::{DbError, DbResult};
 use chrono::Utc;
-use sea_orm::{QueryOrder, Set, entity::prelude::*};
+use sea_orm::{Condition, QueryFilter, QueryOrder, Set, entity::prelude::*};
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumString};
 use wp_station_migrations::entity::assist_task::{ActiveModel, Column, Entity, Model};
@@ -102,6 +102,29 @@ pub async fn find_assist_task_by_id(task_id: &str) -> DbResult<Option<AssistTask
 
     let task = Entity::find()
         .filter(Column::TaskId.eq(task_id))
+        .one(db)
+        .await?;
+
+    Ok(task)
+}
+
+/// 查询同类型正在进行中的辅助任务
+pub async fn find_active_assist_task_by_type(
+    task_type: AssistTaskType,
+) -> DbResult<Option<AssistTask>> {
+    debug!("查询进行中的辅助任务: task_type={}", task_type);
+
+    let pool = get_pool();
+    let db = pool.inner();
+
+    let task = Entity::find()
+        .filter(Column::TaskType.eq(task_type.as_ref()))
+        .filter(
+            Condition::any()
+                .add(Column::Status.eq(AssistTaskStatus::Pending.as_ref()))
+                .add(Column::Status.eq(AssistTaskStatus::Processing.as_ref())),
+        )
+        .order_by_desc(Column::CreatedAt)
         .one(db)
         .await?;
 

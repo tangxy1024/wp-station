@@ -583,9 +583,13 @@ function PrepublishPage() {
           </Col>
         </Row>
 
-        <Row gutter={[16, 16]}>
-          <Col xs={24} lg={12} style={{ display: 'flex' }}>
-            <Card title={t('sandbox.executionStages')} style={{ width: '100%' }}>
+        <Row gutter={[16, 16]} wrap style={{ minWidth: 0 }}>
+          <Col xs={24} lg={12} style={{ display: 'flex', minWidth: 0, overflow: 'hidden' }}>
+            <Card
+              title={t('sandbox.executionStages')}
+              style={{ width: '100%', minWidth: 0, overflow: 'hidden' }}
+              bodyStyle={{ minWidth: 0, overflow: 'hidden' }}
+            >
               <SandboxStageTimeline
                 stages={stages}
                 selectedStage={selectedStage}
@@ -596,8 +600,11 @@ function PrepublishPage() {
               />
             </Card>
           </Col>
-          <Col xs={24} lg={12} style={{ display: 'flex' }}>
-            <div ref={stageLogCardRef} style={{ width: '100%' }}>
+          <Col xs={24} lg={12} style={{ display: 'flex', minWidth: 0, overflow: 'hidden' }}>
+            <div
+              ref={stageLogCardRef}
+              style={{ width: '100%', minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}
+            >
               <SandboxLogViewer
                 selectedStageInfo={selectedStageInfo}
                 stageLog={stageLog}
