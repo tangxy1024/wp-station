@@ -44,14 +44,21 @@ max_body_bytes = 4096
 
 [admin_api.auth]
 mode = "bearer_token"
-token_file = "/root/.warp_parse/admin_api.token"
+token_file = "${HOME}/.warp_parse/admin_api.token"
 
 [admin_api.tls]
 enabled = true
-cert_file = "/root/.warp_parse/tls/server.crt"
-key_file = "/root/.warp_parse/tls/server.key"
+cert_file = "${HOME}/.warp_parse/tls/server.crt"
+key_file = "${HOME}/.warp_parse/tls/server.key"
 
 [project_remote]
 enabled = true
-repo = "http://localhost:3000/gitea/project_root.git"
+repo = ""
+
+[project_remote.models]
+repo = "http://host.docker.internal:13000/gitea/project_models.git"
+init_version = "1.0.0"
+
+[project_remote.infra]
+repo = "http://host.docker.internal:13000/gitea/project_infra.git"
 init_version = "1.0.0"

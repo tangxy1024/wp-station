@@ -1,6 +1,6 @@
 services:
   warp-toolchain:
-    image: ghcr.io/wp-labs/warp-parse:latest
+    image: ghcr.io/wp-labs/warp-parse:0.23.8-alpha
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -95,7 +95,7 @@ services:
 
   warp-station:
     user: "root"
-    image: ghcr.io/wp-labs/wp-station:v0.1.10-alpha
+    image: ghcr.io/wp-labs/wp-station:latest
     # depends_on:
     #   warp-toolchain:
     #     condition: service_completed_successfully
