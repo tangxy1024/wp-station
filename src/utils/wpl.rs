@@ -4,11 +4,14 @@
 //! 以及字段列表转换（`record_to_fields`、`ParsedField`）。
 
 use crate::error::AppError;
+use orion_error::UnifiedReason;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use wp_model_core::model::DataRecord;
-use wp_primitives::comment::CommentParser;
 
-use wpl::{AnnotationType, WplEvaluator, WplExpress, WplPackage, WplStatementType, wpl_package};
+use wpl::{
+    AnnotationType, WparseReason, WplCode, WplEvaluator, WplExpress, WplPackage, WplStatementType,
+};
 
 type RunParseProc = (WplExpress, Vec<AnnotationType>);
 
@@ -37,12 +40,9 @@ pub fn record_to_fields(record: &DataRecord) -> Vec<ParsedField> {
 
 /// 解析 WPL 代码为包结构
 fn parse_wpl_package(wpl: &str) -> Result<WplPackage, AppError> {
-    let mut wpl_code = wpl;
-    let code_without_comments =
-        CommentParser::ignore_comment(&mut wpl_code).map_err(AppError::wpl_parse)?;
-
-    wpl_package(&mut code_without_comments.as_str())
-        .map_err(|err| AppError::wpl_parse(format!("WPL 包解析错误: {:?}", err)))
+    // 使用 wp-lang 的结构化解析入口，保留行列号和错误链，避免退化为 nom Debug 文本。
+    let code = WplCode::build(PathBuf::new(), wpl)?;
+    Ok(code.parse_pkg()?)
 }
 
 // 内部/其他模块使用：返回原始 DataRecord，供 OML 等后续处理
@@ -60,13 +60,80 @@ pub fn warp_check_record(wpl: &str, data: &str) -> Result<DataRecord, AppError> 
 
 /// 尝试用规则列表解析数据
 fn try_parse_with_rules(rule_items: Vec<RunParseProc>, data: &str) -> Result<DataRecord, AppError> {
-    rule_items
-        .into_iter()
-        .find_map(|(wpl_express, _funcs)| {
-            let evaluator = WplEvaluator::from(&wpl_express, None).ok()?;
-            evaluator.proc(0, data, 0).ok().map(|(tdc, _pipeline)| tdc)
-        })
-        .ok_or_else(|| AppError::wpl_parse("所有 WPL 规则执行失败"))
+    let mut max_depth = 0;
+    let mut best_wpl = 1;
+
+    for (index, (wpl_express, _funcs)) in rule_items.into_iter().enumerate() {
+        let evaluator = WplEvaluator::from(&wpl_express, None).map_err(|err| {
+            AppError::wpl_parse(format!(
+                "规则 {} 构建失败: {}",
+                index + 1,
+                format_wpl_error(&err)
+            ))
+        })?;
+
+        match evaluator.proc(0, data, 0) {
+            Ok((tdc, _pipeline)) => return Ok(tdc),
+            Err(err) => {
+                // 当前 wp-lang 的 DataError 不再携带精确位置，保底标记为已进入规则解析。
+                best_wpl = index + 1;
+                if matches!(err.reason(), WparseReason::Uvs(UnifiedReason::DataError))
+                    && max_depth == 0
+                {
+                    max_depth = 1;
+                }
+            }
+        }
+    }
+
+    let friendly_hint = build_best_match_hint(data, max_depth, best_wpl);
+    Err(AppError::wpl_best_error(max_depth, friendly_hint))
+}
+
+/// 构造更友好的日志位置提示，帮助用户快速定位解析中断点。
+fn build_best_match_hint(data: &str, depth: usize, rule_name: usize) -> String {
+    let chars: Vec<char> = data.chars().collect();
+    if chars.is_empty() {
+        return format!(
+            "rule {rule_name} Achieved the best match, but the log is empty and the location cannot be determined."
+        );
+    }
+
+    let bounded_depth = depth.min(chars.len().saturating_sub(1));
+
+    // 仅展示指针附近的片段，避免长行导致指针错位。
+    let window_before = 20;
+    let window_after = 20;
+    let ctx_start = bounded_depth.saturating_sub(window_before);
+    let ctx_end = (bounded_depth + window_after + 1).min(chars.len());
+
+    let snippet: String = chars[ctx_start..ctx_end].iter().collect();
+    let prefix = if ctx_start > 0 { "…" } else { "" };
+    let suffix = if ctx_end < chars.len() { "…" } else { "" };
+    let snippet_line = format!("{prefix}{snippet}{suffix}");
+
+    let pointer_offset = prefix.chars().count() + bounded_depth.saturating_sub(ctx_start);
+    let pointer = format!(
+        "{}↑ This is the final matching position.",
+        " ".repeat(pointer_offset)
+    );
+
+    format!(
+        "规则 {rule_name} 最深匹配字符序号 {pos}。日志上下文:\n{snippet_line}\n{pointer}",
+        pos = bounded_depth + 1
+    )
+}
+
+fn format_wpl_error<T>(err: &T) -> String
+where
+    T: std::fmt::Display + std::fmt::Debug,
+{
+    let display = err.to_string();
+    if display.trim().is_empty() {
+        format!("{err:?}")
+    } else {
+        display
+    }
 }
 
 fn extract_rule_items(wpl_package: &WplPackage) -> anyhow::Result<Vec<RunParseProc>> {

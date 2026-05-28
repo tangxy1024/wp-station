@@ -154,5 +154,26 @@ fn test_warp_check_record_errors_without_rules() {
 fn test_warp_check_record_invalid_package() {
     let wpl = "package";
     let err = warp_check_record(wpl, "data").expect_err("invalid wpl");
-    assert!(format!("{:?}", err).contains("WPL 包解析错误"));
+    assert!(err.to_string().contains("WPL 解析失败"));
+    assert!(format!("{:?}", err).contains("biz.wpl_parse_error"));
+}
+
+#[test]
+fn test_warp_check_record_returns_detailed_rule_parse_error() {
+    let wpl = r#"
+        package demo {
+            rule sample {
+                (digit:id)
+            }
+        }
+    "#;
+    let err = warp_check_record(wpl, "abc").expect_err("rule parse should fail");
+    let message = err.to_string();
+    assert!(message.contains("WPL 解析失败"));
+    assert!(message.contains("解析深度: 1"));
+    assert!(message.contains("规则 1 最深匹配字符序号 2"));
+    assert!(message.contains("日志上下文:"));
+    assert!(message.contains("↑ This is the final matching position."));
+    assert!(format!("{:?}", err).contains("biz.wpl_parse_error"));
+    assert!(!message.contains("所有 WPL 规则执行失败"));
 }

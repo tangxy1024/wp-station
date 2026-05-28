@@ -1,6 +1,40 @@
 use actix_web::{HttpResponse, ResponseError};
+use orion_error::{OrionError, StructError, UnifiedReason, reason::ErrorIdentityProvider};
 use serde::Serialize;
 use std::fmt::Display;
+use wpl::{WparseReason, parser::error::WplCodeReason};
+
+#[derive(Debug, Clone, PartialEq, OrionError)]
+enum AppWplReason {
+    #[orion_error(identity = "biz.wpl_parse_error", message = "WPL 解析失败")]
+    WplParse(String),
+
+    #[orion_error(transparent)]
+    Uvs(UnifiedReason),
+}
+
+impl From<WplCodeReason> for AppWplReason {
+    fn from(reason: WplCodeReason) -> Self {
+        match reason {
+            WplCodeReason::Plugin
+            | WplCodeReason::Syntax
+            | WplCodeReason::Empty
+            | WplCodeReason::UnSupport => AppWplReason::WplParse(String::new()),
+            WplCodeReason::Uvs(uvs) => AppWplReason::Uvs(uvs),
+        }
+    }
+}
+
+impl From<WparseReason> for AppWplReason {
+    fn from(reason: WparseReason) -> Self {
+        match reason {
+            WparseReason::Plugin(message) => AppWplReason::WplParse(message),
+            WparseReason::NotMatch => AppWplReason::WplParse("规则不匹配".to_string()),
+            WparseReason::LineProc(message) => AppWplReason::WplParse(message),
+            WparseReason::Uvs(uvs) => AppWplReason::Uvs(uvs),
+        }
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct ErrorBody<T = serde_json::Value> {
@@ -34,6 +68,9 @@ pub enum AppError {
     // WPL 解析相关错误
     #[error("WPL 解析失败: {0}")]
     WplParse(String),
+
+    #[error("{message}")]
+    WplParseStructured { code: &'static str, message: String },
 
     // OML 转换相关错误
     #[error("OML 转换失败: {0}")]
@@ -72,6 +109,14 @@ impl AppError {
 
     pub fn wpl_parse<E: Display>(e: E) -> Self {
         AppError::WplParse(e.to_string())
+    }
+
+    pub fn wpl_best_error(depth: usize, hint: impl Into<String>) -> Self {
+        let message = format!("解析深度: {}\n{}", depth, hint.into());
+        AppError::WplParseStructured {
+            code: "biz.wpl_parse_error",
+            message: format!("WPL 解析失败\n  -> Info: {}", message),
+        }
     }
 
     pub fn oml_transform<E: Display>(e: E) -> Self {
@@ -134,6 +179,7 @@ impl AppError {
             AppError::Internal(_) => "INTERNAL_ERROR",
             AppError::Git(_) => "GIT_ERROR",
             AppError::WplParse(_) => "WPL_PARSE_ERROR",
+            AppError::WplParseStructured { code, .. } => code,
             AppError::OmlTransform(_) => "OML_TRANSFORM_ERROR",
             AppError::NoParseResult => "NO_PARSE_RESULT",
             AppError::PortUnreachable { .. } => "PORT_UNREACHABLE",
@@ -153,6 +199,7 @@ impl ResponseError for AppError {
             // 400 Bad Request - 客户端输入错误
             AppError::Validation(_)
             | AppError::WplParse(_)
+            | AppError::WplParseStructured { .. }
             | AppError::OmlTransform(_)
             | AppError::NoParseResult
             | AppError::PortUnreachable { .. }
@@ -192,6 +239,28 @@ impl ResponseError for AppError {
         };
 
         HttpResponse::build(status).json(body)
+    }
+}
+
+impl From<StructError<WplCodeReason>> for AppError {
+    fn from(error: StructError<WplCodeReason>) -> Self {
+        let reason: AppWplReason = error.reason().clone().into();
+        let app_error = StructError::builder(reason).source(error).finish();
+        AppError::WplParseStructured {
+            code: app_error.reason().stable_code(),
+            message: app_error.display_chain(),
+        }
+    }
+}
+
+impl From<StructError<WparseReason>> for AppError {
+    fn from(error: StructError<WparseReason>) -> Self {
+        let reason: AppWplReason = error.reason().clone().into();
+        let app_error = StructError::builder(reason).source(error).finish();
+        AppError::WplParseStructured {
+            code: app_error.reason().stable_code(),
+            message: app_error.display_chain(),
+        }
     }
 }
 
