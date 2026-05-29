@@ -27,6 +27,7 @@ password = "123456"
 project_root = "project_root"
 
 [warparse]
+enabled = true
 ca_file = "/app/tls/CA.crt"
 
 
