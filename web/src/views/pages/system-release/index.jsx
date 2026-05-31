@@ -4,6 +4,7 @@ import { DatePicker, Input, Modal, Table, Select, Checkbox, Spin, Radio } from '
 import { useNavigate } from 'react-router-dom';
 import { fetchReleases, publishRelease, validateRelease } from '@/services/release';
 import { fetchOnlineConnections } from '@/services/connection';
+import { downloadBlob, exportProjectArchive, importProjectArchive } from '@/services/project';
 import ValidateResultModal from '@/components/ValidateResultModal';
 
 /**
@@ -42,6 +43,8 @@ function SystemReleasePage() {
   const [selectedConnectionIds, setSelectedConnectionIds] = useState([]);
   const [publishNote, setPublishNote] = useState('');
   const [publishReleaseGroup, setPublishReleaseGroup] = useState('models');
+  const [importingArchive, setImportingArchive] = useState(false);
+  const [exportingArchive, setExportingArchive] = useState(false);
 
   const getAvailablePublishGroups = (releaseRecord) => {
     const status = String(releaseRecord?.status || '').toUpperCase();
@@ -263,6 +266,68 @@ function SystemReleasePage() {
         title: t('systemRelease.publishFailed'),
         content: getErrorMessage(error, t('systemRelease.publishFailedMessage')),
       });
+    }
+  };
+
+  const isSupportedArchive = (fileName) => {
+    const lower = String(fileName || '').toLowerCase();
+    return lower.endsWith('.tar') || lower.endsWith('.tar.gz') || lower.endsWith('.tgz') || lower.endsWith('.zip');
+  };
+
+  const handleImportArchive = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (!isSupportedArchive(file.name)) {
+      Modal.warning({
+        title: t('systemRelease.importArchiveInvalidTitle'),
+        content: t('systemRelease.importArchiveInvalidMessage'),
+      });
+      return;
+    }
+
+    Modal.confirm({
+      title: t('systemRelease.importArchiveConfirmTitle'),
+      content: t('systemRelease.importArchiveConfirmMessage', { file: file.name }),
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        setImportingArchive(true);
+        try {
+          const result = await importProjectArchive(file);
+          Modal.success({
+            title: t('systemRelease.importArchiveSuccessTitle'),
+            content: t('systemRelease.importArchiveSuccessMessage', {
+              rules: result?.summary?.rules_imported ?? 0,
+              knowledge: result?.summary?.knowledge_imported ?? 0,
+            }),
+          });
+          loadReleases();
+        } catch (error) {
+          Modal.error({
+            title: t('systemRelease.importArchiveFailedTitle'),
+            content: error?.message || t('systemRelease.importArchiveFailedMessage'),
+          });
+        } finally {
+          setImportingArchive(false);
+        }
+      },
+    });
+  };
+
+  const handleExportArchive = async () => {
+    setExportingArchive(true);
+    try {
+      const { blob, fileName } = await exportProjectArchive();
+      downloadBlob(blob, fileName);
+    } catch (error) {
+      Modal.error({
+        title: t('systemRelease.exportArchiveFailedTitle'),
+        content: error?.message || t('systemRelease.exportArchiveFailedMessage'),
+      });
+    } finally {
+      setExportingArchive(false);
     }
   };
 
@@ -532,6 +597,29 @@ function SystemReleasePage() {
             <h3>{t('systemRelease.releaseRecords')}</h3>
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
               <span className="release-list-hint">{t('systemRelease.recentRecords', { count: total })}</span>
+              <input
+                id="project-archive-import"
+                type="file"
+                accept=".tar,.tar.gz,.tgz,.zip"
+                style={{ display: 'none' }}
+                onChange={handleImportArchive}
+              />
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={importingArchive}
+                onClick={() => document.getElementById('project-archive-import')?.click()}
+              >
+                {importingArchive ? t('systemRelease.importingArchive') : t('systemRelease.importArchive')}
+              </button>
+              <button
+                type="button"
+                className="btn ghost"
+                disabled={exportingArchive}
+                onClick={handleExportArchive}
+              >
+                {exportingArchive ? t('systemRelease.exportingArchive') : t('systemRelease.exportArchive')}
+              </button>
             </div>
           </header>
           

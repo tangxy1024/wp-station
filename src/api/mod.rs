@@ -28,7 +28,7 @@ pub use device::{
 };
 pub use knowledge::{get_db_list, query};
 pub use operation_log::list_operation_logs;
-pub use project::import_project_from_files;
+pub use project::{export_project_archive, import_project_archive, import_project_from_files};
 pub use release::{
     create_release, get_release_detail, get_release_diff, list_releases, publish_release,
     retry_release, rollback_release, validate_release,

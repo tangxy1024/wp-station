@@ -29,6 +29,17 @@ pub struct CreateRepoResponse {
     pub clone_url: String,
     pub ssh_url: String,
     pub html_url: String,
+    #[serde(default)]
+    pub empty: bool,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct RepoResponse {
+    pub clone_url: String,
+    pub ssh_url: String,
+    pub html_url: String,
+    #[serde(default)]
+    pub empty: bool,
 }
 
 impl GiteaApiClient {
@@ -128,6 +139,31 @@ impl GiteaApiClient {
             let status = response.status();
             let text = response.text().await?;
             Err(format!("创建远程仓库失败: {} - {}", status, text).into())
+        }
+    }
+
+    /// 查询当前用户下的仓库信息。
+    pub async fn get_repo(&self, repo_name: &str) -> Result<Option<RepoResponse>, Box<dyn std::error::Error>> {
+        if self.user_name.is_empty() || self.password.is_empty() {
+            return Err("必须提供用户名和密码".into());
+        }
+
+        let client = Client::new();
+        let url = format!("{}/api/v1/repos/{}/{}", self.base_url, self.user_name, repo_name);
+        let response = client
+            .get(url)
+            .basic_auth(&self.user_name, Some(&self.password))
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            Ok(Some(response.json().await?))
+        } else if response.status() == StatusCode::NOT_FOUND {
+            Ok(None)
+        } else {
+            let status = response.status();
+            let text = response.text().await?;
+            Err(format!("查询远程仓库失败: {} - {}", status, text).into())
         }
     }
 

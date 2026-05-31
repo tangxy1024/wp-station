@@ -119,6 +119,22 @@ pub struct GiteaConf {
     pub base_url: String,
     pub username: String,
     pub password: String,
+    #[serde(default = "default_repo_startup_strategy")]
+    pub repo_startup_strategy: RepoStartupStrategy,
+}
+
+/// Station 启动时本地双仓库与 Gitea 远端仓库的冲突处理策略。
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RepoStartupStrategy {
+    /// 强制以 Gitea 为准：启动时用远端仓库覆盖本地目录。
+    Gitea,
+    /// 强制以本地为准：启动时用本地仓库覆盖远端 main 分支。
+    Local,
+}
+
+fn default_repo_startup_strategy() -> RepoStartupStrategy {
+    RepoStartupStrategy::Gitea
 }
 
 impl Default for GiteaConf {
@@ -127,6 +143,7 @@ impl Default for GiteaConf {
             base_url: "http://127.0.0.1:3000".to_string(),
             username: "gitea".to_string(),
             password: "123456".to_string(),
+            repo_startup_strategy: default_repo_startup_strategy(),
         }
     }
 }

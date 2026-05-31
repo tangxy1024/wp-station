@@ -5,7 +5,7 @@ use crate::db::{
     init_default_configs_to_models, init_pool,
 };
 use crate::server::release_task_runner::spawn_release_task_runner;
-use crate::server::sync::init_gitea_repo;
+use crate::server::sync::ensure_project_repositories;
 use crate::utils::WarpParseService;
 use crate::utils::check_device_health;
 use crate::{
@@ -160,6 +160,12 @@ pub async fn start() -> std::io::Result<()> {
     // 启动发布任务调度器
     spawn_release_task_runner(setting.warparse.clone());
 
+    ensure_project_repositories().await.map_err(|e| {
+        error!("检查项目 Git 仓库失败: {}", e);
+        std::io::Error::other(format!("检查项目 Git 仓库失败: {}", e))
+    })?;
+    info!("项目 Git 仓库检查完成");
+
     // 双仓库默认配置只补齐缺失文件，不覆盖用户编辑。
     init_default_configs_to_models(&setting.project_models).map_err(|e| {
         error!("加载默认 models 配置失败: {}", e);
@@ -170,20 +176,6 @@ pub async fn start() -> std::io::Result<()> {
         std::io::Error::other(format!("加载默认配置失败: {}", e))
     })?;
     info!("默认配置检查完成");
-
-    let layout = setting.project_layout();
-
-    // 检查双仓库本地 Git 是否已初始化。
-    if !layout.models_root.join(".git").exists() || !layout.infra_root.join(".git").exists() {
-        info!("本地 Git 仓库未初始化，开始初始化双 Gitea 仓库");
-        init_gitea_repo().await.map_err(|e| {
-            error!("初始化 Gitea 仓库失败: {}", e);
-            std::io::Error::other(format!("初始化 Gitea 仓库失败: {}", e))
-        })?;
-        info!("双 Gitea 仓库初始化完成，已创建基线 tag");
-    } else {
-        info!("本地双 Git 仓库已存在，跳过 Gitea 初始化");
-    }
 
     // 启动健康检查后台定时任务
     spawn_health_check_task();
@@ -219,6 +211,8 @@ pub async fn start() -> std::io::Result<()> {
             .service(api::get_version)
             .service(api::get_features_config)
             .service(api::import_project_from_files)
+            .service(api::import_project_archive)
+            .service(api::export_project_archive)
             // 设备管理 API
             .service(api::list_online_devices)
             .service(api::list_devices)

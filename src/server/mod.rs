@@ -54,7 +54,10 @@ pub use operation_log::{
     LogListQuery, OperationLogAction, OperationLogBiz, OperationLogParams, OperationLogStatus,
     list_logs_logic, write_operation_log, write_operation_log_for_result,
 };
-pub use project::import_project_from_files_logic;
+pub use project::{
+    ProjectArchiveExport, export_project_archive_logic, import_project_archive_logic,
+    import_project_from_files_logic,
+};
 pub use release::{
     CreateReleaseRequest, ReleaseActionRequest, ReleaseListQuery, ReleaseTargetActionRequest,
     create_release_logic, get_release_detail_logic, get_release_diff_logic, list_releases_logic,
@@ -76,7 +79,8 @@ pub use sandbox::{
     get_stage_logs_logic, list_sandbox_history_logic, stop_sandbox_run_logic,
 };
 pub use setting::{
-    AssistConf, DatabaseConf, FeaturesConf, LogConf, ProjectLayout, Setting, WebConf,
+    AssistConf, DatabaseConf, FeaturesConf, LogConf, ProjectLayout, RepoStartupStrategy, Setting,
+    WebConf,
 };
 pub use sync::push_and_tag_release;
 pub use system::{

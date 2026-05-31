@@ -2,7 +2,7 @@
 
 use crate::db::{ReleaseGroup, RuleType};
 use crate::error::AppError;
-use crate::server::{ProjectLayout, Setting};
+use crate::server::{ProjectLayout, RepoStartupStrategy, Setting};
 use gitea::{GiteaClient, GiteaConfig};
 use std::path::{Path, PathBuf};
 
@@ -115,11 +115,183 @@ pub async fn init_gitea_repo() -> Result<(), AppError> {
     Ok(())
 }
 
+/// 按启动策略确保本地双仓库与 Gitea 远端仓库处于可用状态。
+pub async fn ensure_project_repositories() -> Result<(), AppError> {
+    if should_skip_gitea_sync() {
+        info!("跳过 Gitea 仓库检查: reason=WARP_STATION_SKIP_GITEA");
+        return Ok(());
+    }
+
+    let setting = Setting::load();
+    let layout = setting.project_layout();
+    let gitea_client = build_gitea_client(&setting)
+        .map_err(|e| AppError::internal(format!("无法连接 Gitea: {}", e)))?;
+
+    ensure_single_project_repository(
+        &setting,
+        &gitea_client,
+        ReleaseGroup::Models,
+        &layout.models_root,
+    )
+    .await?;
+    ensure_single_project_repository(
+        &setting,
+        &gitea_client,
+        ReleaseGroup::Infra,
+        &layout.infra_root,
+    )
+    .await?;
+
+    Ok(())
+}
+
+async fn ensure_single_project_repository(
+    setting: &Setting,
+    gitea_client: &GiteaClient,
+    group: ReleaseGroup,
+    project_path: &Path,
+) -> Result<(), AppError> {
+    let repo_name = repo_name_for_group(group);
+    let local_has_repo = project_path.join(".git").is_dir();
+    let remote_repo = gitea_client.get_repo(repo_name).await.map_err(|e| {
+        AppError::internal(format!(
+            "查询远程仓库失败: repo_name={}, error={}",
+            repo_name, e
+        ))
+    })?;
+    let remote_exists = remote_repo.is_some();
+    let remote_has_data = remote_repo
+        .as_ref()
+        .map(|repo| !repo.empty)
+        .unwrap_or(false);
+
+    info!(
+        "检查项目仓库: group={}, strategy={:?}, local_has_repo={}, remote_exists={}, remote_has_data={}",
+        group.as_ref(),
+        setting.gitea.repo_startup_strategy,
+        local_has_repo,
+        remote_exists,
+        remote_has_data
+    );
+
+    match (local_has_repo, remote_has_data) {
+        (false, true) => {
+            let repo = remote_repo.expect("remote_has_data implies remote repo exists");
+            clone_remote_over_local(gitea_client, &repo.clone_url, project_path, group).await
+        }
+        (false, false) => {
+            init_default_configs_for_group(setting, group)?;
+            init_single_repo(setting, gitea_client, group, project_path).await
+        }
+        (true, false) => {
+            init_default_configs_for_group(setting, group)?;
+            prepare_single_repo(setting, gitea_client, group, project_path, false).await?;
+            force_push_local_repo(gitea_client, project_path, group)
+        }
+        (true, true) => match setting.gitea.repo_startup_strategy {
+            RepoStartupStrategy::Gitea => {
+                let repo = remote_repo.expect("remote_has_data implies remote repo exists");
+                clone_remote_over_local(gitea_client, &repo.clone_url, project_path, group).await
+            }
+            RepoStartupStrategy::Local => {
+                init_default_configs_for_group(setting, group)?;
+                prepare_single_repo(setting, gitea_client, group, project_path, false).await?;
+                force_push_local_repo(gitea_client, project_path, group)
+            }
+        },
+    }
+}
+
+fn init_default_configs_for_group(setting: &Setting, group: ReleaseGroup) -> Result<(), AppError> {
+    match group {
+        ReleaseGroup::Models => crate::db::init_default_configs_to_models(&setting.project_models)
+            .map_err(|e| AppError::internal(format!("初始化 models 默认配置失败: {}", e))),
+        ReleaseGroup::Infra => crate::db::init_default_configs_to_infra(&setting.project_infra)
+            .map_err(|e| AppError::internal(format!("初始化 infra 默认配置失败: {}", e))),
+    }
+}
+
+async fn clone_remote_over_local(
+    gitea_client: &GiteaClient,
+    clone_url: &str,
+    project_path: &Path,
+    group: ReleaseGroup,
+) -> Result<(), AppError> {
+    if project_path.exists() {
+        std::fs::remove_dir_all(project_path).map_err(|e| {
+            AppError::internal(format!(
+                "清理本地项目目录失败: path={}, error={}",
+                project_path.display(),
+                e
+            ))
+        })?;
+    }
+    if let Some(parent) = project_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            AppError::internal(format!(
+                "创建项目父目录失败: path={}, error={}",
+                parent.display(),
+                e
+            ))
+        })?;
+    }
+
+    gitea_client
+        .clone_existing(clone_url, project_path)
+        .await
+        .map_err(|e| {
+            AppError::internal(format!(
+                "从 Gitea clone 项目仓库失败: group={}, error={}",
+                group.as_ref(),
+                e
+            ))
+        })?;
+    info!(
+        "已从 Gitea 恢复项目仓库: group={}, path={}",
+        group.as_ref(),
+        project_path.display()
+    );
+    Ok(())
+}
+
+fn force_push_local_repo(
+    gitea_client: &GiteaClient,
+    project_path: &Path,
+    group: ReleaseGroup,
+) -> Result<(), AppError> {
+    let local_repo = gitea_client.open(project_path).map_err(|e| {
+        AppError::internal(format!(
+            "打开本地仓库失败: group={}, error={}",
+            group.as_ref(),
+            e
+        ))
+    })?;
+    local_repo.force_push().map_err(|e| {
+        AppError::internal(format!(
+            "本地仓库强制覆盖 Gitea 失败: group={}, error={}",
+            group.as_ref(),
+            e
+        ))
+    })?;
+    info!("已用本地仓库强制覆盖 Gitea: group={}", group.as_ref());
+    Ok(())
+}
+
 async fn init_single_repo(
     setting: &Setting,
     gitea_client: &GiteaClient,
     group: ReleaseGroup,
     project_path: &Path,
+) -> Result<(), AppError> {
+    prepare_single_repo(setting, gitea_client, group, project_path, true).await
+}
+
+async fn prepare_single_repo(
+    setting: &Setting,
+    gitea_client: &GiteaClient,
+    group: ReleaseGroup,
+    project_path: &Path,
+    push_main: bool,
 ) -> Result<(), AppError> {
     let repo_name = repo_name_for_group(group);
 
@@ -192,11 +364,15 @@ async fn init_single_repo(
 
     if !status_output.stdout.is_empty() {
         run_git(&["commit", "-m", "初始化配置"], project_path, "git commit")?;
-        run_git(&["push", &auth_url, "main"], project_path, "git push")?;
+        if push_main {
+            run_git(&["push", &auth_url, "main"], project_path, "git push")?;
+        }
     }
 
     ensure_tag_exists(project_path, REPO_BASELINE_TAG)?;
-    push_tag_if_needed(project_path, &auth_url, REPO_BASELINE_TAG)?;
+    if push_main {
+        push_tag_if_needed(project_path, &auth_url, REPO_BASELINE_TAG)?;
+    }
 
     Ok(())
 }
