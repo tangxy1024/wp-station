@@ -34,6 +34,23 @@ export async function importProjectArchive(file) {
   return response.json();
 }
 
+export async function confirmProjectArchiveImport(importId) {
+  const response = await fetch(`${API_BASE}/project/import/archive/confirm`, {
+    method: 'POST',
+    headers: {
+      ...getOperatorHeader(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ import_id: importId }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseErrorResponse(response, '确认导入配置包失败'));
+  }
+
+  return response.json();
+}
+
 export async function importProjectFromFiles({ sourceDir }) {
   const response = await httpRequest.post('/project/import', {
     source_dir: sourceDir,

@@ -4,8 +4,8 @@ use urlencoding::decode;
 
 use crate::error::AppError;
 use crate::server::project::{
-    ProjectImportRequest, export_project_archive_logic, import_project_archive_logic,
-    import_project_from_files_logic,
+    ProjectArchiveConfirmRequest, ProjectImportRequest, confirm_project_archive_import_logic,
+    export_project_archive_logic, import_project_from_files_logic, preview_project_archive_logic,
 };
 
 const MAX_ARCHIVE_BYTES: usize = 200 * 1024 * 1024;
@@ -60,7 +60,18 @@ pub async fn import_project_archive(
         bytes.extend_from_slice(&chunk);
     }
 
-    let resp = import_project_archive_logic(operator, &file_name, bytes.freeze().to_vec()).await?;
+    let resp = preview_project_archive_logic(operator, &file_name, bytes.freeze().to_vec()).await?;
+    Ok(HttpResponse::Ok().json(resp))
+}
+
+#[post("/api/project/import/archive/confirm")]
+pub async fn confirm_project_archive_import(
+    http_req: HttpRequest,
+    req: web::Json<ProjectArchiveConfirmRequest>,
+) -> Result<HttpResponse, AppError> {
+    let operator = operator_from_request(&http_req);
+    let req = req.into_inner();
+    let resp = confirm_project_archive_import_logic(operator, &req.import_id).await?;
     Ok(HttpResponse::Ok().json(resp))
 }
 

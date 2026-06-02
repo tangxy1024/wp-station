@@ -4,8 +4,14 @@ import { DatePicker, Input, Modal, Table, Select, Checkbox, Spin, Radio } from '
 import { useNavigate } from 'react-router-dom';
 import { fetchReleases, publishRelease, validateRelease } from '@/services/release';
 import { fetchOnlineConnections } from '@/services/connection';
-import { downloadBlob, exportProjectArchive, importProjectArchive } from '@/services/project';
+import {
+  confirmProjectArchiveImport,
+  downloadBlob,
+  exportProjectArchive,
+  importProjectArchive,
+} from '@/services/project';
 import ValidateResultModal from '@/components/ValidateResultModal';
+import ProjectImportResult from '@/views/components/ProjectImportResult';
 
 /**
  * 系统发布列表页面
@@ -287,33 +293,50 @@ function SystemReleasePage() {
       return;
     }
 
-    Modal.confirm({
-      title: t('systemRelease.importArchiveConfirmTitle'),
-      content: t('systemRelease.importArchiveConfirmMessage', { file: file.name }),
-      okText: t('common.confirm'),
-      cancelText: t('common.cancel'),
-      onOk: async () => {
-        setImportingArchive(true);
-        try {
-          const result = await importProjectArchive(file);
-          Modal.success({
-            title: t('systemRelease.importArchiveSuccessTitle'),
-            content: t('systemRelease.importArchiveSuccessMessage', {
-              rules: result?.summary?.rules_imported ?? 0,
-              knowledge: result?.summary?.knowledge_imported ?? 0,
-            }),
-          });
-          loadReleases();
-        } catch (error) {
-          Modal.error({
-            title: t('systemRelease.importArchiveFailedTitle'),
-            content: error?.message || t('systemRelease.importArchiveFailedMessage'),
-          });
-        } finally {
-          setImportingArchive(false);
-        }
-      },
-    });
+    setImportingArchive(true);
+    try {
+      const preview = await importProjectArchive(file);
+      Modal.confirm({
+        title: t('systemRelease.importArchiveConfirmTitle'),
+        content: (
+          <div style={{ lineHeight: 1.7, marginTop: 8 }}>
+            <p>{t('systemRelease.importArchivePreviewMessage', { file: file.name })}</p>
+            <ProjectImportResult result={preview} showPaths={false} />
+          </div>
+        ),
+        width: 720,
+        okText: t('common.confirm'),
+        cancelText: t('common.cancel'),
+        onOk: async () => {
+          setImportingArchive(true);
+          try {
+            const result = await confirmProjectArchiveImport(preview.import_id);
+            Modal.success({
+              title: t('systemRelease.importArchiveSuccessTitle'),
+              content: t('systemRelease.importArchiveSuccessMessage', {
+                rules: result?.summary?.rules_imported ?? 0,
+                knowledge: result?.summary?.knowledge_imported ?? 0,
+              }),
+            });
+            loadReleases();
+          } catch (error) {
+            Modal.error({
+              title: t('systemRelease.importArchiveFailedTitle'),
+              content: error?.message || t('systemRelease.importArchiveFailedMessage'),
+            });
+          } finally {
+            setImportingArchive(false);
+          }
+        },
+      });
+    } catch (error) {
+      Modal.error({
+        title: t('systemRelease.importArchiveFailedTitle'),
+        content: error?.message || t('systemRelease.importArchiveFailedMessage'),
+      });
+    } finally {
+      setImportingArchive(false);
+    }
   };
 
   const handleExportArchive = async () => {

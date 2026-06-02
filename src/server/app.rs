@@ -212,6 +212,7 @@ pub async fn start() -> std::io::Result<()> {
             .service(api::get_features_config)
             .service(api::import_project_from_files)
             .service(api::import_project_archive)
+            .service(api::confirm_project_archive_import)
             .service(api::export_project_archive)
             // 设备管理 API
             .service(api::list_online_devices)

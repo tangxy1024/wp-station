@@ -24,8 +24,8 @@ base_url = "http://localhost:3000"
 username = "gitea"
 password = "123456"
 # 启动时双仓库同步策略：gitea / local
-# gitea: 当本地和远端都存在时，以 Gitea 为准覆盖本地
-# local: 当本地和远端都存在时，以本地为准覆盖 Gitea
+# gitea: 容器内不存在时，以 Gitea 为准覆盖本地
+# local: 当本地仓库存在，以本地为准覆盖 Gitea
 repo_startup_strategy = "gitea"
 
 [assist]

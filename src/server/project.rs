@@ -2,6 +2,7 @@ use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::Utc;
 use flate2::Compression;
@@ -23,6 +24,7 @@ use crate::utils::project_check::check_component_in_dir;
 use crate::utils::{ProjectSnapshot, load_project_snapshot_from_layout};
 
 const LEGACY_REQUIRED_DIRS: [&str; 4] = ["conf", "connectors", "topology", "models"];
+const ARCHIVE_IMPORT_STAGING_DIR: &str = "project-archive-imports";
 
 #[derive(Debug, Deserialize)]
 pub struct ProjectImportRequest {
@@ -59,6 +61,19 @@ pub struct ProjectImportBreakdown {
 pub struct ProjectImportValidation {
     pub passed: bool,
     pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ProjectArchiveConfirmRequest {
+    pub import_id: String,
+}
+
+#[derive(Serialize)]
+pub struct ProjectArchivePreviewResponse {
+    pub import_id: String,
+    pub file_name: String,
+    pub summary: ProjectImportSummary,
+    pub validation: ProjectImportValidation,
 }
 
 pub struct ProjectArchiveExport {
@@ -105,26 +120,59 @@ pub async fn import_project_from_files_logic(
     result
 }
 
-pub async fn import_project_archive_logic(
+pub async fn preview_project_archive_logic(
     operator: Option<String>,
     file_name: &str,
     bytes: Vec<u8>,
-) -> Result<ProjectImportResponse, AppError> {
-    let temp = tempdir().map_err(AppError::internal)?;
-    let archive_path = temp.path().join(sanitize_upload_name(file_name)?);
+) -> Result<ProjectArchivePreviewResponse, AppError> {
+    let _ = operator;
+    let import_id = new_archive_import_id();
+    let staging_root = archive_import_staging_root();
+    fs::create_dir_all(&staging_root).map_err(AppError::internal)?;
+    let import_dir = staging_root.join(&import_id);
+    fs::create_dir_all(&import_dir).map_err(AppError::internal)?;
+    let archive_path = import_dir.join(sanitize_upload_name(file_name)?);
     fs::write(&archive_path, bytes).map_err(AppError::internal)?;
-    let extract_dir = temp.path().join("extract");
+    let extract_dir = import_dir.join("extract");
     fs::create_dir_all(&extract_dir).map_err(AppError::internal)?;
     extract_archive(file_name, &archive_path, &extract_dir)?;
 
     let project_dir = find_import_project_root(&extract_dir)?;
+    let summary = validate_project_import_preview(&project_dir)?;
+
+    Ok(ProjectArchivePreviewResponse {
+        import_id,
+        file_name: file_name.to_string(),
+        summary,
+        validation: ProjectImportValidation {
+            passed: true,
+            message: "归档校验通过，请确认导入".to_string(),
+        },
+    })
+}
+
+pub async fn confirm_project_archive_import_logic(
+    operator: Option<String>,
+    import_id: &str,
+) -> Result<ProjectImportResponse, AppError> {
+    let import_dir = archive_import_dir(import_id)?;
+    let project_dir_file = import_dir.join("project_dir.txt");
+    let project_dir = fs::read_to_string(&project_dir_file)
+        .map_err(|e| AppError::validation(format!("导入暂存记录不存在或已过期: {}", e)))?;
+    let project_dir = PathBuf::from(project_dir.trim());
+    if !project_dir.is_dir() {
+        return Err(AppError::validation(
+            "导入暂存目录不存在或已过期".to_string(),
+        ));
+    }
+
     let setting = Setting::load();
     let layout = setting.project_layout();
     let result = import_project_dir(&project_dir, &layout, "归档覆盖导入并校验通过").await;
 
     let mut log_params = OperationLogParams::new()
-        .with_target_name(file_name)
-        .with_field("archive", file_name)
+        .with_target_name(import_id)
+        .with_field("import_id", import_id)
         .with_field("source", project_dir.to_string_lossy().to_string());
     if let Some(operator) = operator {
         log_params = log_params.with_operator(operator);
@@ -147,6 +195,17 @@ pub async fn import_project_archive_logic(
         &result,
     )
     .await;
+
+    if result.is_ok()
+        && let Err(err) = fs::remove_dir_all(&import_dir)
+    {
+        warn!(
+            "清理导入暂存目录失败: import_id={}, path={}, error={}",
+            import_id,
+            import_dir.display(),
+            err
+        );
+    }
 
     result
 }
@@ -275,6 +334,70 @@ fn normalize_source_dir(raw: &str) -> Result<PathBuf, AppError> {
     Ok(normalized)
 }
 
+fn archive_import_staging_root() -> PathBuf {
+    std::env::temp_dir().join(ARCHIVE_IMPORT_STAGING_DIR)
+}
+
+fn new_archive_import_id() -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    format!("import-{}-{}", std::process::id(), millis)
+}
+
+fn archive_import_dir(import_id: &str) -> Result<PathBuf, AppError> {
+    let valid = !import_id.is_empty()
+        && import_id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_');
+    if !valid {
+        return Err(AppError::validation("导入任务 ID 无效".to_string()));
+    }
+    Ok(archive_import_staging_root().join(import_id))
+}
+
+fn validate_project_import_preview(source_dir: &Path) -> Result<ProjectImportSummary, AppError> {
+    validate_legacy_project_dir(source_dir)?;
+    check_component_in_dir(source_dir, RuleType::All.to_check_component())?;
+
+    let snapshot = crate::utils::load_project_snapshot(source_dir)?;
+    if snapshot.rules.is_empty() && snapshot.knowledge.is_empty() {
+        return Err(AppError::validation(
+            "导入包中未找到可导入的规则或知识库".to_string(),
+        ));
+    }
+
+    let ProjectSnapshot {
+        rules,
+        knowledge,
+        rule_stats,
+        warnings,
+        failed_files,
+    } = snapshot;
+    let mut breakdown: Vec<ProjectImportBreakdown> = rule_stats
+        .into_iter()
+        .map(|(rule_type, count)| ProjectImportBreakdown {
+            rule_type: rule_type.as_ref().to_string(),
+            count,
+        })
+        .collect();
+    breakdown.sort_by(|a, b| a.rule_type.cmp(&b.rule_type));
+
+    Ok(ProjectImportSummary {
+        rules_deleted: 0,
+        rules_imported: rules.len(),
+        knowledge_deleted: 0,
+        knowledge_imported: knowledge.len(),
+        rule_breakdown: breakdown,
+        warnings,
+        failed_files,
+        source_dir: source_dir.to_string_lossy().to_string(),
+        project_models: "preview".to_string(),
+        project_infra: "preview".to_string(),
+    })
+}
+
 fn sanitize_upload_name(file_name: &str) -> Result<String, AppError> {
     let name = Path::new(file_name)
         .file_name()
@@ -386,7 +509,9 @@ fn safe_join(root: &Path, relative: &Path) -> Result<PathBuf, AppError> {
 
 fn find_import_project_root(extract_dir: &Path) -> Result<PathBuf, AppError> {
     if is_default_configs_layout(extract_dir) || is_split_repo_layout(extract_dir) {
-        return normalize_import_root(extract_dir);
+        let normalized = normalize_import_root(extract_dir)?;
+        persist_preview_project_dir(extract_dir, &normalized)?;
+        return Ok(normalized);
     }
 
     let mut dirs = Vec::new();
@@ -398,13 +523,26 @@ fn find_import_project_root(extract_dir: &Path) -> Result<PathBuf, AppError> {
     }
 
     if dirs.len() == 1 && (is_default_configs_layout(&dirs[0]) || is_split_repo_layout(&dirs[0])) {
-        normalize_import_root(&dirs[0])
+        let normalized = normalize_import_root(&dirs[0])?;
+        persist_preview_project_dir(extract_dir, &normalized)?;
+        Ok(normalized)
     } else {
         Err(AppError::validation(
             "压缩包结构无效，需包含 conf/connectors/models/topology 或 project_models/project_infra"
                 .to_string(),
         ))
     }
+}
+
+fn persist_preview_project_dir(extract_dir: &Path, project_dir: &Path) -> Result<(), AppError> {
+    let Some(import_dir) = extract_dir.parent() else {
+        return Ok(());
+    };
+    fs::write(
+        import_dir.join("project_dir.txt"),
+        project_dir.to_string_lossy().as_ref(),
+    )
+    .map_err(AppError::internal)
 }
 
 fn is_default_configs_layout(dir: &Path) -> bool {
