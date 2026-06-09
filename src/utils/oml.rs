@@ -48,24 +48,14 @@ impl OmlFormatter {
 
     /// 对外入口：返回格式化结果或具体错误信息。
     pub fn format_content(&self, content: &str) -> Result<String, OmlFormatError> {
-        self.format_with_error(content)
+        let tokens = tokenize(content)?;
+        Ok(format_tokens(&tokens, self.indent))
     }
 
     /// 兼容旧行为：格式化失败时回退为原内容，保证调用方不崩溃。
     pub fn format_content_or_original(&self, content: &str) -> String {
-        self.format_with_error(content)
+        self.format_content(content)
             .unwrap_or_else(|_| content.to_string())
-    }
-
-    /// 对外提供可返回错误信息的格式化接口。
-    pub fn format_with_error(&self, content: &str) -> Result<String, OmlFormatError> {
-        self.format(content)
-    }
-
-    /// 主格式化流程：使用 tree-sitter 校验语法，再按 token 规则重排输出。
-    fn format(&self, content: &str) -> Result<String, OmlFormatError> {
-        let tokens = tokenize(content)?;
-        Ok(format_tokens(&tokens, self.indent))
     }
 }
 
@@ -80,6 +70,7 @@ enum Symbol {
     Comma,
     Semicolon,
     Colon,
+    DoubleColon,
     Equal,
     FatArrow,
     Pipe,
@@ -91,6 +82,7 @@ enum TokenKind {
     Word,
     StringLiteral,
     Comment,
+    BlankLine,
     Symbol(Symbol),
 }
 
@@ -106,17 +98,28 @@ fn tokenize(input: &str) -> Result<Vec<Token>, OmlFormatError> {
     let mut tokens = Vec::new();
     let input_len = input.len();
 
+    let mut consecutive_newlines = 0u32;
     while let Some((idx, ch)) = iter.next() {
         if ch.is_whitespace() {
             if ch == '\n' {
                 line = line.saturating_add(1);
+                consecutive_newlines += 1;
             }
             continue;
         }
 
+        if consecutive_newlines >= 2 {
+            tokens.push(Token {
+                kind: TokenKind::BlankLine,
+                text: String::new(),
+            });
+        }
+        consecutive_newlines = 0;
+
         if ch == '#' {
             let start = idx;
             let mut end = input_len;
+            // 当注释内容包含换行符时，注释结束位置为换行符位置
             while let Some(&(next_idx, next_ch)) = iter.peek() {
                 if next_ch == '\n' {
                     end = next_idx;
@@ -131,6 +134,7 @@ fn tokenize(input: &str) -> Result<Vec<Token>, OmlFormatError> {
             continue;
         }
 
+        // 双斜杠的注释，直到换行符结束
         if ch == '/' && matches!(iter.peek().map(|(_, c)| *c), Some('/')) {
             let start = idx;
             iter.next();
@@ -231,7 +235,12 @@ fn tokenize(input: &str) -> Result<Vec<Token>, OmlFormatError> {
                 continue;
             }
             ':' => {
-                tokens.push(symbol_token(Symbol::Colon, ":"));
+                if matches!(iter.peek().map(|(_, c)| *c), Some(':')) {
+                    tokens.push(symbol_token(Symbol::DoubleColon, "::"));
+                    iter.next();
+                } else {
+                    tokens.push(symbol_token(Symbol::Colon, ":"));
+                }
                 continue;
             }
             '|' => {
@@ -299,6 +308,7 @@ fn format_tokens(tokens: &[Token], indent_spaces: usize) -> String {
     let mut paren_level = 0usize;
     let mut bracket_level = 0usize;
     let mut brace_level = 0usize;
+    let mut just_had_blank_line = false;
 
     let mut i = 0usize;
     while i < tokens.len() {
@@ -320,6 +330,7 @@ fn format_tokens(tokens: &[Token], indent_spaces: usize) -> String {
                 newline(&mut out, &mut line_empty);
                 // 头部与主体之间保留一个空行。
                 newline(&mut out, &mut line_empty);
+                just_had_blank_line = true;
                 i += 1;
                 continue;
             }
@@ -338,6 +349,17 @@ fn format_tokens(tokens: &[Token], indent_spaces: usize) -> String {
                 i += 1;
                 continue;
             }
+            TokenKind::BlankLine => {
+                if !just_had_blank_line {
+                    if !line_empty {
+                        newline(&mut out, &mut line_empty);
+                    }
+                    newline(&mut out, &mut line_empty);
+                    just_had_blank_line = true;
+                }
+                i += 1;
+                continue;
+            }
             _ => {}
         }
 
@@ -345,6 +367,7 @@ fn format_tokens(tokens: &[Token], indent_spaces: usize) -> String {
             newline(&mut out, &mut line_empty);
         }
 
+        just_had_blank_line = false;
         match &token.kind {
             TokenKind::Symbol(Symbol::LBrace) => {
                 if needs_space_before(token, tokens.get(i.wrapping_sub(1))) {
@@ -366,7 +389,6 @@ fn format_tokens(tokens: &[Token], indent_spaces: usize) -> String {
                     next.map(|t| &t.kind),
                     Some(TokenKind::Symbol(Symbol::Semicolon))
                 ) {
-                    write_raw(&mut out, &mut line_empty, " ");
                     write_raw(&mut out, &mut line_empty, ";");
                     newline(&mut out, &mut line_empty);
                     i += 1;
@@ -375,9 +397,6 @@ fn format_tokens(tokens: &[Token], indent_spaces: usize) -> String {
                 }
             }
             TokenKind::Symbol(Symbol::Semicolon) => {
-                if !out.ends_with(' ') && !out.ends_with('\n') {
-                    write_raw(&mut out, &mut line_empty, " ");
-                }
                 write_raw(&mut out, &mut line_empty, ";");
                 newline(&mut out, &mut line_empty);
             }
@@ -426,6 +445,9 @@ fn format_tokens(tokens: &[Token], indent_spaces: usize) -> String {
                     write_raw(&mut out, &mut line_empty, " ");
                 }
             }
+            TokenKind::Symbol(Symbol::DoubleColon) => {
+                write_raw(&mut out, &mut line_empty, "::");
+            }
             TokenKind::Symbol(Symbol::LParen) => {
                 if is_match_prefix(tokens.get(i.wrapping_sub(1))) {
                     write_raw(&mut out, &mut line_empty, " ");
@@ -457,7 +479,7 @@ fn format_tokens(tokens: &[Token], indent_spaces: usize) -> String {
                     &token.text,
                 );
             }
-            TokenKind::Symbol(Symbol::Separator) | TokenKind::Comment => {}
+            TokenKind::Symbol(Symbol::Separator) | TokenKind::Comment | TokenKind::BlankLine => {}
         }
 
         i += 1;
@@ -508,6 +530,7 @@ fn needs_space_before(current: &Token, prev: Option<&Token>) -> bool {
                 | Symbol::Pipe
                 | Symbol::Equal
                 | Symbol::Colon
+                | Symbol::DoubleColon
                 | Symbol::FatArrow
                 | Symbol::Comma
         )

@@ -374,7 +374,7 @@ pub fn oml_format_logic(code: String) -> Result<String, AppError> {
 
     let formatter = OmlFormatter::new();
     formatter
-        .format_with_error(&code)
+        .format_content(&code)
         .map_err(|e| AppError::validation(format!("格式化 OML 代码失败: {}", e)))
 }
 
