@@ -197,8 +197,17 @@ endpoint = "ps://127.0.0.1:6650"
     let output = fs::read_to_string(workspace.project_dir.join("topology/sources/wpsrc.toml"))
         .expect("read patched source config");
 
-    assert!(output.contains("key = \"gen_udp\"\nenable = true\nconnect = \"syslog_udp_src\""));
-    assert!(output.contains("[sources.params]\naddr = \"127.0.0.1\"\nport = 31601"));
+    assert!(
+        output
+            .contains("key = \"gen_udp\"\nenable = true\nconnect = \"syslog_udp_src\"\ntags = []"),
+        "sandbox source should rewrite target source block: {output}"
+    );
+    assert!(
+        output.contains(
+            "[sources.params]\naddr = \"0.0.0.0\"\nport = 31601\nprotocol = \"udp\"\nheader_mode = \"keep\""
+        ),
+        "sandbox source should use fixed runtime params: {output}"
+    );
     assert!(output.contains("key = \"gen_kafka\"\nenable = false\nconnect = \"kafka_src\""));
     assert!(output.contains("key = \"gen_ps\"\nenable = false\nconnect = \"ps_src\""));
 
@@ -232,6 +241,39 @@ fn sandbox_prepare_overrides_infra_sinks_with_defaults() {
     assert!(
         !content.contains("version = \"9.9\""),
         "sandbox should not keep user customized infra sink content: {content}"
+    );
+
+    let _ = fs::remove_dir_all(workspace.root);
+}
+
+#[test]
+fn sandbox_prepare_overrides_wpgen_output_runtime() {
+    let runtime = tokio::runtime::Runtime::new().expect("create runtime");
+    runtime.block_on(setup_db());
+
+    let wpgen_file = test_infra_root().join("conf/wpgen.toml");
+    fs::write(
+        &wpgen_file,
+        r#"[output]
+connect = "custom_sink"
+
+[output.params]
+addr = "127.0.0.1"
+port = 9999
+"#,
+    )
+    .expect("write custom wpgen config");
+
+    let workspace =
+        SandboxWorkspace::prepare("sandbox-wpgen-runtime", &[]).expect("prepare sandbox workspace");
+    let content = fs::read_to_string(workspace.project_dir.join("conf/wpgen.toml"))
+        .expect("read patched wpgen config");
+
+    assert!(content.contains("[output]\nconnect = \"udp_out_sink\""));
+    assert!(content.contains("[output.params]\naddr = \"0.0.0.0\"\nport = 31601"));
+    assert!(
+        !content.contains("protocol = "),
+        "sandbox wpgen output params should not keep protocol override: {content}"
     );
 
     let _ = fs::remove_dir_all(workspace.root);

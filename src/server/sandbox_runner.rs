@@ -19,6 +19,8 @@ use super::sandbox::{
     Conclusion, DiagnosticHit, FileOverride, OutputFileStatus, RunOptions, SandboxStage,
     SandboxState, SandboxTaskHandle, StageStatus, TaskStatus,
 };
+···
+const DAEMON_READY_BEFORE_WPGEN_WAIT_MS: u64 = 1_000;
 
 /// 在独立 Tokio 任务中执行沙盒运行，结束后回调队列。
 pub fn spawn_sandbox_execution(state: SandboxState, task: Arc<SandboxTaskHandle>) {
@@ -416,6 +418,7 @@ async fn stage_run_wpgen(
 ) -> Result<String, StageError> {
     let workspace = resources.workspace()?.clone();
     let log_path = workspace.log_path("wpgen.log");
+    sleep(Duration::from_millis(DAEMON_READY_BEFORE_WPGEN_WAIT_MS)).await;
     let output = sandbox::run_wpgen(
         &workspace.project_dir,
         &log_path,
@@ -445,8 +448,8 @@ async fn stage_run_wpgen(
     metrics.wpgen_generated = Some(count);
 
     Ok(format!(
-        "wpgen已启动, 已发送{}条消息。命令: {}",
-        count, output.command_line
+        "wparse监听稳定等待{}ms后，wpgen已启动, 已发送{}条消息。命令: {}",
+        DAEMON_READY_BEFORE_WPGEN_WAIT_MS, count, output.command_line
     ))
 }
 
@@ -492,10 +495,14 @@ async fn stage_analyse_runtime_output(
     )
     .await;
 
+    if let Some(daemon) = resources.daemon.take() {
+        daemon.terminate().await.map_err(to_stage_error)?;
+    }
+
     if analysis.passed {
         Ok(format!(
-            "已模拟{}条消息，成功输出{}条。",
-            expected_success, analysis.metrics.output_count
+            "已等待{}ms 收集输出并关闭wparse；已模拟{}条消息，成功输出{}条。",
+            wait_ms, expected_success, analysis.metrics.output_count
         ))
     } else {
         let mut details: Vec<String> = analysis

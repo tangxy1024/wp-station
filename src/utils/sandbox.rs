@@ -21,7 +21,8 @@ use crate::db::default_rules_loader::runtime_default_configs_dir;
 use crate::error::AppError;
 use crate::server::{FileOverride, Setting, sandbox::OutputFileStatus};
 use crate::utils::common::{
-    BUSINESS_SINK_OVERRIDE, OUTPUT_PATHS, SANDBOX_RUNTIME_OUTPUT_CONNECTOR,
+    BUSINESS_SINK_OVERRIDE, OUTPUT_PATHS, SANDBOX_RUNTIME_HEADER_MODE, SANDBOX_RUNTIME_OUTPUT_ADDR,
+    SANDBOX_RUNTIME_OUTPUT_CONNECTOR, SANDBOX_RUNTIME_PROTOCOL, SANDBOX_RUNTIME_SOURCE_ADDR,
     SANDBOX_RUNTIME_SOURCE_CONNECTOR, SANDBOX_RUNTIME_SOURCE_KEY, SANDBOX_RUNTIME_UDP_PORT,
 };
 use crate::utils::compose_project_layout_into;
@@ -233,12 +234,18 @@ impl SandboxOverrideSpec {
         match self.kind {
             SandboxOverrideKind::PatchWparseAdminApi => "admin_api.enabled=false".to_string(),
             SandboxOverrideKind::PatchWpsrcRuntime => format!(
-                "仅保留沙盒 UDP 输入: connect={}, port={}, 其他 source 全部 disable",
-                SANDBOX_RUNTIME_SOURCE_CONNECTOR, SANDBOX_RUNTIME_UDP_PORT
+                "仅保留沙盒 UDP 输入: connect={}, addr={}, port={}, protocol={}, header_mode={}, 其他 source 全部 disable",
+                SANDBOX_RUNTIME_SOURCE_CONNECTOR,
+                SANDBOX_RUNTIME_SOURCE_ADDR,
+                SANDBOX_RUNTIME_UDP_PORT,
+                SANDBOX_RUNTIME_PROTOCOL,
+                SANDBOX_RUNTIME_HEADER_MODE
             ),
             SandboxOverrideKind::PatchWpgenRuntime => format!(
-                "connect={}, port={}",
-                SANDBOX_RUNTIME_OUTPUT_CONNECTOR, SANDBOX_RUNTIME_UDP_PORT
+                "connect={}, addr={}, port={}",
+                SANDBOX_RUNTIME_OUTPUT_CONNECTOR,
+                SANDBOX_RUNTIME_OUTPUT_ADDR,
+                SANDBOX_RUNTIME_UDP_PORT
             ),
             SandboxOverrideKind::RewriteBusinessSink => "已固定复写为沙盒输出 sink".to_string(),
         }
@@ -368,11 +375,12 @@ fn patch_wpsrc_runtime(content: &str) -> Result<String, AppError> {
     )
 }
 
-/// 将 wpgen.toml 的输出 connector 与端口切到沙盒运行时值。
+/// 将 wpgen.toml 的输出 connector、addr 与端口切到沙盒运行时值。
 fn patch_wpgen_runtime(content: &str) -> Result<String, AppError> {
     patch_wpgen_output_runtime(
         content,
         SANDBOX_RUNTIME_OUTPUT_CONNECTOR,
+        SANDBOX_RUNTIME_OUTPUT_ADDR,
         SANDBOX_RUNTIME_UDP_PORT,
     )
 }
@@ -478,43 +486,20 @@ fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result
 
         if is_target {
             *found_target = true;
-
-            if let Some(index) = *block_connect_index
-                && let Some(line) = block_lines.get(index)
-            {
-                let indent = line
-                    .chars()
-                    .take_while(|ch| ch.is_whitespace())
-                    .collect::<String>();
-                block_lines[index] = format!("{indent}connect = \"{connect}\"");
-                *patched_connect = true;
-            } else {
-                let insert_at = source_block_insert_after_key(block_lines, *block_key_index);
-                block_lines.insert(insert_at, format!("connect = \"{connect}\""));
-                *patched_connect = true;
-            }
-
-            patch_or_insert_source_enable(block_lines, block_enable_index, *block_key_index, true);
-
-            if let Some(index) = *block_port_index {
-                if let Some(line) = block_lines.get(index) {
-                    let indent = line
-                        .chars()
-                        .take_while(|ch| ch.is_whitespace())
-                        .collect::<String>();
-                    block_lines[index] = format!("{indent}port = {port}");
-                    *patched_port = true;
-                }
-            } else {
-                if !*block_has_params_section {
-                    if !block_lines.last().is_none_or(|line| line.trim().is_empty()) {
-                        block_lines.push(String::new());
-                    }
-                    block_lines.push("[sources.params]".to_string());
-                }
-                block_lines.push(format!("port = {port}"));
-                *patched_port = true;
-            }
+            block_lines.clear();
+            block_lines.push("[[sources]]".to_string());
+            block_lines.push(format!("key = \"{}\"", SANDBOX_RUNTIME_SOURCE_KEY));
+            block_lines.push("enable = true".to_string());
+            block_lines.push(format!("connect = \"{connect}\""));
+            block_lines.push("tags = []".to_string());
+            block_lines.push(String::new());
+            block_lines.push("[sources.params]".to_string());
+            block_lines.push(format!("addr = \"{}\"", SANDBOX_RUNTIME_SOURCE_ADDR));
+            block_lines.push(format!("port = {port}"));
+            block_lines.push(format!("protocol = \"{}\"", SANDBOX_RUNTIME_PROTOCOL));
+            block_lines.push(format!("header_mode = \"{}\"", SANDBOX_RUNTIME_HEADER_MODE));
+            *patched_connect = true;
+            *patched_port = true;
         } else {
             patch_or_insert_source_enable(block_lines, block_enable_index, *block_key_index, false);
         }
@@ -621,9 +606,13 @@ fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result
         lines.push(format!("key = \"{}\"", SANDBOX_RUNTIME_SOURCE_KEY));
         lines.push("enable = true".to_string());
         lines.push(format!("connect = \"{connect}\""));
+        lines.push("tags = []".to_string());
         lines.push(String::new());
         lines.push("[sources.params]".to_string());
+        lines.push(format!("addr = \"{}\"", SANDBOX_RUNTIME_SOURCE_ADDR));
         lines.push(format!("port = {port}"));
+        lines.push(format!("protocol = \"{}\"", SANDBOX_RUNTIME_PROTOCOL));
+        lines.push(format!("header_mode = \"{}\"", SANDBOX_RUNTIME_HEADER_MODE));
         patched_connect = true;
         patched_port = true;
     }
@@ -678,25 +667,41 @@ fn patch_or_insert_source_enable(
     *block_enable_index = Some(insert_at);
 }
 
-/// 在保留原格式与注释的前提下，仅更新 wpgen.toml 的输出 connector 和端口。
-fn patch_wpgen_output_runtime(content: &str, connect: &str, port: u16) -> Result<String, AppError> {
+/// 在保留原格式与注释的前提下，仅更新 wpgen.toml 的输出 connector、addr 和端口。
+fn patch_wpgen_output_runtime(
+    content: &str,
+    connect: &str,
+    addr: &str,
+    port: u16,
+) -> Result<String, AppError> {
     let mut lines = Vec::new();
     let mut in_output = false;
     let mut in_output_params = false;
     let mut found_output = false;
     let mut found_output_params = false;
     let mut patched_connect = false;
-    let mut patched_port = false;
+    let mut rewritten_output_params = false;
 
     for line in content.lines() {
         let trimmed = line.trim();
         let is_section = trimmed.starts_with('[') && trimmed.ends_with(']');
+
+        if in_output_params && !is_section {
+            continue;
+        }
 
         if is_section {
             in_output = trimmed == "[output]";
             in_output_params = trimmed == "[output.params]";
             found_output |= in_output;
             found_output_params |= in_output_params;
+            if in_output_params {
+                lines.push(line.to_string());
+                lines.push(format!("addr = \"{addr}\""));
+                lines.push(format!("port = {port}"));
+                rewritten_output_params = true;
+                continue;
+            }
         }
 
         if in_output && trimmed.starts_with("connect") {
@@ -709,16 +714,6 @@ fn patch_wpgen_output_runtime(content: &str, connect: &str, port: u16) -> Result
             continue;
         }
 
-        if in_output_params && trimmed.starts_with("port") {
-            let indent = line
-                .chars()
-                .take_while(|ch| ch.is_whitespace())
-                .collect::<String>();
-            lines.push(format!("{indent}port = {port}"));
-            patched_port = true;
-            continue;
-        }
-
         lines.push(line.to_string());
     }
 
@@ -728,9 +723,9 @@ fn patch_wpgen_output_runtime(content: &str, connect: &str, port: u16) -> Result
         ));
     }
 
-    if !found_output_params || !patched_port {
+    if !found_output_params || !rewritten_output_params {
         return Err(AppError::validation(
-            "wpgen.toml 缺少 [output.params] 或 port 配置，无法应用沙盒输出覆盖".to_string(),
+            "wpgen.toml 缺少 [output.params] 或 addr/port 配置，无法应用沙盒输出覆盖".to_string(),
         ));
     }
 

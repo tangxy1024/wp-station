@@ -61,7 +61,7 @@ pub const SANDBOX_RUNTIME_SOURCE_KEY: &str = "gen_udp";
 /// 沙盒运行时要求存在的 source connector。
 pub const SANDBOX_RUNTIME_SOURCE_CONNECTOR: &str = "syslog_udp_src";
 /// 沙盒运行时 wpgen 输出 connector。
-pub const SANDBOX_RUNTIME_OUTPUT_CONNECTOR: &str = "syslog_udp_sink";
+pub const SANDBOX_RUNTIME_OUTPUT_CONNECTOR: &str = "udp_out_sink";
 /// 沙盒 UDP source 的默认监听地址。
 pub const SANDBOX_RUNTIME_SOURCE_ADDR: &str = "0.0.0.0";
 /// 沙盒 UDP 输出的默认目标地址。
@@ -69,7 +69,7 @@ pub const SANDBOX_RUNTIME_OUTPUT_ADDR: &str = "0.0.0.0";
 /// 沙盒运行时统一使用 UDP 协议。
 pub const SANDBOX_RUNTIME_PROTOCOL: &str = "udp";
 /// 沙盒 syslog source 的头处理模式。
-pub const SANDBOX_RUNTIME_HEADER_MODE: &str = "strip";
+pub const SANDBOX_RUNTIME_HEADER_MODE: &str = "keep";
 
 /// Sandbox 日志截断最大行数
 pub const MAX_LINES: usize = 500;
