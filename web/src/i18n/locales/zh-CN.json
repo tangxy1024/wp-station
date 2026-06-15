@@ -493,7 +493,7 @@
     "importArchiveInvalidTitle": "文件格式不支持",
     "importArchiveInvalidMessage": "请选择 tar、tar.gz、tgz 或 zip 格式的配置包。",
     "importArchiveConfirmTitle": "导入配置包",
-    "importArchivePreviewMessage": "配置包 {{file}} 校验通过。确认后将覆盖当前 project_models 和 project_infra，并立即同步到 Gitea。",
+    "importArchivePreviewMessage": "配置包 {{file}} 校验通过。确认后将按归档中包含的目录覆盖当前 project_models / project_infra，并立即同步到 Gitea。",
     "importArchivePreviewSummary": "规则文件：{{rules}} 个；知识库：{{knowledge}} 个；失败文件：{{failed}} 个。",
     "importArchiveSuccessTitle": "导入成功",
     "importArchiveSuccessMessage": "已导入 {{rules}} 个规则文件、{{knowledge}} 个知识库配置，并已同步到 Gitea。",
@@ -597,7 +597,13 @@
     "draftLabel": "草稿",
     "diffGroupCurrentVsPrevious": "当前工作区 vs 上一个已发布版本",
     "diffGroupVersionVsPrevious": "{{current}} vs {{previous}}",
-    "diffGroupVersionVsInitial": "{{current}} vs 初始版本"
+    "diffGroupVersionVsInitial": "{{current}} vs 初始版本",
+    "fileChangeSummary": "文件变更统计",
+    "changedFilesSummary": "修改文件",
+    "deletedFilesSummary": "删除文件",
+    "addedFilesSummary": "新增文件",
+    "noFileChangesInCategory": "当前分类没有文件变更",
+    "jumpToDiff": "点击跳转到对应差异"
   },
   "connectionManage": {
     "title": "连接管理",
@@ -727,6 +733,8 @@
     "initImportProjectModels": "Models 目录",
     "initImportProjectInfra": "Infra 目录",
     "initImportWarnings": "警告",
+    "initImportImportedDirsTitle": "本次覆盖目录",
+    "initImportRetainedDirsTitle": "保留当前目录",
     "initImportClose": "关闭",
     "initImportRetry": "再次导入"
   },

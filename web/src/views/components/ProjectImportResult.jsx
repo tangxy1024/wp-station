@@ -16,6 +16,8 @@ function ProjectImportResult({ result, showPaths = true }) {
   const importFailureCount = importSummary?.failed_files || 0;
   const breakdownItems = importSummary?.rule_breakdown || [];
   const summaryWarnings = importSummary?.warnings || [];
+  const importedDirs = importSummary?.imported_dirs || [];
+  const retainedDirs = importSummary?.retained_dirs || [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -123,6 +125,25 @@ function ProjectImportResult({ result, showPaths = true }) {
           </div>
         )}
 
+        {(importedDirs.length > 0 || retainedDirs.length > 0) && (
+          <div style={{ marginTop: 16, display: 'grid', gap: 12 }}>
+            {importedDirs.length > 0 && (
+              <DirListBlock
+                label={t('systemManage.initImportImportedDirsTitle')}
+                values={importedDirs}
+                tone="success"
+              />
+            )}
+            {retainedDirs.length > 0 && (
+              <DirListBlock
+                label={t('systemManage.initImportRetainedDirsTitle')}
+                values={retainedDirs}
+                tone="warning"
+              />
+            )}
+          </div>
+        )}
+
         {showPaths && (
           <div style={{ marginTop: 16, display: 'grid', gap: 12 }}>
             <PathBlock label={t('systemManage.initImportSourceDirLabel')} value={importSummary?.source_dir} />
@@ -186,6 +207,39 @@ function PathBlock({ label, value }) {
       >
         {value || '-'}
       </code>
+    </div>
+  );
+}
+
+function DirListBlock({ label, values, tone = 'success' }) {
+  const palette =
+    tone === 'warning'
+      ? { background: '#fff7ed', border: '#fdba74', color: '#9a3412' }
+      : { background: '#ecfdf5', border: '#86efac', color: '#166534' };
+
+  return (
+    <div>
+      <p style={{ margin: 0, color: '#475569', fontWeight: 500 }}>{label}</p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+        {values.map((value) => (
+          <span
+            key={value}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '4px 10px',
+              borderRadius: 999,
+              background: palette.background,
+              border: `1px solid ${palette.border}`,
+              color: palette.color,
+              fontSize: 12,
+              fontWeight: 500,
+            }}
+          >
+            {value}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

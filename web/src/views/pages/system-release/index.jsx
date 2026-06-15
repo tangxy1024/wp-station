@@ -90,6 +90,37 @@ function SystemReleasePage() {
     return error?.message || fallback;
   };
 
+  const buildArchiveImportFailureResult = (message, sourceLabel = '') => ({
+    summary: {
+      rules_deleted: 0,
+      rules_imported: 0,
+      knowledge_deleted: 0,
+      knowledge_imported: 0,
+      imported_dirs: [],
+      retained_dirs: [],
+      rule_breakdown: [],
+      warnings: [],
+      failed_files: 1,
+      source_dir: sourceLabel,
+      project_models: '',
+      project_infra: '',
+    },
+    validation: {
+      passed: false,
+      message,
+    },
+  });
+
+  const showArchiveImportResultModal = (title, result, showPaths = true) => {
+    Modal.info({
+      title,
+      width: 760,
+      icon: null,
+      okText: t('common.confirm'),
+      content: <ProjectImportResult result={result} showPaths={showPaths} />,
+    });
+  };
+
   /**
    * 翻译阶段名称
    */
@@ -311,29 +342,31 @@ function SystemReleasePage() {
           setImportingArchive(true);
           try {
             const result = await confirmProjectArchiveImport(preview.import_id);
-            Modal.success({
-              title: t('systemRelease.importArchiveSuccessTitle'),
-              content: t('systemRelease.importArchiveSuccessMessage', {
-                rules: result?.summary?.rules_imported ?? 0,
-                knowledge: result?.summary?.knowledge_imported ?? 0,
-              }),
-            });
+            showArchiveImportResultModal(t('systemRelease.importArchiveSuccessTitle'), result);
             loadReleases();
           } catch (error) {
-            Modal.error({
-              title: t('systemRelease.importArchiveFailedTitle'),
-              content: error?.message || t('systemRelease.importArchiveFailedMessage'),
-            });
+            showArchiveImportResultModal(
+              t('systemRelease.importArchiveFailedTitle'),
+              buildArchiveImportFailureResult(
+                error?.message || t('systemRelease.importArchiveFailedMessage'),
+                file.name,
+              ),
+              false,
+            );
           } finally {
             setImportingArchive(false);
           }
         },
       });
     } catch (error) {
-      Modal.error({
-        title: t('systemRelease.importArchiveFailedTitle'),
-        content: error?.message || t('systemRelease.importArchiveFailedMessage'),
-      });
+      showArchiveImportResultModal(
+        t('systemRelease.importArchiveFailedTitle'),
+        buildArchiveImportFailureResult(
+          error?.message || t('systemRelease.importArchiveFailedMessage'),
+          file.name,
+        ),
+        false,
+      );
     } finally {
       setImportingArchive(false);
     }
@@ -623,7 +656,6 @@ function SystemReleasePage() {
               <input
                 id="project-archive-import"
                 type="file"
-                accept=".tar,.tar.gz,.tgz,.zip"
                 style={{ display: 'none' }}
                 onChange={handleImportArchive}
               />

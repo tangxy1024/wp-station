@@ -487,7 +487,13 @@
     "draftLabel": "Draft",
     "diffGroupCurrentVsPrevious": "Working tree vs previous published tag",
     "diffGroupVersionVsPrevious": "{{current}} vs {{previous}}",
-    "diffGroupVersionVsInitial": "{{current}} vs initial version"
+    "diffGroupVersionVsInitial": "{{current}} vs initial version",
+    "fileChangeSummary": "File Change Summary",
+    "changedFilesSummary": "Modified Files",
+    "deletedFilesSummary": "Deleted Files",
+    "addedFilesSummary": "Added Files",
+    "noFileChangesInCategory": "No file changes in this category",
+    "jumpToDiff": "Click to jump to the related diff"
   },
   "connectionManage": {
     "title": "Connection Management",
@@ -617,6 +623,8 @@
     "initImportProjectModels": "Models Directory",
     "initImportProjectInfra": "Infra Directory",
     "initImportWarnings": "Warnings",
+    "initImportImportedDirsTitle": "Overwritten directories",
+    "initImportRetainedDirsTitle": "Retained directories",
     "initImportClose": "Close",
     "initImportRetry": "Run Again"
   },

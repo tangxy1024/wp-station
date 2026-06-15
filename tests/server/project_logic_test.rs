@@ -4,7 +4,15 @@ use std::path::PathBuf;
 use crate::common::{
     rand_suffix, setup_db, test_base_root, test_infra_root, test_models_root, test_project_layout,
 };
-use wp_station::server::project::{ProjectImportRequest, import_project_from_files_logic};
+use flate2::Compression;
+use flate2::write::GzEncoder;
+use wp_station::db::{
+    ReleaseStatus, find_all_releases, find_latest_draft_release, update_release_status,
+};
+use wp_station::server::project::{
+    ProjectImportRequest, confirm_project_archive_import_logic, import_project_from_files_logic,
+    preview_project_archive_logic,
+};
 use wp_station::utils::compose_project_layout_into;
 
 fn legacy_import_dir(name: &str) -> PathBuf {
@@ -18,6 +26,32 @@ fn write_file(path: PathBuf, content: &str) {
         fs::create_dir_all(parent).expect("create parent");
     }
     fs::write(path, content).expect("write file");
+}
+
+fn copy_dir(source: PathBuf, target: PathBuf) {
+    fs::create_dir_all(&target).expect("create target dir");
+    for entry in fs::read_dir(source).expect("read source dir") {
+        let entry = entry.expect("read source entry");
+        let source_path = entry.path();
+        let target_path = target.join(entry.file_name());
+        if source_path.is_dir() {
+            copy_dir(source_path, target_path);
+        } else {
+            fs::copy(&source_path, &target_path).expect("copy file");
+        }
+    }
+}
+
+fn build_archive_with_dirs(source_dir: &PathBuf, dirs: &[&str]) -> Vec<u8> {
+    let encoder = GzEncoder::new(Vec::new(), Compression::default());
+    let mut builder = tar::Builder::new(encoder);
+    for dir in dirs {
+        builder
+            .append_dir_all(*dir, source_dir.join(dir))
+            .expect("append dir to archive");
+    }
+    let encoder = builder.into_inner().expect("finish tar builder");
+    encoder.finish().expect("finish gzip encoder")
 }
 
 #[tokio::test]
@@ -134,6 +168,121 @@ async fn test_import_project_splits_legacy_directory_into_dual_repos() {
     assert!(test_models_root().join("models/knowledge").exists());
     assert!(!test_models_root().join("stale.txt").exists());
     assert!(!test_infra_root().join("stale.txt").exists());
+
+    let _ = fs::remove_dir_all(source_dir);
+}
+
+#[tokio::test]
+async fn test_import_project_archive_supports_models_only_directory() {
+    setup_db().await;
+    if let Some(draft) = find_latest_draft_release()
+        .await
+        .expect("query draft before import")
+    {
+        update_release_status(draft.id, ReleaseStatus::INIT, None, None)
+            .await
+            .expect("archive existing draft before import");
+    }
+    let source_dir = legacy_import_dir("archive-models-only");
+    copy_dir(test_models_root().join("models"), source_dir.join("models"));
+    write_file(
+        source_dir.join("models/archive-only.txt"),
+        "archive models only",
+    );
+    write_file(test_infra_root().join("sentinel.txt"), "keep infra");
+
+    let preview = preview_project_archive_logic(
+        Some("tester".to_string()),
+        "models-only.tar.gz",
+        build_archive_with_dirs(&source_dir, &["models"]),
+    )
+    .await
+    .expect("preview models-only archive");
+
+    assert_eq!(preview.summary.imported_dirs, vec!["models".to_string()]);
+    assert_eq!(
+        preview.summary.retained_dirs,
+        vec![
+            "conf".to_string(),
+            "connectors".to_string(),
+            "topology".to_string()
+        ]
+    );
+
+    let response =
+        confirm_project_archive_import_logic(Some("tester".to_string()), &preview.import_id)
+            .await
+            .expect("confirm models-only archive");
+
+    assert_eq!(response.summary.imported_dirs, vec!["models".to_string()]);
+    assert_eq!(
+        fs::read_to_string(test_infra_root().join("sentinel.txt")).expect("read infra sentinel"),
+        "keep infra"
+    );
+    assert_eq!(
+        fs::read_to_string(test_models_root().join("models/archive-only.txt"))
+            .expect("read imported models marker"),
+        "archive models only"
+    );
+    let draft = find_latest_draft_release()
+        .await
+        .expect("query draft after import")
+        .expect("draft should be recreated after archive import");
+    assert_eq!(draft.status, ReleaseStatus::WAIT.as_ref());
+    let (releases, total) = find_all_releases(1, 20, None, None, None, None)
+        .await
+        .expect("query release list after import");
+    assert!(
+        total >= 1,
+        "expected at least one visible release after import"
+    );
+    assert!(
+        releases.iter().any(|release| release.id == draft.id),
+        "draft release should be visible in release list"
+    );
+
+    let _ = fs::remove_dir_all(source_dir);
+}
+
+#[tokio::test]
+async fn test_import_project_archive_supports_conf_only_directory() {
+    setup_db().await;
+    let source_dir = legacy_import_dir("archive-conf-only");
+    copy_dir(test_infra_root().join("conf"), source_dir.join("conf"));
+    write_file(
+        test_models_root().join("sentinel-models.txt"),
+        "keep models",
+    );
+
+    let preview = preview_project_archive_logic(
+        Some("tester".to_string()),
+        "conf-only.tar.gz",
+        build_archive_with_dirs(&source_dir, &["conf"]),
+    )
+    .await
+    .expect("preview conf-only archive");
+
+    assert_eq!(preview.summary.imported_dirs, vec!["conf".to_string()]);
+    assert_eq!(
+        preview.summary.retained_dirs,
+        vec![
+            "connectors".to_string(),
+            "topology".to_string(),
+            "models".to_string()
+        ]
+    );
+
+    let response =
+        confirm_project_archive_import_logic(Some("tester".to_string()), &preview.import_id)
+            .await
+            .expect("confirm conf-only archive");
+
+    assert_eq!(response.summary.imported_dirs, vec!["conf".to_string()]);
+    assert_eq!(
+        fs::read_to_string(test_models_root().join("sentinel-models.txt"))
+            .expect("read models sentinel"),
+        "keep models"
+    );
 
     let _ = fs::remove_dir_all(source_dir);
 }

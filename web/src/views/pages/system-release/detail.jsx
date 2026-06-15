@@ -6,8 +6,22 @@ import { fetchReleaseDetail, rollbackRelease } from '@/services/release';
 import DiffViewer from '@/components/diff/DiffViewer';
 import { parseDiffText } from '@/components/diff/diffUtils';
 
-function adaptDiffFiles(files = []) {
-  return files.map((file) => {
+function sanitizeAnchorSegment(value = '') {
+  return String(value)
+    .trim()
+    .replace(/[^a-zA-Z0-9/_-]+/g, '-')
+    .replace(/[\\/]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase();
+}
+
+function buildDiffAnchorId(releaseGroup, filePath, index) {
+  return `release-diff-${sanitizeAnchorSegment(releaseGroup)}-${index}-${sanitizeAnchorSegment(filePath)}`;
+}
+
+function adaptDiffFiles(files = [], releaseGroup = 'draft') {
+  return files.map((file, index) => {
     const parsedFiles = file.diff_text ? parseDiffText(file.diff_text) : [];
     return {
       file_path: file.file_path,
@@ -15,8 +29,62 @@ function adaptDiffFiles(files = []) {
       change_type: file.change_type || 'modify',
       diff_text: file.diff_text,
       parsedDiff: parsedFiles?.[0] || null,
+      diff_anchor_id: buildDiffAnchorId(releaseGroup, file.file_path, index),
     };
   });
+}
+
+function normalizeChangeBucket(changeType) {
+  if (changeType === 'add') {
+    return 'added';
+  }
+  if (changeType === 'delete') {
+    return 'deleted';
+  }
+  return 'modified';
+}
+
+function buildDiffOverviewBuckets(files = []) {
+  return files.reduce(
+    (buckets, file) => {
+      const key = normalizeChangeBucket(file.change_type);
+      buckets[key].push(file);
+      return buckets;
+    },
+    { modified: [], deleted: [], added: [] },
+  );
+}
+
+function getFileChangeCode(changeType) {
+  if (changeType === 'add') {
+    return 'A';
+  }
+  if (changeType === 'delete') {
+    return 'D';
+  }
+  return 'M';
+}
+
+function getFileChangeCodeStyle(changeType) {
+  if (changeType === 'add') {
+    return {
+      color: '#17b26a',
+      background: 'rgba(23, 178, 106, 0.12)',
+      borderColor: 'rgba(23, 178, 106, 0.24)',
+    };
+  }
+  if (changeType === 'delete') {
+    return {
+      color: '#f1554c',
+      background: 'rgba(241, 85, 76, 0.12)',
+      borderColor: 'rgba(241, 85, 76, 0.24)',
+    };
+  }
+  return {
+    color: '#f79009',
+    background: 'rgba(247, 144, 9, 0.12)',
+    borderColor: 'rgba(247, 144, 9, 0.24)',
+  };
 }
 
 function ReleaseDetailPage() {
@@ -26,6 +94,7 @@ function ReleaseDetailPage() {
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState(null);
+  const [focusedDiffAnchorId, setFocusedDiffAnchorId] = useState('');
 
   const loadDetail = async () => {
     setLoading(true);
@@ -69,12 +138,25 @@ function ReleaseDetailPage() {
     loadDetail();
   }, [releaseId]);
 
+  const getReleaseGroupTitle = (releaseGroup) => {
+    if (releaseGroup === 'models') {
+      return t('systemRelease.groupModels');
+    }
+    if (releaseGroup === 'infra') {
+      return t('systemRelease.groupInfra');
+    }
+    if (releaseGroup === 'all') {
+      return t('systemRelease.groupAll');
+    }
+    return t('systemRelease.draftLabel');
+  };
+
   const diffGroups = useMemo(
     () =>
       Array.isArray(detail?.diff_groups)
         ? detail.diff_groups.map((group) => ({
             ...group,
-            adaptedFiles: adaptDiffFiles(group.files || []),
+            adaptedFiles: adaptDiffFiles(group.files || [], group.release_group),
           }))
         : [],
     [detail],
@@ -140,6 +222,23 @@ function ReleaseDetailPage() {
         <span className="stage-name">{translateStageLabel(stage.label || '')}</span>
       </span>
     );
+  };
+
+  const handleJumpToDiff = (anchorId) => {
+    if (!anchorId) {
+      return;
+    }
+
+    setFocusedDiffAnchorId(anchorId);
+
+    const target = document.getElementById(anchorId);
+    if (!target) {
+      return;
+    }
+
+    const nextUrl = `${window.location.pathname}${window.location.search}#${anchorId}`;
+    window.history.replaceState(null, '', nextUrl);
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   if (loading) {
@@ -295,10 +394,7 @@ function ReleaseDetailPage() {
           </header>
           <div style={{ marginTop: '24px', display: 'grid', gap: '20px' }}>
             {diffGroups.map((group) => {
-              const title =
-                group.release_group === 'models'
-                  ? t('systemRelease.groupModels')
-                  : t('systemRelease.groupInfra');
+              const title = getReleaseGroupTitle(group.release_group);
               const subtitle = group.previous_version
                 ? t('systemRelease.diffGroupVersionVsPrevious', {
                     current: group.current_version,
@@ -309,6 +405,30 @@ function ReleaseDetailPage() {
                       ? t('systemRelease.draftLabel')
                       : group.current_version,
                   });
+              const overviewBuckets = buildDiffOverviewBuckets(group.adaptedFiles);
+              const changeStats = [
+                {
+                  key: 'modified',
+                  label: `M ${t('systemRelease.changedFilesSummary')}`,
+                  count: overviewBuckets.modified.length,
+                  color: '#f79009',
+                  background: 'rgba(247, 144, 9, 0.08)',
+                },
+                {
+                  key: 'deleted',
+                  label: `D ${t('systemRelease.deletedFilesSummary')}`,
+                  count: overviewBuckets.deleted.length,
+                  color: '#f1554c',
+                  background: 'rgba(241, 85, 76, 0.08)',
+                },
+                {
+                  key: 'added',
+                  label: `A ${t('systemRelease.addedFilesSummary')}`,
+                  count: overviewBuckets.added.length,
+                  color: '#17b26a',
+                  background: 'rgba(23, 178, 106, 0.08)',
+                },
+              ];
 
               return (
                 <section
@@ -326,7 +446,129 @@ function ReleaseDetailPage() {
                       {subtitle}
                     </div>
                   </header>
-                  <DiffViewer files={group.adaptedFiles} viewType="split" loading={false} />
+                  <section
+                    style={{
+                      marginBottom: '16px',
+                      padding: '14px',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '12px',
+                      background: '#f8fafc',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        marginBottom: '10px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#344054' }}>
+                        {t('systemRelease.fileChangeSummary')}
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {changeStats.map((item) => (
+                          <span
+                            key={item.key}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '4px 10px',
+                              borderRadius: '999px',
+                              background: item.background,
+                              color: item.color,
+                              fontSize: '12px',
+                              fontWeight: 700,
+                            }}
+                          >
+                            <span>{item.label}</span>
+                            <span>{item.count}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                        gap: '12px',
+                        alignItems: 'stretch',
+                      }}
+                    >
+                      {group.adaptedFiles.length > 0 ? (
+                        group.adaptedFiles.map((file) => {
+                          const codeStyle = getFileChangeCodeStyle(file.change_type);
+                          return (
+                            <button
+                              key={file.diff_anchor_id}
+                              type="button"
+                              onClick={() => handleJumpToDiff(file.diff_anchor_id)}
+                              style={{
+                                width: '100%',
+                                minHeight: '56px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '12px',
+                                padding: '12px 14px',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: '12px',
+                                background: '#fff',
+                                color: '#1f2937',
+                                textAlign: 'left',
+                                cursor: 'pointer',
+                              }}
+                              title={t('systemRelease.jumpToDiff')}
+                            >
+                              <span
+                                style={{
+                                  flex: 1,
+                                  minWidth: 0,
+                                  fontFamily:
+                                    "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, ui-monospace, monospace",
+                                  fontSize: '12px',
+                                  lineHeight: 1.5,
+                                  overflowWrap: 'anywhere',
+                                }}
+                              >
+                                {file.file_path}
+                              </span>
+                              <span
+                                style={{
+                                  flexShrink: 0,
+                                  minWidth: '28px',
+                                  padding: '4px 8px',
+                                  border: `1px solid ${codeStyle.borderColor}`,
+                                  borderRadius: '999px',
+                                  background: codeStyle.background,
+                                  color: codeStyle.color,
+                                  fontSize: '12px',
+                                  fontWeight: 800,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                {getFileChangeCode(file.change_type)}
+                              </span>
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div style={{ padding: '14px', fontSize: '12px', color: '#98a2b3' }}>
+                          {t('systemRelease.noFileChangesInCategory')}
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                  <DiffViewer
+                    files={group.adaptedFiles}
+                    viewType="split"
+                    loading={false}
+                    getFileAnchorId={(file) => file.diff_anchor_id}
+                    focusedFileAnchorId={focusedDiffAnchorId}
+                  />
                 </section>
               );
             })}

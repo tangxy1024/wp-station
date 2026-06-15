@@ -342,18 +342,6 @@ async fn prepare_single_repo(
         Err(e) => return Err(e),
     }
 
-    let readme_path = project_path.join("README.md");
-    if !readme_path.exists() {
-        std::fs::write(
-            &readme_path,
-            format!(
-                "# WarpStation {}\n\nThis repository contains WarpStation configuration files.\n",
-                group.as_ref()
-            ),
-        )
-        .map_err(|e| AppError::internal(format!("创建 README.md 失败: {}", e)))?;
-    }
-
     run_git(&["add", "."], project_path, "git add")?;
 
     let status_output = std::process::Command::new("git")

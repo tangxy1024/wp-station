@@ -21,10 +21,53 @@ use crate::server::{
 };
 use crate::utils::knowledge::reload_knowledge;
 use crate::utils::project_check::check_component_in_dir;
-use crate::utils::{ProjectSnapshot, load_project_snapshot_from_layout};
+use crate::utils::{
+    ProjectSnapshot, compose_project_layout_into, load_project_snapshot,
+    load_project_snapshot_from_layout,
+};
 
 const LEGACY_REQUIRED_DIRS: [&str; 4] = ["conf", "connectors", "topology", "models"];
 const ARCHIVE_IMPORT_STAGING_DIR: &str = "project-archive-imports";
+
+#[derive(Debug, Clone)]
+struct ImportScope {
+    imported_dirs: Vec<&'static str>,
+}
+
+impl ImportScope {
+    fn imported_dir_names(&self) -> Vec<String> {
+        self.imported_dirs
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect()
+    }
+
+    fn retained_dir_names(&self) -> Vec<String> {
+        LEGACY_REQUIRED_DIRS
+            .iter()
+            .filter(|name| !self.imported_dirs.contains(name))
+            .map(|name| (*name).to_string())
+            .collect()
+    }
+
+    fn is_full_import(&self) -> bool {
+        self.imported_dirs.len() == LEGACY_REQUIRED_DIRS.len()
+    }
+
+    fn summary_message(&self, prefix: &str) -> String {
+        let imported = self.imported_dirs.join(", ");
+        let retained = self.retained_dir_names();
+        if retained.is_empty() {
+            format!("{prefix}；本次覆盖目录: {imported}")
+        } else {
+            format!(
+                "{prefix}；本次覆盖目录: {}；保留当前目录: {}",
+                imported,
+                retained.join(", ")
+            )
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct ProjectImportRequest {
@@ -43,6 +86,8 @@ pub struct ProjectImportSummary {
     pub rules_imported: usize,
     pub knowledge_deleted: usize,
     pub knowledge_imported: usize,
+    pub imported_dirs: Vec<String>,
+    pub retained_dirs: Vec<String>,
     pub rule_breakdown: Vec<ProjectImportBreakdown>,
     pub warnings: Vec<String>,
     pub failed_files: usize,
@@ -133,6 +178,7 @@ pub async fn preview_project_archive_logic(
     fs::create_dir_all(&import_dir).map_err(AppError::internal)?;
     let archive_path = import_dir.join(sanitize_upload_name(file_name)?);
     fs::write(&archive_path, bytes).map_err(AppError::internal)?;
+    fs::write(import_dir.join("file_name.txt"), file_name).map_err(AppError::internal)?;
     let extract_dir = import_dir.join("extract");
     fs::create_dir_all(&extract_dir).map_err(AppError::internal)?;
     extract_archive(file_name, &archive_path, &extract_dir)?;
@@ -165,10 +211,20 @@ pub async fn confirm_project_archive_import_logic(
             "导入暂存目录不存在或已过期".to_string(),
         ));
     }
+    let file_name = fs::read_to_string(import_dir.join("file_name.txt"))
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
     let setting = Setting::load();
     let layout = setting.project_layout();
-    let result = import_project_dir(&project_dir, &layout, "归档覆盖导入并校验通过").await;
+    let result = import_project_archive_dir(
+        &project_dir,
+        &layout,
+        "归档覆盖导入并校验通过",
+        file_name.as_deref(),
+    )
+    .await;
 
     let mut log_params = OperationLogParams::new()
         .with_target_name(import_id)
@@ -270,13 +326,7 @@ async fn import_project_dir(
     let total_rules = rules.len();
     let total_knowledge = knowledge.len();
 
-    if let Err(err) = reload_knowledge(layout) {
-        warn!("知识库重载失败（忽略）: {}", err);
-    }
-
-    let commit_message = format!("导入项目配置 {}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
-    sync_to_gitea_all(&commit_message).await;
-    let _ = refresh_draft_release_logic(Some(&commit_message)).await;
+    finalize_import_side_effects(layout).await?;
 
     let mut breakdown: Vec<ProjectImportBreakdown> = rule_stats
         .into_iter()
@@ -292,6 +342,11 @@ async fn import_project_dir(
         rules_imported: total_rules,
         knowledge_deleted: 0,
         knowledge_imported: total_knowledge,
+        imported_dirs: LEGACY_REQUIRED_DIRS
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect(),
+        retained_dirs: Vec::new(),
         rule_breakdown: breakdown,
         warnings,
         failed_files,
@@ -309,6 +364,39 @@ async fn import_project_dir(
         summary,
         validation,
     })
+}
+
+async fn import_project_archive_dir(
+    source_dir: &Path,
+    layout: &ProjectLayout,
+    validation_message: &str,
+    source_label: Option<&str>,
+) -> Result<ProjectImportResponse, AppError> {
+    let scope = detect_import_scope(source_dir)?;
+    validate_import_scope_with_current_layout(source_dir, layout, &scope)?;
+    let source_label = source_label
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| source_dir.to_string_lossy().to_string());
+
+    if scope.is_full_import() {
+        overwrite_project_layout_from_legacy_dir(source_dir, layout)?;
+    } else {
+        overwrite_project_layout_from_partial_dir(source_dir, layout, &scope)?;
+    }
+
+    finalize_import_side_effects(layout).await?;
+    build_import_response_from_layout(layout, validation_message, &source_label, &scope)
+}
+
+async fn finalize_import_side_effects(layout: &ProjectLayout) -> Result<(), AppError> {
+    if let Err(err) = reload_knowledge(layout) {
+        warn!("知识库重载失败（忽略）: {}", err);
+    }
+
+    let commit_message = format!("导入项目配置 {}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
+    sync_to_gitea_all(&commit_message).await;
+    refresh_draft_release_logic(Some(&commit_message)).await?;
+    Ok(())
 }
 
 fn normalize_source_dir(raw: &str) -> Result<PathBuf, AppError> {
@@ -358,44 +446,16 @@ fn archive_import_dir(import_id: &str) -> Result<PathBuf, AppError> {
 }
 
 fn validate_project_import_preview(source_dir: &Path) -> Result<ProjectImportSummary, AppError> {
-    validate_legacy_project_dir(source_dir)?;
-    check_component_in_dir(source_dir, RuleType::All.to_check_component())?;
-
-    let snapshot = crate::utils::load_project_snapshot(source_dir)?;
-    if snapshot.rules.is_empty() && snapshot.knowledge.is_empty() {
-        return Err(AppError::validation(
-            "导入包中未找到可导入的规则或知识库".to_string(),
-        ));
-    }
-
-    let ProjectSnapshot {
-        rules,
-        knowledge,
-        rule_stats,
-        warnings,
-        failed_files,
-    } = snapshot;
-    let mut breakdown: Vec<ProjectImportBreakdown> = rule_stats
-        .into_iter()
-        .map(|(rule_type, count)| ProjectImportBreakdown {
-            rule_type: rule_type.as_ref().to_string(),
-            count,
-        })
-        .collect();
-    breakdown.sort_by(|a, b| a.rule_type.cmp(&b.rule_type));
-
-    Ok(ProjectImportSummary {
-        rules_deleted: 0,
-        rules_imported: rules.len(),
-        knowledge_deleted: 0,
-        knowledge_imported: knowledge.len(),
-        rule_breakdown: breakdown,
-        warnings,
-        failed_files,
-        source_dir: source_dir.to_string_lossy().to_string(),
-        project_models: "preview".to_string(),
-        project_infra: "preview".to_string(),
-    })
+    let scope = detect_import_scope(source_dir)?;
+    let setting = Setting::load();
+    let layout = setting.project_layout();
+    let preview_dir = build_preview_project_dir(source_dir, &layout, &scope)?;
+    build_import_summary_from_dir(
+        preview_dir.path(),
+        source_dir.to_string_lossy().as_ref(),
+        &layout,
+        &scope,
+    )
 }
 
 fn sanitize_upload_name(file_name: &str) -> Result<String, AppError> {
@@ -508,7 +568,7 @@ fn safe_join(root: &Path, relative: &Path) -> Result<PathBuf, AppError> {
 }
 
 fn find_import_project_root(extract_dir: &Path) -> Result<PathBuf, AppError> {
-    if is_default_configs_layout(extract_dir) || is_split_repo_layout(extract_dir) {
+    if has_supported_import_layout(extract_dir) {
         let normalized = normalize_import_root(extract_dir)?;
         persist_preview_project_dir(extract_dir, &normalized)?;
         return Ok(normalized);
@@ -522,13 +582,13 @@ fn find_import_project_root(extract_dir: &Path) -> Result<PathBuf, AppError> {
         }
     }
 
-    if dirs.len() == 1 && (is_default_configs_layout(&dirs[0]) || is_split_repo_layout(&dirs[0])) {
+    if dirs.len() == 1 && has_supported_import_layout(&dirs[0]) {
         let normalized = normalize_import_root(&dirs[0])?;
         persist_preview_project_dir(extract_dir, &normalized)?;
         Ok(normalized)
     } else {
         Err(AppError::validation(
-            "压缩包结构无效，需包含 conf/connectors/models/topology 或 project_models/project_infra"
+            "压缩包结构无效，需包含 conf/connectors/models/topology 中的一个或多个目录，或 project_models/project_infra 对应子目录"
                 .to_string(),
         ))
     }
@@ -545,30 +605,38 @@ fn persist_preview_project_dir(extract_dir: &Path, project_dir: &Path) -> Result
     .map_err(AppError::internal)
 }
 
-fn is_default_configs_layout(dir: &Path) -> bool {
-    LEGACY_REQUIRED_DIRS
-        .iter()
-        .all(|name| dir.join(name).is_dir())
+fn has_supported_import_layout(dir: &Path) -> bool {
+    has_legacy_import_dirs(dir) || has_split_import_dirs(dir)
 }
 
-fn is_split_repo_layout(dir: &Path) -> bool {
+fn has_legacy_import_dirs(dir: &Path) -> bool {
+    LEGACY_REQUIRED_DIRS
+        .iter()
+        .any(|name| dir.join(name).is_dir())
+}
+
+fn has_split_import_dirs(dir: &Path) -> bool {
     dir.join("project_models").join("models").is_dir()
-        && dir.join("project_infra").join("conf").is_dir()
-        && dir.join("project_infra").join("connectors").is_dir()
-        && dir.join("project_infra").join("topology").is_dir()
+        || dir.join("project_infra").join("conf").is_dir()
+        || dir.join("project_infra").join("connectors").is_dir()
+        || dir.join("project_infra").join("topology").is_dir()
 }
 
 fn normalize_import_root(dir: &Path) -> Result<PathBuf, AppError> {
-    if is_default_configs_layout(dir) {
+    if has_legacy_import_dirs(dir) {
         return Ok(dir.to_path_buf());
     }
 
     let normalized = dir.join("__normalized_default_configs");
     fs::create_dir_all(&normalized).map_err(AppError::internal)?;
-    copy_named_entry(&dir.join("project_models"), &normalized, "models")?;
-    copy_named_entry(&dir.join("project_infra"), &normalized, "conf")?;
-    copy_named_entry(&dir.join("project_infra"), &normalized, "connectors")?;
-    copy_named_entry(&dir.join("project_infra"), &normalized, "topology")?;
+    if dir.join("project_models").join("models").is_dir() {
+        copy_named_entry(&dir.join("project_models"), &normalized, "models")?;
+    }
+    for name in ["conf", "connectors", "topology"] {
+        if dir.join("project_infra").join(name).is_dir() {
+            copy_named_entry(&dir.join("project_infra"), &normalized, name)?;
+        }
+    }
     Ok(normalized)
 }
 
@@ -619,6 +687,35 @@ fn overwrite_project_layout_from_legacy_dir(
         source_dir.display(),
         layout.models_root.display(),
         layout.infra_root.display()
+    );
+    Ok(())
+}
+
+fn overwrite_project_layout_from_partial_dir(
+    source_dir: &Path,
+    layout: &ProjectLayout,
+    scope: &ImportScope,
+) -> Result<(), AppError> {
+    info!(
+        "开始按归档子集覆盖双仓库: source_dir={}, imported_dirs={}",
+        source_dir.display(),
+        scope.imported_dirs.join(", ")
+    );
+
+    for name in &scope.imported_dirs {
+        match *name {
+            "models" => copy_named_entry(source_dir, &layout.models_root, name)?,
+            "conf" | "connectors" | "topology" => {
+                copy_named_entry(source_dir, &layout.infra_root, name)?
+            }
+            _ => {}
+        }
+    }
+
+    info!(
+        "归档子集覆盖完成: source_dir={}, imported_dirs={}",
+        source_dir.display(),
+        scope.imported_dirs.join(", ")
     );
     Ok(())
 }
@@ -695,4 +792,156 @@ fn copy_dir_recursive(source_dir: &Path, target_dir: &Path) -> Result<(), AppErr
     }
 
     Ok(())
+}
+
+fn detect_import_scope(source_dir: &Path) -> Result<ImportScope, AppError> {
+    let imported_dirs: Vec<&'static str> = LEGACY_REQUIRED_DIRS
+        .iter()
+        .copied()
+        .filter(|name| source_dir.join(name).is_dir())
+        .collect();
+
+    if imported_dirs.is_empty() {
+        return Err(AppError::validation(
+            "导入包中未找到可导入目录，至少需要包含 conf、connectors、topology、models 中的一个"
+                .to_string(),
+        ));
+    }
+
+    Ok(ImportScope { imported_dirs })
+}
+
+fn build_preview_project_dir(
+    source_dir: &Path,
+    layout: &ProjectLayout,
+    scope: &ImportScope,
+) -> Result<tempfile::TempDir, AppError> {
+    let preview_dir = tempdir().map_err(AppError::internal)?;
+    compose_project_layout_into(layout, preview_dir.path())?;
+    apply_import_scope_to_dir(source_dir, preview_dir.path(), scope)?;
+    check_component_in_dir(preview_dir.path(), RuleType::All.to_check_component())?;
+    Ok(preview_dir)
+}
+
+fn validate_import_scope_with_current_layout(
+    source_dir: &Path,
+    layout: &ProjectLayout,
+    scope: &ImportScope,
+) -> Result<(), AppError> {
+    let _ = build_preview_project_dir(source_dir, layout, scope)?;
+    Ok(())
+}
+
+fn apply_import_scope_to_dir(
+    source_dir: &Path,
+    target_dir: &Path,
+    scope: &ImportScope,
+) -> Result<(), AppError> {
+    for name in &scope.imported_dirs {
+        copy_named_entry(source_dir, target_dir, name)?;
+    }
+    Ok(())
+}
+
+fn build_import_response_from_layout(
+    layout: &ProjectLayout,
+    validation_message: &str,
+    source_label: &str,
+    scope: &ImportScope,
+) -> Result<ProjectImportResponse, AppError> {
+    let summary = build_import_summary_from_layout(layout, source_label, scope)?;
+    let validation = ProjectImportValidation {
+        passed: true,
+        message: scope.summary_message(validation_message),
+    };
+
+    Ok(ProjectImportResponse {
+        summary,
+        validation,
+    })
+}
+
+fn build_import_summary_from_layout(
+    layout: &ProjectLayout,
+    source_label: &str,
+    scope: &ImportScope,
+) -> Result<ProjectImportSummary, AppError> {
+    let snapshot = load_project_snapshot_from_layout(layout)?;
+    build_import_summary_from_snapshot(
+        snapshot,
+        source_label,
+        layout.models_root.to_string_lossy().to_string(),
+        layout.infra_root.to_string_lossy().to_string(),
+        scope,
+    )
+}
+
+fn build_import_summary_from_dir(
+    project_dir: &Path,
+    source_label: &str,
+    layout: &ProjectLayout,
+    scope: &ImportScope,
+) -> Result<ProjectImportSummary, AppError> {
+    let snapshot = load_project_snapshot(project_dir)?;
+    build_import_summary_from_snapshot(
+        snapshot,
+        source_label,
+        layout.models_root.to_string_lossy().to_string(),
+        layout.infra_root.to_string_lossy().to_string(),
+        scope,
+    )
+}
+
+fn build_import_summary_from_snapshot(
+    snapshot: ProjectSnapshot,
+    source_label: &str,
+    project_models: String,
+    project_infra: String,
+    scope: &ImportScope,
+) -> Result<ProjectImportSummary, AppError> {
+    if snapshot.rules.is_empty() && snapshot.knowledge.is_empty() {
+        return Err(AppError::validation(
+            "导入后的项目目录中未找到可导入的规则或知识库".to_string(),
+        ));
+    }
+
+    let ProjectSnapshot {
+        rules,
+        knowledge,
+        rule_stats,
+        mut warnings,
+        failed_files,
+    } = snapshot;
+
+    if !scope.retained_dir_names().is_empty() {
+        warnings.push(format!(
+            "本次归档仅覆盖目录: {}；保留当前目录: {}",
+            scope.imported_dirs.join(", "),
+            scope.retained_dir_names().join(", ")
+        ));
+    }
+
+    let mut breakdown: Vec<ProjectImportBreakdown> = rule_stats
+        .into_iter()
+        .map(|(rule_type, count)| ProjectImportBreakdown {
+            rule_type: rule_type.as_ref().to_string(),
+            count,
+        })
+        .collect();
+    breakdown.sort_by(|a, b| a.rule_type.cmp(&b.rule_type));
+
+    Ok(ProjectImportSummary {
+        rules_deleted: 0,
+        rules_imported: rules.len(),
+        knowledge_deleted: 0,
+        knowledge_imported: knowledge.len(),
+        imported_dirs: scope.imported_dir_names(),
+        retained_dirs: scope.retained_dir_names(),
+        rule_breakdown: breakdown,
+        warnings,
+        failed_files,
+        source_dir: source_label.to_string(),
+        project_models,
+        project_infra,
+    })
 }

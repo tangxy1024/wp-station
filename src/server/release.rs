@@ -21,6 +21,7 @@ use crate::utils::{compose_project_layout_into, format_beijing_time};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::Path;
 
 #[derive(Deserialize)]
 pub struct ReleaseListQuery {
@@ -1084,6 +1085,17 @@ async fn collect_release_diff_for_group(
         }
     };
 
+    let files = filter_release_diff_files(diff_result.files)
+        .into_iter()
+        .map(|f| FileDiffInfo {
+            file_path: f.file_path,
+            old_path: f.old_path,
+            change_type: f.change_type,
+            diff_text: f.diff_text,
+        })
+        .collect::<Vec<_>>();
+    let stats = diff_stats_from_files(&files);
+
     Ok(ReleaseDiffGroup {
         release_group: release_group.to_string(),
         title: match parsed_group {
@@ -1092,22 +1104,66 @@ async fn collect_release_diff_for_group(
         },
         current_version: version.unwrap_or("draft").to_string(),
         previous_version,
-        stats: DiffStats {
-            files_changed: diff_result.stats.files_changed,
-            insertions: diff_result.stats.insertions,
-            deletions: diff_result.stats.deletions,
-        },
-        files: diff_result
-            .files
-            .into_iter()
-            .map(|f| FileDiffInfo {
-                file_path: f.file_path,
-                old_path: f.old_path,
-                change_type: f.change_type,
-                diff_text: f.diff_text,
-            })
-            .collect(),
+        stats,
+        files,
     })
+}
+
+fn should_ignore_release_diff_path(path: &str) -> bool {
+    let path = Path::new(path);
+    if path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.eq_ignore_ascii_case("README.md"))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    path.components().any(|component| {
+        component
+            .as_os_str()
+            .to_str()
+            .map(|name| name == ".run")
+            .unwrap_or(false)
+    })
+}
+
+fn filter_release_diff_files(files: Vec<gitea::FileDiffInfo>) -> Vec<gitea::FileDiffInfo> {
+    files
+        .into_iter()
+        .filter(|file| {
+            !should_ignore_release_diff_path(&file.file_path)
+                && file
+                    .old_path
+                    .as_deref()
+                    .map(|path| !should_ignore_release_diff_path(path))
+                    .unwrap_or(true)
+        })
+        .collect()
+}
+
+fn diff_stats_from_files(files: &[FileDiffInfo]) -> DiffStats {
+    let mut stats = DiffStats {
+        files_changed: files.len(),
+        insertions: 0,
+        deletions: 0,
+    };
+
+    for file in files {
+        for line in file.diff_text.lines() {
+            if line.starts_with("+++") || line.starts_with("---") {
+                continue;
+            }
+            if line.starts_with('+') {
+                stats.insertions += 1;
+            } else if line.starts_with('-') {
+                stats.deletions += 1;
+            }
+        }
+    }
+
+    stats
 }
 
 pub fn serialize_stage_summary(stages: &[StageSnapshot]) -> String {
