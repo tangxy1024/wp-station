@@ -19,7 +19,7 @@ use super::sandbox::{
     Conclusion, DiagnosticHit, FileOverride, OutputFileStatus, RunOptions, SandboxStage,
     SandboxState, SandboxTaskHandle, StageStatus, TaskStatus,
 };
-···
+
 const DAEMON_READY_BEFORE_WPGEN_WAIT_MS: u64 = 1_000;
 
 /// 在独立 Tokio 任务中执行沙盒运行，结束后回调队列。
