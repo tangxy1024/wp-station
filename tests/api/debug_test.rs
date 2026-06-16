@@ -79,7 +79,22 @@ max = 10
     let parse_body: serde_json::Value = test::read_body_json(parse_resp).await;
     assert!(parse_body.get("format_json").is_some());
 
-    // run a simple SQL query via knowledge API
+    // knowledge status should list the inserted entry
+    let status_req = test::TestRequest::get()
+        .uri("/api/debug/knowledge/status")
+        .to_request();
+    let status_resp = test::call_service(&app, status_req).await;
+    assert_eq!(status_resp.status(), StatusCode::OK);
+    let status_body: serde_json::Value = test::read_body_json(status_resp).await;
+    assert!(
+        status_body
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item.get("tag_name").and_then(|n| n.as_str()) == Some(know_file.as_str()))
+    );
+
+    // 再执行本地 knowledge SQL；此前 status 查询会误删 authority.sqlite，导致这里 connect db 失败。
     let query_req = test::TestRequest::post()
         .uri("/api/debug/knowledge/query")
         .set_json(serde_json::json!({
@@ -100,21 +115,6 @@ max = 10
         serde_json::from_slice(&query_body_bytes).expect("parse query body");
     assert_eq!(query_body["success"], true);
     assert_eq!(query_body["columns"], serde_json::json!(["value"]));
-
-    // knowledge status should list the inserted entry
-    let status_req = test::TestRequest::get()
-        .uri("/api/debug/knowledge/status")
-        .to_request();
-    let status_resp = test::call_service(&app, status_req).await;
-    assert_eq!(status_resp.status(), StatusCode::OK);
-    let status_body: serde_json::Value = test::read_body_json(status_resp).await;
-    assert!(
-        status_body
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item.get("tag_name").and_then(|n| n.as_str()) == Some(know_file.as_str()))
-    );
 
     // start a performance task and fetch it back
     let run_req = test::TestRequest::post()

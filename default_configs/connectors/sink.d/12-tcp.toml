@@ -8,7 +8,7 @@ allow_override = [
 ]
 
 [connectors.params]
-addr = "localhost"
+addr = "127.0.0.1"
 port = 9000
 framing = "line"   # line|len
 # Optional: kernel send-queue aware backoff (no tuning knobs; enabled/disabled only)

@@ -6,4 +6,3 @@ allow_override = ["topic", "group_id", "config","instances","brokers"]
 brokers = "localhost:9092"
 topic   = ["access_log"]
 group_id = "wparse_default_group"
-config = []

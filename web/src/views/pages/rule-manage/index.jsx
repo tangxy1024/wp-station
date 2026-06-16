@@ -18,8 +18,7 @@ import CodeEditor from '@/views/components/CodeEditor/CodeEditor';
 import ValidateResultModal from '@/components/ValidateResultModal';
 
 const WPL_PAGE_SIZE = 14;
-const WPL_FETCH_PAGE_SIZE = 50;
-const OML_FOLDER_PAGE_SIZE = 14;
+const OML_FOLDER_PAGE_SIZE = 50;
 const OML_FETCH_PAGE_SIZE = 50;
 const KNOWLEDGE_PAGE_SIZE = 15;
 const EMPTY_KNOWLEDGE_DATASET = Object.freeze({
@@ -32,6 +31,7 @@ const KNOWLEDGE_CONFIG_FILE = 'knowdb.toml';
 
 const WPL_PARSE_FILE = 'parse.wpl';
 const WPL_SAMPLE_FILE = 'sample.dat';
+const INTEGRATION_OVERVIEW_KEY = 'integration-overview';
 
 const normalizeWplEntry = (value) => {
   if (value === undefined || value === null) {
@@ -80,6 +80,7 @@ const getWplEntryParts = (entry) => {
 };
 
 const isWplSampleEntry = (entry) => normalizeWplEntry(entry).endsWith(`/${WPL_SAMPLE_FILE}`);
+const isIgnoredWplIdentifier = (value) => String(value || '').trim().toLowerCase().startsWith('ignore');
 
 const formatWplDisplayName = (entry) => {
   const { rule, sub } = getWplEntryParts(entry);
@@ -95,21 +96,22 @@ const formatWplDisplayName = (entry) => {
 const buildWplTreeData = (items) => {
   const groups = new Map();
   (Array.isArray(items) ? items : []).forEach((entry) => {
-    const normalized = normalizeWplEntry(entry);
-    if (!normalized) {
-      return;
-    }
-    const { rule, sub } = getWplEntryParts(normalized);
+    const { rule } = getWplEntryParts(entry);
     if (!rule) {
       return;
     }
-    const files = groups.get(rule) || [];
-    files.push({
-      value: normalized,
-      label: sub || WPL_PARSE_FILE,
-      isSample: sub === WPL_SAMPLE_FILE,
-    });
-    groups.set(rule, files);
+    groups.set(rule, [
+      {
+        value: `${rule}/${WPL_PARSE_FILE}`,
+        label: WPL_PARSE_FILE,
+        isSample: false,
+      },
+      {
+        value: `${rule}/${WPL_SAMPLE_FILE}`,
+        label: WPL_SAMPLE_FILE,
+        isSample: true,
+      },
+    ]);
   });
 
   return Array.from(groups.entries())
@@ -127,30 +129,59 @@ const buildWplTreeData = (items) => {
 
 const getFirstWplEntry = (treeData) => treeData?.[0]?.files?.[0]?.value || '';
 
-// 规则树分页按一级文件夹计算，每页容量对应用户实际看到的文件夹数量。
-const buildRuleTreePages = (treeData, pageSize) => {
-  const normalizedPageSize = pageSize > 0 ? pageSize : WPL_PAGE_SIZE;
-  const nodes = Array.isArray(treeData) ? treeData : [];
-  const pages = [];
-
-  for (let index = 0; index < nodes.length; index += normalizedPageSize) {
-    pages.push(nodes.slice(index, index + normalizedPageSize));
+const parseTagAttributes = (rawTag = '') => {
+  const attributes = {};
+  const pattern = /([a-zA-Z0-9_]+)\s*:\s*"([^"]*)"/g;
+  let match = pattern.exec(rawTag);
+  while (match) {
+    attributes[match[1]] = match[2];
+    match = pattern.exec(rawTag);
   }
-
-  return pages;
+  return attributes;
 };
 
-const getWplEntriesFromTreeData = (treeData) =>
-  (Array.isArray(treeData) ? treeData : []).flatMap((node) =>
-    (Array.isArray(node.files) ? node.files : [])
-      .map((item) => item.value)
-      .filter(Boolean),
-  );
+const extractWplOverviewFromContent = (content = '', fallbackPackage = '') => {
+  if (!content || typeof content !== 'string') {
+    return null;
+  }
 
-const findWplPageByFile = (pagePlans, file) =>
-  (Array.isArray(pagePlans) ? pagePlans : []).findIndex((page) =>
-    page.some((node) => node.files.some((item) => item.value === file)),
+  const packageMatch = content.match(
+    /(?:#\[tag\(([\s\S]*?)\)\]\s*)?package\s+([a-zA-Z0-9_]+)\s*\{/m,
   );
+  const packageTagAttributes = parseTagAttributes(packageMatch?.[1] || '');
+  const packageKey = (packageMatch?.[2] || fallbackPackage || '').trim();
+  if (!packageKey || isIgnoredWplIdentifier(packageKey)) {
+    return null;
+  }
+
+  const deviceType =
+    packageTagAttributes.dev_type?.trim() ||
+    packageTagAttributes.dev_name?.trim() ||
+    packageKey;
+
+  const logTypes = [];
+  const seenRules = new Set();
+  const rulePattern = /(?:#\[tag\(([\s\S]*?)\)\]\s*)?rule\s+([a-zA-Z0-9_]+)\s*\{/g;
+  let ruleMatch = rulePattern.exec(content);
+  while (ruleMatch) {
+    const ruleKey = (ruleMatch[2] || '').trim();
+    if (ruleKey && !seenRules.has(ruleKey) && !isIgnoredWplIdentifier(ruleKey)) {
+      seenRules.add(ruleKey);
+      const ruleTagAttributes = parseTagAttributes(ruleMatch[1] || '');
+      logTypes.push({
+        ruleKey,
+        logTypeName: ruleTagAttributes.log_desc?.trim() || ruleKey,
+      });
+    }
+    ruleMatch = rulePattern.exec(content);
+  }
+
+  return {
+    packageKey,
+    deviceType,
+    logTypes,
+  };
+};
 
 const findWplRuleForFile = (treeData, file) => {
   if (!file) {
@@ -209,20 +240,11 @@ const normalizeOmlList = (items) => {
   return Array.from(deduped);
 };
 
-const buildOmlTreePages = (treeData, pageSize) => {
-  return buildRuleTreePages(treeData, pageSize > 0 ? pageSize : OML_FOLDER_PAGE_SIZE);
-};
-
 const getOmlEntriesFromTreeData = (treeData) =>
   (Array.isArray(treeData) ? treeData : []).flatMap((node) =>
     (Array.isArray(node.files) ? node.files : [])
       .map((item) => item.value)
       .filter(Boolean),
-  );
-
-const findOmlPageByFile = (pagePlans, file) =>
-  (Array.isArray(pagePlans) ? pagePlans : []).findIndex((page) =>
-    page.some((node) => node.files.some((item) => item.value === file)),
   );
 
 const getFirstOmlEntry = (treeData) => treeData?.[0]?.files?.[0]?.value || '';
@@ -282,6 +304,10 @@ function RuleManagePage() {
   const [wplPage, setWplPage] = useState(1);
   const [wplTree, setWplTree] = useState([]);
   const [wplExpandedRules, setWplExpandedRules] = useState([]);
+  const [wplOverviewItems, setWplOverviewItems] = useState([]);
+  const [wplOverviewExpandedDevices, setWplOverviewExpandedDevices] = useState([]);
+  const [wplOverviewLoading, setWplOverviewLoading] = useState(false);
+  const [activeOverviewRuleKey, setActiveOverviewRuleKey] = useState('');
   
   // oml 配置的子文件列表
   const [omlFiles, setOmlFiles] = useState([]);
@@ -329,6 +355,20 @@ function RuleManagePage() {
   const [wplSearch, setWplSearch] = useState('');
   const [omlSearch, setOmlSearch] = useState('');
   const [knowledgeSearch, setKnowledgeSearch] = useState('');
+  const activeWplFileRef = React.useRef('');
+  const activeOmlFileRef = React.useRef('');
+  const wplOverviewCacheRef = React.useRef(new Map());
+  const isWplEditorMode = activeKey === RuleType.WPL || activeKey === INTEGRATION_OVERVIEW_KEY;
+  const isIntegrationOverviewMode = activeKey === INTEGRATION_OVERVIEW_KEY;
+  const isRepoMode = isWplEditorMode || activeKey === RuleType.OML;
+
+  useEffect(() => {
+    activeWplFileRef.current = activeWplFile;
+  }, [activeWplFile]);
+
+  useEffect(() => {
+    activeOmlFileRef.current = activeOmlFile;
+  }, [activeOmlFile]);
   
   useEffect(() => {
     const initRuleLists = async () => {
@@ -377,7 +417,7 @@ function RuleManagePage() {
   const loadConfig = async () => {
     // 调用服务层获取配置（使用对象参数）
     const options = { type: activeKey };
-    if (activeKey === RuleType.WPL) {
+    if (isWplEditorMode) {
       const targetFile = normalizeWplEntry(activeWplFile);
       if (!targetFile) {
         setContent('');
@@ -388,6 +428,7 @@ function RuleManagePage() {
         setContent('');
         return;
       }
+      options.type = RuleType.WPL;
       options.file = targetFile;
     } else if (activeKey === RuleType.OML) {
       if (!activeOmlFile) {
@@ -473,43 +514,35 @@ function RuleManagePage() {
 
   const applyWplListState = useCallback(
     (rawItems, options = {}) => {
-      const { preferredActive, preserveActive, page } = options;
+      const { preferredActive, preserveActive, page, total } = options;
       const normalizedList = normalizeWplList(rawItems);
       setAllWplFiles(normalizedList);
       const treeData = buildWplTreeData(normalizedList);
-      const pagePlans = buildRuleTreePages(treeData, WPL_PAGE_SIZE);
-      const totalPages = pagePlans.length;
-      setWplTotal(treeData.length);
+      setWplTotal(typeof total === 'number' && total >= 0 ? total : treeData.length);
 
       if (!normalizedList.length) {
         setWplTree([]);
-        setWplPage(1);
+        setWplPage(typeof page === 'number' && page > 0 ? page : 1);
         setWplExpandedRules([]);
         setActiveWplFile('');
         return;
       }
 
       const normalizedPreferred = preferredActive ? normalizeWplEntry(preferredActive) : '';
-      const normalizedActive = normalizeWplEntry(activeWplFile);
+      const normalizedActive = normalizeWplEntry(activeWplFileRef.current);
+      const currentPage = typeof page === 'number' && page > 0 ? page : 1;
+      const currentTreeData = treeData;
+      const currentPageFiles = currentTreeData.flatMap((node) =>
+        (Array.isArray(node.files) ? node.files : []).map((item) => item.value).filter(Boolean),
+      );
 
-      let nextActive =
-        normalizedPreferred && normalizedList.includes(normalizedPreferred)
-          ? normalizedPreferred
-          : null;
-      if (!nextActive && preserveActive && normalizedList.includes(normalizedActive)) {
+      let nextActive = currentPageFiles.includes(normalizedPreferred) ? normalizedPreferred : null;
+      if (!nextActive && preserveActive && currentPageFiles.includes(activeWplFileRef.current)) {
+        nextActive = activeWplFileRef.current;
+      }
+      if (!nextActive && preserveActive && currentPageFiles.includes(normalizedActive)) {
         nextActive = normalizedActive;
       }
-
-      let nextPage = typeof page === 'number' && page > 0 ? page : null;
-      if (!nextPage && nextActive) {
-        const preferredPageIndex = findWplPageByFile(pagePlans, nextActive);
-        if (preferredPageIndex >= 0) {
-          nextPage = preferredPageIndex + 1;
-        }
-      }
-      const currentPage = Math.min(Math.max(nextPage || 1, 1), totalPages);
-      const currentTreeData = pagePlans[currentPage - 1] || [];
-      const currentPageFiles = getWplEntriesFromTreeData(currentTreeData);
 
       if (!currentPageFiles.includes(nextActive)) {
         nextActive = getFirstWplEntry(currentTreeData) || currentPageFiles[0] || '';
@@ -527,23 +560,21 @@ function RuleManagePage() {
           : expandedRules,
       );
     },
-    [activeWplFile],
+    [],
   );
 
   const applyOmlListState = useCallback(
     (rawItems, options = {}) => {
-      const { preferredActive, preserveActive, page } = options;
+      const { preferredActive, preserveActive, page, total } = options;
       const normalizedList = normalizeOmlList(rawItems);
       const treeData = buildOmlTreeData(normalizedList);
-      const pagePlans = buildOmlTreePages(treeData, omlPageSize);
-      const totalPages = pagePlans.length;
 
       setOmlFiles(normalizedList);
-      setOmlTotal(treeData.length);
+      setOmlTotal(typeof total === 'number' && total >= 0 ? total : treeData.length);
 
       if (!normalizedList.length) {
         setOmlTree([]);
-        setOmlPage(1);
+        setOmlPage(typeof page === 'number' && page > 0 ? page : 1);
         setOmlExpandedGroups([]);
         setActiveOmlFile('');
         return;
@@ -551,23 +582,12 @@ function RuleManagePage() {
 
       const normalizedPreferred =
         preferredActive && normalizedList.includes(preferredActive) ? preferredActive : '';
-      const normalizedActive = normalizedList.includes(activeOmlFile) ? activeOmlFile : '';
+      const normalizedActive = normalizedList.includes(activeOmlFileRef.current)
+        ? activeOmlFileRef.current
+        : '';
 
-      let nextPage = typeof page === 'number' && page > 0 ? page : null;
-      if (!nextPage && normalizedPreferred) {
-        const preferredPageIndex = findOmlPageByFile(pagePlans, normalizedPreferred);
-        if (preferredPageIndex >= 0) {
-          nextPage = preferredPageIndex + 1;
-        }
-      }
-      if (!nextPage && preserveActive && normalizedActive) {
-        const activePageIndex = findOmlPageByFile(pagePlans, normalizedActive);
-        if (activePageIndex >= 0) {
-          nextPage = activePageIndex + 1;
-        }
-      }
-      const currentPage = Math.min(Math.max(nextPage || 1, 1), totalPages);
-      const currentTreeData = pagePlans[currentPage - 1] || [];
+      const currentPage = typeof page === 'number' && page > 0 ? page : 1;
+      const currentTreeData = treeData;
       const currentPageFiles = getOmlEntriesFromTreeData(currentTreeData);
 
       let nextActive = currentPageFiles.includes(normalizedPreferred) ? normalizedPreferred : '';
@@ -589,7 +609,7 @@ function RuleManagePage() {
           : expandedGroups,
       );
     },
-    [activeOmlFile, omlPageSize],
+    [omlPageSize],
   );
 
   const fetchAllRuleFiles = useCallback(async (type, keyword, fetchPageSize) => {
@@ -646,11 +666,22 @@ function RuleManagePage() {
         preferredActive,
         preserveActive = true,
       } = options;
-      const files = await fetchAllRuleFiles(RuleType.WPL, keyword, WPL_FETCH_PAGE_SIZE);
-      applyWplListState(files, { page, preferredActive, preserveActive });
+      const result = await fetchRuleFiles({
+        type: RuleType.WPL,
+        page: typeof page === 'number' && page > 0 ? page : 1,
+        pageSize: WPL_PAGE_SIZE,
+        keyword: keyword?.trim() ? keyword.trim() : undefined,
+      });
+      const files = Array.isArray(result?.items) ? result.items : [];
+      applyWplListState(files, {
+        page: result?.page || page || 1,
+        total: typeof result?.total === 'number' ? result.total : files.length,
+        preferredActive,
+        preserveActive,
+      });
       return files;
     },
-    [applyWplListState, fetchAllRuleFiles, wplSearch],
+    [applyWplListState, wplSearch],
   );
 
   const refreshOmlFiles = useCallback(
@@ -661,11 +692,22 @@ function RuleManagePage() {
         preferredActive,
         preserveActive = true,
       } = options;
-      const files = await fetchAllRuleFiles(RuleType.OML, keyword, OML_FETCH_PAGE_SIZE);
-      applyOmlListState(files, { page, preferredActive, preserveActive });
+      const result = await fetchRuleFiles({
+        type: RuleType.OML,
+        page: typeof page === 'number' && page > 0 ? page : 1,
+        pageSize: omlPageSize,
+        keyword: keyword?.trim() ? keyword.trim() : undefined,
+      });
+      const files = Array.isArray(result?.items) ? result.items : [];
+      applyOmlListState(files, {
+        page: result?.page || page || 1,
+        total: typeof result?.total === 'number' ? result.total : files.length,
+        preferredActive,
+        preserveActive,
+      });
       return files;
     },
-    [applyOmlListState, fetchAllRuleFiles, omlSearch],
+    [applyOmlListState, omlPageSize, omlSearch],
   );
 
   useEffect(() => {
@@ -673,6 +715,145 @@ function RuleManagePage() {
       message.error(t('ruleManage.loadWplFailed', { message: error.message }));
     });
   }, [refreshWplFiles, t]);
+
+  useEffect(() => {
+    if (!isIntegrationOverviewMode) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const loadWplOverview = async () => {
+      const packageKeys = Array.from(
+        new Set(
+          (Array.isArray(allWplFiles) ? allWplFiles : [])
+            .filter((entry) => !isWplSampleEntry(entry))
+            .map((entry) => getWplEntryParts(entry).rule)
+            .filter(Boolean),
+        ),
+      );
+
+      if (!packageKeys.length) {
+        setWplOverviewItems([]);
+        setWplOverviewExpandedDevices([]);
+        return;
+      }
+
+      setWplOverviewLoading(true);
+      try {
+        const overviewResults = await Promise.all(
+          packageKeys.map(async (packageKey) => {
+            const file = `${packageKey}/${WPL_PARSE_FILE}`;
+            const cached = wplOverviewCacheRef.current.get(file);
+            if (cached) {
+              return cached;
+            }
+            const response = await fetchRuleConfig({ type: RuleType.WPL, file });
+            const parsed = extractWplOverviewFromContent(response?.content || '', packageKey);
+            if (parsed) {
+              wplOverviewCacheRef.current.set(file, parsed);
+            }
+            return parsed;
+          }),
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        const nextItems = overviewResults
+          .filter(Boolean)
+          .sort((a, b) => a.deviceType.localeCompare(b.deviceType, 'zh-Hans-CN'));
+
+        setWplOverviewItems(nextItems);
+        setWplOverviewExpandedDevices((prev) => {
+          if (!prev.length) {
+            return nextItems.slice(0, 6).map((item) => item.packageKey);
+          }
+          return prev.filter((key) => nextItems.some((item) => item.packageKey === key));
+        });
+      } catch (error) {
+        if (!cancelled) {
+          message.error(t('ruleManage.loadIntegrationOverviewFailed', { message: error.message }));
+        }
+      } finally {
+        if (!cancelled) {
+          setWplOverviewLoading(false);
+        }
+      }
+    };
+
+    loadWplOverview();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [allWplFiles, isIntegrationOverviewMode, t]);
+
+  const handleSelectWplFile = (fileValue, options = {}) => {
+    const { ruleKey = '' } = options;
+    if (!fileValue) {
+      return;
+    }
+
+    const applySelection = () => {
+      setActiveWplFile(fileValue);
+      setActiveOverviewRuleKey(ruleKey);
+    };
+
+    if (hasUnsavedChanges && fileValue !== activeWplFile) {
+      Modal.confirm({
+        title: t('ruleManage.leaveConfirm'),
+        content: t('ruleManage.leaveConfirmMessage'),
+        okText: t('common.confirm'),
+        cancelText: t('common.cancel'),
+        onOk: applySelection,
+      });
+      return;
+    }
+
+    applySelection();
+  };
+
+  const toggleWplOverviewDevice = (packageKey) => {
+    setWplOverviewExpandedDevices((prev) =>
+      prev.includes(packageKey) ? prev.filter((item) => item !== packageKey) : [...prev, packageKey],
+    );
+  };
+
+  const wplOverviewStats = React.useMemo(
+    () => ({
+      deviceTypeCount: wplOverviewItems.length,
+      logTypeCount: wplOverviewItems.reduce(
+        (total, item) => total + (Array.isArray(item.logTypes) ? item.logTypes.length : 0),
+        0,
+      ),
+    }),
+    [wplOverviewItems],
+  );
+
+  const updateWplOverviewCacheForFile = (file, nextContent) => {
+    const normalizedFile = normalizeWplEntry(file);
+    const { rule } = getWplEntryParts(normalizedFile);
+    if (!normalizedFile || !rule || !normalizedFile.endsWith(`/${WPL_PARSE_FILE}`)) {
+      return;
+    }
+
+    const parsed = extractWplOverviewFromContent(nextContent, rule);
+    if (parsed) {
+      wplOverviewCacheRef.current.set(normalizedFile, parsed);
+    } else {
+      wplOverviewCacheRef.current.delete(normalizedFile);
+    }
+
+    setWplOverviewItems((prev) => {
+      const nextItems = prev.filter((item) => item.packageKey !== rule);
+      if (parsed) {
+        nextItems.push(parsed);
+      }
+      return nextItems.sort((a, b) => a.deviceType.localeCompare(b.deviceType, 'zh-Hans-CN'));
+    });
+  };
 
   const toggleWplRule = (rule) => {
     setWplExpandedRules((prev) =>
@@ -728,6 +909,21 @@ function RuleManagePage() {
     activeKnowledgeDataset,
     // 注意：localWplFiles/localOmlFiles 不放入依赖，避免一次加载导致重复请求
   ]);
+
+  useEffect(() => {
+    if (!activeWplFile || !activeOverviewRuleKey) {
+      return;
+    }
+    const { rule } = getWplEntryParts(activeWplFile);
+    const stillMatched = wplOverviewItems.some(
+      (item) =>
+        item.packageKey === rule &&
+        item.logTypes.some((logType) => logType.ruleKey === activeOverviewRuleKey),
+    );
+    if (!stillMatched) {
+      setActiveOverviewRuleKey('');
+    }
+  }, [activeOverviewRuleKey, activeWplFile, wplOverviewItems]);
 
   /**
    * 处理页面切换
@@ -802,14 +998,18 @@ function RuleManagePage() {
     const currentContent = buildCurrentContent();
     try {
       // 调用服务层校验配置
-      const response = await validateRuleConfig({ type: activeKey, file: fileInfo.file, content: currentContent });
+      const response = await validateRuleConfig({
+        type: isWplEditorMode ? RuleType.WPL : activeKey,
+        file: fileInfo.file,
+        content: currentContent,
+      });
 
       setValidateResult({
         filename: response.filename || fileInfo.display || fileInfo.file,
         valid: Boolean(response.valid),
         message: response.message || null,
         details: response.details || [],
-        type: typeLabelMap[activeKey] || activeKey,
+        type: typeLabelMap[isWplEditorMode ? RuleType.WPL : activeKey] || activeKey,
       });
       setValidateModalVisible(true);
     } catch (error) {
@@ -818,7 +1018,7 @@ function RuleManagePage() {
         valid: false,
         message: error.message || '未知错误',
         details: [],
-        type: typeLabelMap[activeKey] || activeKey,
+        type: typeLabelMap[isWplEditorMode ? RuleType.WPL : activeKey] || activeKey,
       });
       setValidateModalVisible(true);
     }
@@ -854,10 +1054,13 @@ function RuleManagePage() {
         const currentContent = buildCurrentContent();
         // 直接调用服务层保存配置（使用对象参数），不再弹出确认框
         await saveRuleConfig({
-          type: activeKey,
+          type: isWplEditorMode ? RuleType.WPL : activeKey,
           file: fileInfo.file,
           content: currentContent,
         });
+        if (isWplEditorMode) {
+          updateWplOverviewCacheForFile(fileInfo.file, currentContent);
+        }
       }
 
       // 保存成功后重置未保存状态
@@ -905,11 +1108,11 @@ function RuleManagePage() {
    * 处理代码格式化
    */
   const handleFormat = async () => {
-    if (activeKey !== 'wpl' && activeKey !== 'oml') {
+    if (!isWplEditorMode && activeKey !== 'oml') {
       return;
     }
 
-    if (activeKey === RuleType.WPL && isWplSampleEntry(activeWplFile)) {
+    if (isWplEditorMode && isWplSampleEntry(activeWplFile)) {
       message.info(t('ruleManage.sampleFileFormatDisabled'));
       return;
     }
@@ -921,14 +1124,14 @@ function RuleManagePage() {
 
     try {
       let result;
-      if (activeKey === 'wpl') {
+      if (isWplEditorMode) {
         result = await wplCodeFormat(content);
       } else {
         result = await omlCodeFormat(content);
       }
 
       // 提取格式化后的代码
-      const formattedCode = activeKey === 'wpl' ? result.wpl_code : result.oml_code;
+      const formattedCode = isWplEditorMode ? result.wpl_code : result.oml_code;
 
       if (formattedCode && formattedCode !== content) {
         setContent(formattedCode);
@@ -977,16 +1180,10 @@ function RuleManagePage() {
       return false;
     }
     if (repoType === 'wpl') {
-      const exists = allWplFiles.some(
-        (fileName) => getWplEntryParts(fileName).rule === normalizedName,
-      );
-      if (exists) {
-        message.warning(t('ruleManage.ruleFileExists'));
-        return false;
-      }
       await createRuleFile({ type: RuleType.WPL, file: normalizedName });
       await saveRuleConfig({ type: RuleType.WPL, file: normalizedName, content: '' });
       await refreshWplFiles({
+        page: 1,
         preferredActive: `${normalizedName}/${WPL_PARSE_FILE}`,
         preserveActive: false,
       });
@@ -1084,12 +1281,13 @@ function RuleManagePage() {
       wpl: t('ruleManage.wplConfig'),
       oml: t('ruleManage.omlConfig'),
       knowledge: t('ruleManage.knowledgeConfig'),
+      [INTEGRATION_OVERVIEW_KEY]: t('ruleManage.integrationOverview'),
     };
     return titles[activeKey] || t('ruleManage.title');
   };
 
   const getCurrentFileInfo = () => {
-    if (activeKey === 'wpl') {
+    if (isWplEditorMode) {
       const normalized = normalizeWplEntry(activeWplFile);
       return { file: normalized, display: formatWplDisplayName(normalized) };
     }
@@ -1124,7 +1322,7 @@ function RuleManagePage() {
   };
 
   const codeEditorLanguage =
-    activeKey === 'wpl' ? (isWplSampleEntry(activeWplFile) ? 'plain' : 'wpl') : 'oml';
+    isWplEditorMode ? (isWplSampleEntry(activeWplFile) ? 'plain' : 'wpl') : 'oml';
 
   return (
     <>
@@ -1133,10 +1331,10 @@ function RuleManagePage() {
         <h2>{t('ruleManage.title')}</h2>
         <button
           type="button"
-          className={`side-item ${activeKey === 'wpl' ? 'is-active' : ''}`}
-          onClick={() => handleNavigation('wpl', async () => {
+          className={`side-item ${activeKey === RuleType.WPL ? 'is-active' : ''}`}
+          onClick={() => handleNavigation(RuleType.WPL, async () => {
             try {
-              await loadRepoFilesIfNeeded('wpl');
+              await loadRepoFilesIfNeeded(RuleType.WPL);
               setLocalWplFiles([]);
             } catch (error) {
               message.error(t('ruleManage.loadWplFailed', { message: error.message }));
@@ -1147,10 +1345,10 @@ function RuleManagePage() {
         </button>
         <button
           type="button"
-          className={`side-item ${activeKey === 'oml' ? 'is-active' : ''}`}
-          onClick={() => handleNavigation('oml', async () => {
+          className={`side-item ${activeKey === RuleType.OML ? 'is-active' : ''}`}
+          onClick={() => handleNavigation(RuleType.OML, async () => {
             try {
-              await loadRepoFilesIfNeeded('oml');
+              await loadRepoFilesIfNeeded(RuleType.OML);
               setLocalOmlFiles([]);
             } catch (error) {
               message.error(t('ruleManage.loadOmlFailed', { message: error.message }));
@@ -1161,8 +1359,8 @@ function RuleManagePage() {
         </button>
         <button
           type="button"
-          className={`side-item ${activeKey === 'knowledge' ? 'is-active' : ''}`}
-          onClick={() => handleNavigation('knowledge', async () => {
+          className={`side-item ${activeKey === RuleType.KNOWLEDGE ? 'is-active' : ''}`}
+          onClick={() => handleNavigation(RuleType.KNOWLEDGE, async () => {
             try {
               const result = await fetchRuleFiles({
                 type: RuleType.KNOWLEDGE,
@@ -1202,7 +1400,7 @@ function RuleManagePage() {
             <h2>{getPageTitle()}</h2>
           </header>
           <section className="panel-body config-body">
-            {activeKey === 'knowledge' ? (
+            {activeKey === RuleType.KNOWLEDGE ? (
               /* knowledge 配置显示 repo 布局（与 wpl/oml 一致） */
               <div className="repo-layout" data-repo="knowledge">
                 <aside className="repo-tree" aria-label="知识库数据集列表">
@@ -1516,19 +1714,19 @@ function RuleManagePage() {
                   </section>
                 </div>
               </div>
-        ) : (activeKey === 'wpl' || activeKey === 'oml') ? (
+	        ) : isRepoMode ? (
           /* wpl/oml 配置显示 repo 布局 */
           <div className="repo-layout" data-repo={activeKey}>
             <aside
               className="repo-tree"
-              aria-label={`${activeKey === 'wpl' ? 'WPL' : 'OML'} 规则文件列表`}
+              aria-label={`${isWplEditorMode ? 'WPL' : 'OML'} 规则文件列表`}
             >
               <div className="repo-tree-header">
-                <h3>{activeKey === 'wpl' ? t('ruleManage.ruleFiles') : t('ruleManage.enrichmentRules')}</h3>
+                <h3>{isWplEditorMode ? t('ruleManage.ruleFiles') : t('ruleManage.enrichmentRules')}</h3>
                 <button
                   type="button"
                   className="btn ghost repo-add-btn"
-                  onClick={() => showAddModal(activeKey)}
+                  onClick={() => showAddModal(isWplEditorMode ? RuleType.WPL : activeKey)}
                 >
                   {t('ruleManage.add')}
                 </button>
@@ -1537,13 +1735,13 @@ function RuleManagePage() {
                 <Input
                   size="small"
                   allowClear
-                  placeholder={activeKey === 'wpl' ? t('ruleManage.searchRuleFiles') : t('ruleManage.searchEnrichmentRules')}
-                  value={activeKey === 'wpl' ? wplSearch : omlSearch}
+                  placeholder={isWplEditorMode ? t('ruleManage.searchRuleFiles') : t('ruleManage.searchEnrichmentRules')}
+                  value={isWplEditorMode ? wplSearch : omlSearch}
                   onChange={(e) => {
                     const value = e.target.value;
-                  if (activeKey === 'wpl') {
-                    setWplSearch(value);
-                    refreshWplFiles({
+                    if (isWplEditorMode) {
+                      setWplSearch(value);
+                      refreshWplFiles({
                         keyword: value,
                         page: 1,
                         preserveActive: true,
@@ -1566,7 +1764,7 @@ function RuleManagePage() {
                 />
               </div>
               <div className="repo-folder-content" style={{ paddingLeft: 0 }}>
-                {activeKey === 'wpl'
+                {isWplEditorMode
                   ? wplTree.map((node) => {
                       const expanded = wplExpandedRules.includes(node.rule);
                       return (
@@ -1630,7 +1828,7 @@ function RuleManagePage() {
                             </button>
                           </div>
                           {expanded ? (
-                            <div style={{ marginLeft: 24, marginTop: 4 }}>
+                            <div style={{ marginLeft: 16, marginTop: 4 }}>
                               {node.files.map((file) => (
                                 <button
                                   key={file.value}
@@ -1638,24 +1836,10 @@ function RuleManagePage() {
                                   className={`repo-file ${
                                     activeWplFile === file.value ? 'is-active' : ''
                                   }`}
-                                  onClick={() => {
-                                    if (hasUnsavedChanges && file.value !== activeWplFile) {
-                                      Modal.confirm({
-                                        title: t('ruleManage.leaveConfirm'),
-                                        content: t('ruleManage.leaveConfirmMessage'),
-                                        okText: t('common.confirm'),
-                                        cancelText: t('common.cancel'),
-                                        onOk: () => {
-                                          setActiveWplFile(file.value);
-                                        },
-                                      });
-                                    } else {
-                                      setActiveWplFile(file.value);
-                                    }
-                                  }}
+                                  onClick={() => handleSelectWplFile(file.value)}
                                   style={{
                                     textAlign: 'left',
-                                    paddingLeft: 24,
+                                    paddingLeft: 18,
                                     position: 'relative',
                                   }}
                                 >
@@ -1694,7 +1878,7 @@ function RuleManagePage() {
                             <span style={{ fontSize: 12, color: '#999' }}>{node.files.length}</span>
                           </button>
                           {expanded ? (
-                            <div style={{ marginLeft: 24, marginTop: 4 }}>
+                            <div style={{ marginLeft: 16, marginTop: 4 }}>
                               {node.files.map((file) => (
                                 <div
                                   key={file.value}
@@ -1724,7 +1908,7 @@ function RuleManagePage() {
                                     }}
                                     style={{
                                       textAlign: 'left',
-                                      paddingLeft: 32,
+                                      paddingLeft: 20,
                                       paddingRight: hoveredRepoFile === file.value ? '28px' : '12px',
                                       position: 'relative',
                                     }}
@@ -1791,19 +1975,19 @@ function RuleManagePage() {
                       );
                     })}
               </div>
-              {(activeKey === 'wpl'
+              {(isWplEditorMode
                 ? wplTotal > WPL_PAGE_SIZE
                 : omlTotal > omlPageSize) ? (
                 <div className="repo-pagination">
                   <Pagination
                     size="small"
                     simple
-                    current={activeKey === 'wpl' ? wplPage : omlPage}
-                    pageSize={activeKey === 'wpl' ? WPL_PAGE_SIZE : omlPageSize}
-                    total={activeKey === 'wpl' ? wplTotal : omlTotal}
+                    current={isWplEditorMode ? wplPage : omlPage}
+                    pageSize={isWplEditorMode ? WPL_PAGE_SIZE : omlPageSize}
+                    total={isWplEditorMode ? wplTotal : omlTotal}
                     showSizeChanger={false}
                     onChange={(page) => {
-                      if (activeKey === 'wpl') {
+                      if (isWplEditorMode) {
                         refreshWplFiles({
                           page,
                           preserveActive: true,
@@ -1827,41 +2011,122 @@ function RuleManagePage() {
               ) : null}
             </aside>
 
-            <div className="repo-content">
-              <div className="repo-toolbar">
-                <div className="repo-path">
-                  {activeKey === 'wpl'
-                    ? activeWplFile
-                      ? formatWplDisplayName(activeWplFile)
-                      : t('ruleManage.noFileSelected')
-                    : activeOmlFile
-                      ? `${activeOmlFile}.oml`
-                      : t('ruleManage.noFileSelected')}
-                </div>
-                <div className="editor-actions">
-                  <button type="button" className="btn ghost" onClick={handleFormat}>
-                    {t('ruleManage.format')}
-                  </button>
-                  <button type="button" className="btn tertiary" onClick={handleValidate}>
-                    {t('ruleManage.validate')}
-                  </button>
-                  <button type="button" className="btn primary" onClick={handleSave}>
-                    {t('ruleManage.save')}
-                  </button>
-                </div>
-              </div>
-              <div className="repo-view">
-                <CodeEditor
-                  className="code-area code-area--large repo-doc is-visible"
-                  value={content}
-                  onChange={(value) => setContent(value)}
-                  language={codeEditorLanguage}
-                  theme="vscodeDark"
-                />
-              </div>
-            </div>
-          </div>
-        ) : null}
+	            <div className="repo-content">
+	              <div className="repo-toolbar">
+	                <div className="repo-path">
+	                  {isWplEditorMode
+	                    ? activeWplFile
+	                      ? formatWplDisplayName(activeWplFile)
+	                      : t('ruleManage.noFileSelected')
+	                    : activeOmlFile
+	                      ? `${activeOmlFile}.oml`
+	                      : t('ruleManage.noFileSelected')}
+	                </div>
+	                <div className="editor-actions">
+	                  <button type="button" className="btn ghost" onClick={handleFormat}>
+	                    {t('ruleManage.format')}
+	                  </button>
+	                  <button type="button" className="btn tertiary" onClick={handleValidate}>
+	                    {t('ruleManage.validate')}
+	                  </button>
+	                  <button type="button" className="btn primary" onClick={handleSave}>
+	                    {t('ruleManage.save')}
+	                  </button>
+	                </div>
+	              </div>
+	              <div className="repo-view">
+	                <CodeEditor
+	                  className="code-area code-area--large repo-doc is-visible"
+	                  value={content}
+	                  onChange={(value) => setContent(value)}
+	                  language={codeEditorLanguage}
+	                  theme="vscodeDark"
+	                />
+	              </div>
+	            </div>
+	            {isIntegrationOverviewMode ? (
+	              <aside className="repo-overview" aria-label={t('ruleManage.integrationOverview')}>
+	                <div className="repo-overview-header">
+	                  <h3>{t('ruleManage.integrationOverview')}</h3>
+	                </div>
+	                <div className="repo-overview-summary">
+	                  <div className="repo-overview-stat">
+	                    <span className="repo-overview-stat-label">
+	                      {t('ruleManage.coveredDeviceTypes')}
+	                    </span>
+	                    <span className="repo-overview-stat-value">
+	                      {wplOverviewStats.deviceTypeCount}
+	                    </span>
+	                  </div>
+	                  <div className="repo-overview-stat">
+	                    <span className="repo-overview-stat-label">
+	                      {t('ruleManage.coveredLogTypes')}
+	                    </span>
+	                    <span className="repo-overview-stat-value">
+	                      {wplOverviewStats.logTypeCount}
+	                    </span>
+	                  </div>
+	                </div>
+	                <div className="repo-overview-list">
+	                  {wplOverviewLoading ? (
+	                    <div className="repo-overview-empty">{t('common.loading')}</div>
+	                  ) : wplOverviewItems.length > 0 ? (
+	                    wplOverviewItems.map((item) => {
+	                      const expanded = wplOverviewExpandedDevices.includes(item.packageKey);
+	                      const isActiveDevice = getWplEntryParts(activeWplFile).rule === item.packageKey;
+	                      return (
+	                        <section key={item.packageKey} className="repo-overview-group">
+	                          <button
+	                            type="button"
+	                            className={`repo-overview-device ${isActiveDevice ? 'is-active' : ''}`}
+	                            onClick={() => {
+	                              toggleWplOverviewDevice(item.packageKey);
+	                              handleSelectWplFile(`${item.packageKey}/${WPL_PARSE_FILE}`);
+	                            }}
+	                          >
+	                            <span className="repo-overview-device-title">
+	                              <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+	                              <span>{item.deviceType}</span>
+	                            </span>
+	                            <span className="repo-overview-device-count">
+	                              {item.logTypes.length}
+	                            </span>
+	                          </button>
+	                          {expanded ? (
+	                            <div className="repo-overview-log-types">
+	                              {item.logTypes.map((logType) => (
+	                                <button
+	                                  key={`${item.packageKey}-${logType.ruleKey}`}
+	                                  type="button"
+	                                  className={`repo-overview-log-type ${
+	                                    isActiveDevice && activeOverviewRuleKey === logType.ruleKey
+	                                      ? 'is-active'
+	                                      : ''
+	                                  }`}
+	                                  onClick={() =>
+	                                    handleSelectWplFile(`${item.packageKey}/${WPL_PARSE_FILE}`, {
+	                                      ruleKey: logType.ruleKey,
+	                                    })
+	                                  }
+	                                >
+	                                  {logType.logTypeName}
+	                                </button>
+	                              ))}
+	                            </div>
+	                          ) : null}
+	                        </section>
+	                      );
+	                    })
+	                  ) : (
+	                    <div className="repo-overview-empty">
+	                      {t('ruleManage.integrationOverviewEmpty')}
+	                    </div>
+	                  )}
+	                </div>
+	              </aside>
+	            ) : null}
+	          </div>
+	        ) : null}
           </section>
         </article>
       </section>

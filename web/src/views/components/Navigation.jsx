@@ -90,6 +90,11 @@ function Navigation({ children, onLocaleChange }) {
     { path: '/rule-manage', name: t('navigation.ruleConfig'), page: 'rule-manage' },
     { path: '/config-manage', name: t('navigation.configManage'), page: 'config-manage' },
     { path: '/simulate-debug', name: t('navigation.simulateDebug'), page: 'simulate-debug' },
+    {
+      path: '/integration-overview',
+      name: t('navigation.integrationOverview'),
+      page: 'integration-overview',
+    },
     { path: '/system-manage', name: t('navigation.systemManage'), page: 'system-manage' },
   ];
 
@@ -295,7 +300,7 @@ function Navigation({ children, onLocaleChange }) {
       <div className="app-shell-body">
         <div
           className={
-            ['/system-release'].some((path) =>
+            ['/system-release', '/integration-overview'].some((path) =>
               location.pathname === path || location.pathname.startsWith(`${path}/`)
             )
               ? 'main-content no-side-nav'

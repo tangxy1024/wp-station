@@ -9,6 +9,8 @@ import {
   saveRuleConfig,
   fetchRuleFiles,
   fetchConnectionFiles,
+  createConfigFile,
+  deleteConfigFile,
   createConnectionConfigFile,
   deleteConnectionConfigFile,
   renderConfigTemplate,
@@ -80,6 +82,21 @@ const sortSinkItems = (items = []) => {
     });
 };
 
+const splitSinkFile = (file = '') => {
+  const normalized = String(file || '').trim();
+  if (!normalized) {
+    return { group: 'root', name: '' };
+  }
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length <= 1) {
+    return { group: 'root', name: parts[0] || normalized };
+  }
+  return {
+    group: parts[0],
+    name: parts.slice(1).join('/'),
+  };
+};
+
 function ConfigManagePage() {
   const { t } = useTranslation();
   const [activeKey, setActiveKey] = useState(RuleType.PARSE);
@@ -87,6 +104,10 @@ function ConfigManagePage() {
   const [loading, setLoading] = useState(false);
   const [sinkFiles, setSinkFiles] = useState([]);
   const [activeSinkFile, setActiveSinkFile] = useState('');
+  const [sinkExpandedGroups, setSinkExpandedGroups] = useState([]);
+  const [hoveredSinkFile, setHoveredSinkFile] = useState('');
+  const [sinkAddModalVisible, setSinkAddModalVisible] = useState(false);
+  const [newSinkFileName, setNewSinkFileName] = useState('');
   const [connectionFiles, setConnectionFiles] = useState({ sources: [], sinks: [] });
   const [activeConnectionFile, setActiveConnectionFile] = useState('');
   const [activeConnectionCategory, setActiveConnectionCategory] = useState('source_connect');
@@ -172,6 +193,34 @@ function ConfigManagePage() {
     [connectionFiles.sinks, sortConnectionItems],
   );
   const displayedSinkFiles = useMemo(() => sortSinkItems(sinkFiles), [sinkFiles]);
+  const sinkGroups = useMemo(() => {
+    const groups = new Map();
+    displayedSinkFiles.forEach((item) => {
+      const { group, name } = splitSinkFile(item.file);
+      const nextItem = {
+        ...item,
+        group,
+        name: name || item.displayName || item.file,
+      };
+      const current = groups.get(group) || [];
+      current.push(nextItem);
+      groups.set(group, current);
+    });
+
+    const orderedGroups = ['business.d', 'infra.d', 'root'];
+    return Array.from(groups.entries())
+      .sort((a, b) => {
+        const aOrder = orderedGroups.indexOf(a[0]);
+        const bOrder = orderedGroups.indexOf(b[0]);
+        const normalizedA = aOrder >= 0 ? aOrder : Number.MAX_SAFE_INTEGER;
+        const normalizedB = bOrder >= 0 ? bOrder : Number.MAX_SAFE_INTEGER;
+        if (normalizedA !== normalizedB) {
+          return normalizedA - normalizedB;
+        }
+        return a[0].localeCompare(b[0], 'zh-CN');
+      })
+      .map(([group, items]) => ({ group, items }));
+  }, [displayedSinkFiles]);
   const filteredTemplateList = useMemo(() => {
     const keyword = templateSearch.trim().toLowerCase();
     if (!keyword) {
@@ -193,6 +242,18 @@ function ConfigManagePage() {
     return filteredTemplateList.slice(start, start + TEMPLATE_PAGE_SIZE);
   }, [filteredTemplateList, templatePage]);
   const supportsSinkTemplate = activeSinkFile.startsWith('business.d/');
+
+  useEffect(() => {
+    setSinkExpandedGroups((prev) => {
+      const groupKeys = sinkGroups.map((item) => item.group);
+      if (!prev.length) {
+        return groupKeys;
+      }
+      const next = prev.filter((group) => groupKeys.includes(group));
+      const missing = groupKeys.filter((group) => !next.includes(group));
+      return [...next, ...missing];
+    });
+  }, [sinkGroups]);
 
   const getDefaultFileForKey = (key) => {
     if (key === RuleType.PARSE) {
@@ -623,6 +684,78 @@ function ConfigManagePage() {
     }
   };
 
+  const handleCreateSinkConfigFile = async () => {
+    const normalized = newSinkFileName.trim();
+
+    if (!normalized) {
+      message.warning(t('configManage.enterSinkFileName'));
+      return;
+    }
+
+    const fileName = normalized.endsWith('.toml') ? normalized : `${normalized}.toml`;
+    const targetFile = `business.d/${fileName}`;
+
+    try {
+      await createConfigFile({
+        type: RuleType.SINK,
+        file: targetFile,
+      });
+      await loadSinkFiles();
+      setActiveSinkFile(targetFile);
+      setSinkExpandedGroups((prev) =>
+        prev.includes('business.d') ? prev : [...prev, 'business.d'],
+      );
+      setSinkAddModalVisible(false);
+      setNewSinkFileName('');
+      message.success(t('configManage.createSuccess', { filename: fileName }));
+    } catch (error) {
+      message.error(t('configManage.createFailed', { message: error.message }));
+    }
+  };
+
+  const handleDeleteSinkFile = async (file) =>
+    new Promise((resolve, reject) => {
+      Modal.confirm({
+        title: t('configManage.deleteConfirm'),
+        content: t('configManage.deleteConfirmMessage', { filename: file }),
+        okText: t('common.delete'),
+        okButtonProps: { danger: true },
+        cancelText: t('common.cancel'),
+        onOk: async () => {
+          try {
+            await deleteConfigFile({
+              type: RuleType.SINK,
+              file,
+            });
+            const refreshed = await loadSinkFiles();
+            ensureSelectionAfterListLoad(RuleType.SINK, refreshed);
+            message.success(t('configManage.deleteSuccess'));
+            resolve(true);
+          } catch (error) {
+            message.error(t('configManage.deleteFailed', { message: error.message }));
+            reject(error);
+          }
+        },
+        onCancel: () => resolve(false),
+      });
+    });
+
+  const toggleSinkGroup = (group) => {
+    setSinkExpandedGroups((prev) =>
+      prev.includes(group) ? prev.filter((item) => item !== group) : [...prev, group],
+    );
+  };
+
+  const getSinkGroupLabel = (group) => {
+    if (group === 'business.d') {
+      return t('configManage.sinkBusinessGroup');
+    }
+    if (group === 'infra.d') {
+      return t('configManage.sinkInfraGroup');
+    }
+    return t('configManage.sinkOtherGroup');
+  };
+
   const closeTemplateModal = () => {
     setTemplateModalVisible(false);
     setTemplateList([]);
@@ -745,23 +878,110 @@ function ConfigManagePage() {
   const renderSinkConfig = () => (
     <div className="repo-layout" data-repo="sink">
       <aside className="repo-tree" aria-label="sink 配置文件列表">
-        <h3>{t('configManage.configFiles')}</h3>
+        <div className="repo-tree-header">
+          <h3>{t('configManage.configFiles')}</h3>
+          <button
+            type="button"
+            className="btn ghost repo-add-btn"
+            onClick={() => setSinkAddModalVisible(true)}
+          >
+            {t('configManage.add')}
+          </button>
+        </div>
         <div className="repo-folder-content" style={{ paddingLeft: 0 }}>
-          {displayedSinkFiles.map((item) => (
-            <button
-              key={item.file}
-              type="button"
-              className={`repo-file ${activeSinkFile === item.file ? 'is-active' : ''}`}
-              onClick={() =>
-                confirmBeforeSwitch(() => {
-                  setActiveSinkFile(item.file);
-                })
-              }
-              style={{ textAlign: 'left' }}
-            >
-              {item.displayName}
-            </button>
-          ))}
+          {sinkGroups.map((group) => {
+            const expanded = sinkExpandedGroups.includes(group.group);
+            return (
+              <div key={group.group} className="repo-file-group">
+                <button
+                  type="button"
+                  className="repo-file repo-file--folder"
+                  onClick={() => toggleSinkGroup(group.group)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span aria-hidden="true">{expanded ? '📂' : '📁'}</span>
+                    {getSinkGroupLabel(group.group)}
+                  </span>
+                  <span style={{ fontSize: 12, color: '#999' }}>{group.items.length}</span>
+                </button>
+                {expanded ? (
+                  <div style={{ marginLeft: 16, marginTop: 4 }}>
+                    {group.items.map((item) => {
+                      const canDelete = item.group === 'business.d';
+                      return (
+                        <div
+                          key={item.file}
+                          className="repo-file-row"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 8,
+                            position: 'relative',
+                          }}
+                          onMouseEnter={() => setHoveredSinkFile(item.file)}
+                          onMouseLeave={() => setHoveredSinkFile('')}
+                        >
+                          <button
+                            type="button"
+                            className={`repo-file ${activeSinkFile === item.file ? 'is-active' : ''}`}
+                            onClick={() =>
+                              confirmBeforeSwitch(() => {
+                                setActiveSinkFile(item.file);
+                              })
+                            }
+                            style={{
+                              flex: 1,
+                              textAlign: 'left',
+                              paddingLeft: 18,
+                              paddingRight:
+                                canDelete && hoveredSinkFile === item.file ? '28px' : '12px',
+                            }}
+                          >
+                            {item.name}
+                          </button>
+                          {canDelete ? (
+                            <button
+                              type="button"
+                              className="repo-file-delete"
+                              style={{
+                                position: 'absolute',
+                                right: '4px',
+                                minWidth: 20,
+                                width: 20,
+                                height: 20,
+                                borderRadius: '50%',
+                                border: 'none',
+                                backgroundColor: '#ff4d4f',
+                                color: '#fff',
+                                fontSize: 16,
+                                padding: 0,
+                                cursor: 'pointer',
+                                display: hoveredSinkFile === item.file ? 'inline-flex' : 'none',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                              onClick={async (event) => {
+                                event.stopPropagation();
+                                await handleDeleteSinkFile(item.file);
+                              }}
+                            >
+                              -
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </aside>
 
@@ -1371,6 +1591,52 @@ function ConfigManagePage() {
         result={validateResult}
         onClose={() => setValidateModalVisible(false)}
       />
+
+      <Modal
+        title={t('configManage.addSinkConfig')}
+        open={sinkAddModalVisible}
+        onCancel={() => {
+          setSinkAddModalVisible(false);
+          setNewSinkFileName('');
+        }}
+        footer={null}
+        width={460}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+            {t('configManage.addSinkConfigDesc')}
+          </div>
+          <div>
+            <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>
+              {t('configManage.configFileName')}
+            </label>
+            <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--muted)' }}>
+              {t('configManage.sinkFileNameRule')}
+            </div>
+            <Input
+              value={newSinkFileName}
+              onChange={(event) => setNewSinkFileName(event.target.value)}
+              placeholder={t('configManage.sinkFileNamePlaceholder')}
+              onPressEnter={handleCreateSinkConfigFile}
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => {
+                setSinkAddModalVisible(false);
+                setNewSinkFileName('');
+              }}
+            >
+              {t('common.cancel')}
+            </button>
+            <button type="button" className="btn primary" onClick={handleCreateSinkConfigFile}>
+              {t('common.confirm')}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }

@@ -163,35 +163,13 @@ pub async fn get_rule_files_logic(query: RuleFilesQuery) -> Result<RuleFilesResp
     let layout = project_layout();
 
     // 处理知识库类型
-    let mut files = if matches!(rule_type, RuleType::Knowledge) {
+    let files = if matches!(rule_type, RuleType::Knowledge) {
         let files = list_knowledge_dirs(&layout)?;
         build_rule_files_response(files, &keyword)
     } else {
         let files = list_rule_files(&layout, rule_type)?;
         build_rule_files_response(files, &keyword)
     };
-
-    if matches!(rule_type, RuleType::Wpl) {
-        let mut expanded = Vec::new();
-        for entry in files.into_iter() {
-            // 保留基础文件名，兼容早期接口期望
-            expanded.push(entry.clone());
-
-            let (base, _) = split_wpl_virtual_file(&entry);
-            if base.trim().is_empty() {
-                continue;
-            }
-            expanded.push(format_wpl_virtual_file(&base, WplSubFile::Parse));
-            expanded.push(format_wpl_virtual_file(&base, WplSubFile::Sample));
-        }
-        let keyword_trim = keyword.trim();
-        if !keyword_trim.is_empty() {
-            expanded.retain(|file_name| file_name.contains(keyword_trim));
-        }
-        expanded.sort();
-        expanded.dedup();
-        files = expanded;
-    }
 
     let items: Vec<RuleFileItem> = files
         .into_iter()

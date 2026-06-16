@@ -38,18 +38,24 @@ const LEGACY_CONNECTION_DISPLAY_NAMES = Object.freeze({
   '10-syslog-udp.toml': 'Syslog (UDP)',
   '11-syslog-tcp.toml': 'Syslog (TCP)',
   '12-tcp.toml': 'TCP',
-  '13-count.toml': 'Count',
+  '20-http.toml': 'HTTP',
   '30-kafka.toml': 'Kafka',
   '40-mysql.toml': 'MySQL',
-  '50-dmdb-connect_string.toml': 'DMDB (Connection String)',
-  '51-dmdb-endpoint.toml': 'DMDB (Endpoint)',
-  '52-dmdb-dsn.toml': 'DMDB (DSN)',
+  '50-postgres.toml': 'Postgres',
+  '60-dmdb-connect_string.toml': 'DMDB (Connection String)',
+  '61-dmdb-endpoint.toml': 'DMDB (Endpoint)',
+  '62-dmdb-dsn.toml': 'DMDB (DSN)',
   '00-blackhole-sink.toml': 'Blackhole',
   '01-file-prototext.toml': 'File (Prototext)',
   '02-file-json.toml': 'File (JSON)',
   '03-file-kv.toml': 'File (KV)',
   '04-file-raw.toml': 'File (RAW)',
   '09-file-test.toml': 'Test Rescue',
+  '10-syslog-udp.toml': 'Syslog (UDP)',
+  '11-syslog-tcp.toml': 'Syslog (TCP)',
+  '12-tcp.toml': 'TCP',
+  '13-udp.toml': 'UDP',
+  '14-count.toml': 'Count',
   '40-prometheus.toml': 'Prometheus',
   '50-mysql.toml': 'MySQL',
   '60-doris.toml': 'Doris',
@@ -988,6 +994,48 @@ export async function createConnectionConfigFile(options) {
     rule_type: category,
     file,
     display_name: displayName || undefined,
+  });
+}
+
+/**
+ * 创建配置文件（例如 sink）
+ * @param {Object} options
+ * @param {string} options.type - 配置类型
+ * @param {string} options.file - 文件名
+ * @param {string} [options.displayName] - 展示名
+ */
+export async function createConfigFile(options) {
+  const { type, file, displayName } = options;
+
+  if (!type || !file) {
+    throw new Error('创建配置文件时必须提供类型和文件名');
+  }
+
+  await httpRequest.post('/config/files', {
+    rule_type: type,
+    file,
+    display_name: displayName || undefined,
+  });
+}
+
+/**
+ * 删除配置文件（例如 sink）
+ * @param {Object} options
+ * @param {string} options.type - 配置类型
+ * @param {string} options.file - 文件名
+ */
+export async function deleteConfigFile(options) {
+  const { type, file } = options;
+
+  if (!type || !file) {
+    throw new Error('删除配置文件时必须提供类型和文件名');
+  }
+
+  await httpRequest.delete('/config/files', {
+    params: {
+      rule_type: type,
+      file,
+    },
   });
 }
 

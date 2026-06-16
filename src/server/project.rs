@@ -26,7 +26,7 @@ use crate::utils::{
     load_project_snapshot_from_layout,
 };
 
-const LEGACY_REQUIRED_DIRS: [&str; 4] = ["conf", "connectors", "topology", "models"];
+const IMPORTABLE_ROOT_DIRS: [&str; 4] = ["conf", "connectors", "topology", "models"];
 const ARCHIVE_IMPORT_STAGING_DIR: &str = "project-archive-imports";
 
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ impl ImportScope {
     }
 
     fn retained_dir_names(&self) -> Vec<String> {
-        LEGACY_REQUIRED_DIRS
+        IMPORTABLE_ROOT_DIRS
             .iter()
             .filter(|name| !self.imported_dirs.contains(name))
             .map(|name| (*name).to_string())
@@ -51,7 +51,7 @@ impl ImportScope {
     }
 
     fn is_full_import(&self) -> bool {
-        self.imported_dirs.len() == LEGACY_REQUIRED_DIRS.len()
+        self.imported_dirs.len() == IMPORTABLE_ROOT_DIRS.len()
     }
 
     fn summary_message(&self, prefix: &str) -> String {
@@ -342,7 +342,7 @@ async fn import_project_dir(
         rules_imported: total_rules,
         knowledge_deleted: 0,
         knowledge_imported: total_knowledge,
-        imported_dirs: LEGACY_REQUIRED_DIRS
+        imported_dirs: IMPORTABLE_ROOT_DIRS
             .iter()
             .map(|name| (*name).to_string())
             .collect(),
@@ -588,7 +588,7 @@ fn find_import_project_root(extract_dir: &Path) -> Result<PathBuf, AppError> {
         Ok(normalized)
     } else {
         Err(AppError::validation(
-            "压缩包结构无效，需包含 conf/connectors/models/topology 中的一个或多个目录，或 project_models/project_infra 对应子目录"
+            "压缩包结构无效。解压后应直接包含 conf、connectors、topology、models 中的一个或多个目录"
                 .to_string(),
         ))
     }
@@ -606,11 +606,11 @@ fn persist_preview_project_dir(extract_dir: &Path, project_dir: &Path) -> Result
 }
 
 fn has_supported_import_layout(dir: &Path) -> bool {
-    has_legacy_import_dirs(dir) || has_split_import_dirs(dir)
+    has_flat_import_dirs(dir) || has_split_import_dirs(dir)
 }
 
-fn has_legacy_import_dirs(dir: &Path) -> bool {
-    LEGACY_REQUIRED_DIRS
+fn has_flat_import_dirs(dir: &Path) -> bool {
+    IMPORTABLE_ROOT_DIRS
         .iter()
         .any(|name| dir.join(name).is_dir())
 }
@@ -623,7 +623,7 @@ fn has_split_import_dirs(dir: &Path) -> bool {
 }
 
 fn normalize_import_root(dir: &Path) -> Result<PathBuf, AppError> {
-    if has_legacy_import_dirs(dir) {
+    if has_flat_import_dirs(dir) {
         return Ok(dir.to_path_buf());
     }
 
@@ -641,7 +641,7 @@ fn normalize_import_root(dir: &Path) -> Result<PathBuf, AppError> {
 }
 
 fn validate_legacy_project_dir(source_dir: &Path) -> Result<(), AppError> {
-    let missing_dirs: Vec<String> = LEGACY_REQUIRED_DIRS
+    let missing_dirs: Vec<String> = IMPORTABLE_ROOT_DIRS
         .iter()
         .filter_map(|name| {
             let path = source_dir.join(name);
@@ -795,7 +795,7 @@ fn copy_dir_recursive(source_dir: &Path, target_dir: &Path) -> Result<(), AppErr
 }
 
 fn detect_import_scope(source_dir: &Path) -> Result<ImportScope, AppError> {
-    let imported_dirs: Vec<&'static str> = LEGACY_REQUIRED_DIRS
+    let imported_dirs: Vec<&'static str> = IMPORTABLE_ROOT_DIRS
         .iter()
         .copied()
         .filter(|name| source_dir.join(name).is_dir())

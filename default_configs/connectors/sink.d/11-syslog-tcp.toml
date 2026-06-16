@@ -3,7 +3,7 @@ id = "syslog_tcp_sink"
 type = "syslog"
 allow_override = ["addr", "port", "protocol"  ]
 [connectors.params]
-addr = "localhost"
+addr = "127.0.0.1"
 port = 1514
 protocol = "tcp"
 strip_header = true

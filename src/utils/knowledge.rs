@@ -171,6 +171,14 @@ pub fn load_sqlite_knowledge(layout: &ProjectLayout) -> anyhow::Result<()> {
             AppError::internal(e)
         })?;
 
+    // 仅在明确重建本地 authority 时覆盖旧文件，避免普通状态查询误删运行中的 sqlite。
+    if context.auth_path.exists() {
+        fs::remove_file(&context.auth_path).map_err(|e| {
+            error!("删除旧的本地知识库 authority 失败: {}", e);
+            AppError::internal(e)
+        })?;
+    }
+
     loader::build_authority_from_knowdb(
         &context.root,
         &context.knowdb_path,
@@ -253,10 +261,6 @@ fn build_knowledge_context(layout: &ProjectLayout) -> Result<Option<KnowledgeCon
     }
 
     let auth_path = run_dir.join("authority.sqlite");
-    if auth_path.exists() {
-        let _ = std::fs::remove_file(&auth_path);
-    }
-
     let auth_uri = format!("file:{}?mode=rwc&uri=true", auth_path.display());
 
     Ok(Some(KnowledgeContext {

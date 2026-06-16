@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { EditorState } from '@codemirror/state';
+import { Annotation, EditorState } from '@codemirror/state';
 import { json } from '@codemirror/lang-json';
 import { sql } from '@codemirror/lang-sql';
 import { StreamLanguage } from '@codemirror/language';
@@ -43,6 +43,8 @@ const createCompletionSource = (options, validFor) => (context) => {
   };
 };
 
+const EXTERNAL_UPDATE = Annotation.define();
+
 function CodeEditor(props, ref) {
   const editorRef = useRef(null);
   const viewRef = useRef(null);
@@ -83,6 +85,7 @@ function CodeEditor(props, ref) {
       if (currentValue !== nextValue) {
         view.dispatch({
           changes: { from: 0, to: currentValue.length, insert: nextValue },
+          annotations: EXTERNAL_UPDATE.of(true),
         });
       }
     },
@@ -92,7 +95,7 @@ function CodeEditor(props, ref) {
     if (!editorRef.current) return;
 
     const updateListener = EditorView.updateListener.of((update) => {
-      if (update.docChanged) {
+      if (update.docChanged && !update.transactions.some((tr) => tr.annotation(EXTERNAL_UPDATE))) {
         props.onChange?.(update.state.doc.toString());
       }
     });
@@ -178,11 +181,9 @@ function CodeEditor(props, ref) {
     const currentValue = view.state.doc.toString();
     
     if (currentValue !== nextValue) {
-      // 使用事务更新，避免触发 onChange
       view.dispatch({
         changes: { from: 0, to: currentValue.length, insert: nextValue },
-        // 添加注解标记这是外部更新，不应触发 onChange
-        annotations: [EditorView.updateListener.of(() => {})],
+        annotations: EXTERNAL_UPDATE.of(true),
       });
     }
   }, [props.value]);
