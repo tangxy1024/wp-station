@@ -1,13 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Input, Table, message } from 'antd';
+import { Table, Tag, message } from 'antd';
 import {
-  fetchConfigTemplates,
-  fetchConnectionFiles,
+  ApartmentOutlined,
+  ApiOutlined,
+  DatabaseOutlined,
+  DeploymentUnitOutlined,
+  EnvironmentOutlined,
+  FileTextOutlined,
+  FolderOpenOutlined,
+  NumberOutlined,
+} from '@ant-design/icons';
+import {
   fetchRuleConfig,
   fetchRuleFiles,
   RuleType,
 } from '@/services/config';
+import { fetchIntegrationRuntimeOverview } from '@/services/features';
 
 const WPL_FETCH_PAGE_SIZE = 50;
 
@@ -311,6 +320,23 @@ const getPreferredValue = (params = {}, keys = []) => {
 
 const joinDetailSegments = (items = []) => items.filter(Boolean).join('，');
 
+const joinPathSegments = (base = '', file = '') => {
+  const normalizedBase = String(base || '').trim();
+  const normalizedFile = String(file || '').trim();
+
+  if (!normalizedBase) {
+    return normalizedFile;
+  }
+  if (!normalizedFile) {
+    return normalizedBase;
+  }
+  if (normalizedFile.startsWith('/')) {
+    return normalizedFile;
+  }
+
+  return `${normalizedBase.replace(/\/+$/, '')}/${normalizedFile.replace(/^\/+/, '')}`;
+};
+
 const splitHostPort = (rawValue = '') => {
   const value = String(rawValue || '').trim();
   if (!value) {
@@ -365,21 +391,44 @@ const buildEffectiveParams = (connectorMetaMap, connect = '', params = {}) => {
   return merged;
 };
 
+const inferConnectorType = (meta = {}, connect = '', params = {}) => {
+  const normalizedConnect = String(connect || '').trim().toLowerCase();
+  const protocol = getPreferredValue(params, ['protocol']).toLowerCase();
+  let typeKey = String(meta.typeKey || '').trim().toLowerCase();
+  let typeLabel = meta.typeLabel || typeKey || '-';
+
+  if (typeKey === 'syslog') {
+    if (protocol === 'udp' || normalizedConnect.includes('udp')) {
+      typeKey = 'syslog-udp';
+      typeLabel = 'Syslog UDP';
+    } else if (protocol === 'tcp' || normalizedConnect.includes('tcp')) {
+      typeKey = 'syslog-tcp';
+      typeLabel = 'Syslog TCP';
+    }
+  }
+
+  return {
+    typeKey,
+    typeLabel,
+  };
+};
+
 const buildConnectorDetail = (connectorMetaMap, connect = '', params = {}) => {
   const meta = resolveConnectorMeta(connectorMetaMap, connect);
-  const typeKey = meta.typeKey;
   const effectiveParams = buildEffectiveParams(connectorMetaMap, connect, params);
-  const typeLabel = meta.typeLabel || typeKey;
+  const { typeKey, typeLabel } = inferConnectorType(meta, connect, effectiveParams);
 
   if (['syslog-udp', 'syslog-tcp', 'tcp', 'udp'].includes(typeKey)) {
     const addr = getPreferredValue(effectiveParams, ['addr', 'host']);
     const port = getPreferredValue(effectiveParams, ['port']);
+    const protocol = getPreferredValue(effectiveParams, ['protocol']);
     return {
       typeLabel,
       detail:
         joinDetailSegments([
           addr ? `地址 ${addr}` : '',
           port ? `端口 ${port}` : '',
+          protocol ? `协议 ${protocol}` : '',
         ]) || '-',
     };
   }
@@ -425,7 +474,7 @@ const buildConnectorDetail = (connectorMetaMap, connect = '', params = {}) => {
   if (typeKey === 'file') {
     const base = getPreferredValue(effectiveParams, ['base', 'path']);
     const file = getPreferredValue(effectiveParams, ['file', 'file_path']);
-    const normalizedPath = base && file ? `${base}/${file}` : base || file;
+    const normalizedPath = joinPathSegments(base, file);
     return {
       typeLabel,
       detail: normalizedPath ? `文件路径 ${normalizedPath}` : '-',
@@ -582,10 +631,53 @@ const buildConnectorMetaMap = (items = []) =>
     return accumulator;
   }, {});
 
+const parseRuntimeDetailRows = (detail = '') =>
+  String(detail || '')
+    .split('，')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const [label, ...rest] = item.split(/\s+/);
+      return {
+        label: label || '',
+        value: rest.join(' ').trim() || '',
+      };
+    })
+    .filter((item) => item.label && item.value);
+
+const renderSummaryIcon = (key) => {
+  switch (key) {
+    case 'device':
+      return <DatabaseOutlined />;
+    case 'log':
+      return <FileTextOutlined />;
+    case 'source':
+      return <ApartmentOutlined />;
+    case 'sink':
+      return <FolderOpenOutlined />;
+    default:
+      return <NumberOutlined />;
+  }
+};
+
+const renderRuntimeDetailIcon = (label) => {
+  switch (label) {
+    case '地址':
+      return <EnvironmentOutlined />;
+    case '端口':
+      return <DeploymentUnitOutlined />;
+    case '协议':
+      return <ApartmentOutlined />;
+    case '文件路径':
+      return <FileTextOutlined />;
+    default:
+      return <ApiOutlined />;
+  }
+};
+
 function IntegrationOverviewPage() {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
-  const [keyword, setKeyword] = useState('');
   const [rows, setRows] = useState([]);
   const [sourceItems, setSourceItems] = useState([]);
   const [sinkItems, setSinkItems] = useState([]);
@@ -639,25 +731,13 @@ function IntegrationOverviewPage() {
   const loadOverview = useCallback(async () => {
     setLoading(true);
     try {
-      const [wplResult, sourceFilesResponse, sinkFilesResponse, connectionFiles, sourceTemplates, sinkTemplates] = await Promise.all([
+      const [wplResult, runtimeOverview] = await Promise.all([
         fetchAllWplFiles(),
-        fetchRuleFiles({ type: RuleType.SOURCE }),
-        fetchRuleFiles({ type: RuleType.SINK }),
-        fetchConnectionFiles(),
-        fetchConfigTemplates(RuleType.SOURCE),
-        fetchConfigTemplates(RuleType.SINK),
+        fetchIntegrationRuntimeOverview(),
       ]);
       const files = Array.isArray(wplResult?.items) ? wplResult.items : [];
       const parseFileName = wplResult?.parseFileName || '';
       const sampleFileName = wplResult?.sampleFileName || '';
-      const nextSourceConfigFile = sourceFilesResponse?.meta?.defaultFile || '';
-
-      const [sourceConfig] = await Promise.all([
-        fetchRuleConfig({ type: RuleType.SOURCE, file: nextSourceConfigFile }),
-      ]);
-
-      const sourceConnectorMetaMap = buildConnectorMetaMap(sourceTemplates?.items);
-      const sinkConnectorMetaMap = buildConnectorMetaMap(sinkTemplates?.items);
 
       const packageKeys = Array.from(
         new Set(
@@ -701,72 +781,10 @@ function IntegrationOverviewPage() {
           })),
         })),
       );
-
-      const parsedSources = parseTomlBlocks(
-        sourceConfig?.content || '',
-        '[[sources]]',
-        '[sources.params]',
-      )
-        .filter((item) => item.enable === true)
-        .map((item) => {
-          const summary = buildConnectorDetail(sourceConnectorMetaMap, item.connect, item.params || {});
-          return {
-            key: item.key || item.connect,
-            connect: item.connect || '',
-            title: item.key || item.connect || '-',
-            typeLabel: summary.typeLabel,
-            detail: summary.detail,
-          };
-        })
-        .sort((a, b) => a.title.localeCompare(b.title, 'zh-Hans-CN'));
-      setSourceItems(parsedSources);
-
-      const sinkFileItems = Array.isArray(sinkFilesResponse?.items) ? sinkFilesResponse.items : [];
-      const sinkConfigs = await Promise.all(
-        sinkFileItems
-          .map((item) => (typeof item === 'string' ? item : item?.file))
-          .filter((file) => isBusinessSinkFile(file))
-          .map(async (file) => {
-            if (!file) {
-              return [];
-            }
-            const response = await fetchRuleConfig({
-              type: RuleType.SINK,
-              file,
-            });
-            const sinks = parseTomlBlocks(
-              response?.content || '',
-              '[[sink_group.sinks]]',
-              '[sink_group.sinks.params]',
-            );
-
-            return sinks.map((sink, index) => {
-              const summary = buildConnectorDetail(
-                sinkConnectorMetaMap,
-                sink.connect,
-                sink.params || {},
-              );
-              const fileLabel = formatSinkFileLabel(file);
-              return {
-                key: `${file}-${sink.name || sink.connect || index}`,
-                file,
-                title: fileLabel,
-                typeLabel: summary.typeLabel,
-                detail: summary.detail,
-              };
-            });
-          }),
-      );
-
-      setSinkItems(
-        sinkConfigs
-          .flat()
-          .filter(Boolean)
-          .sort((a, b) => a.title.localeCompare(b.title, 'zh-Hans-CN')),
-      );
-
-      setSupportedSourceTypeCount(Array.isArray(connectionFiles?.sources) ? connectionFiles.sources.length : 0);
-      setSupportedSinkTypeCount(Array.isArray(connectionFiles?.sinks) ? connectionFiles.sinks.length : 0);
+      setSourceItems(Array.isArray(runtimeOverview?.sources) ? runtimeOverview.sources : []);
+      setSinkItems(Array.isArray(runtimeOverview?.sinks) ? runtimeOverview.sinks : []);
+      setSupportedSourceTypeCount(runtimeOverview?.supportedSourceTypeCount || 0);
+      setSupportedSinkTypeCount(runtimeOverview?.supportedSinkTypeCount || 0);
     } catch (error) {
       message.error(t('integrationOverview.loadFailed', { message: error.message }));
     } finally {
@@ -778,56 +796,12 @@ function IntegrationOverviewPage() {
     loadOverview();
   }, [loadOverview]);
 
-  const filteredRows = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLowerCase();
-    if (!normalizedKeyword) {
-      return rows;
-    }
-
-    return rows.filter((item) => {
-      if (item.deviceType.toLowerCase().includes(normalizedKeyword)) {
-        return true;
-      }
-      return item.logTypes.some(
-        (logType) =>
-          logType.logTypeName.toLowerCase().includes(normalizedKeyword) ||
-          logType.ruleKey.toLowerCase().includes(normalizedKeyword),
-      );
-    });
-  }, [keyword, rows]);
-
-  const filteredSourceItems = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLowerCase();
-    if (!normalizedKeyword) {
-      return sourceItems;
-    }
-    return sourceItems.filter(
-      (item) =>
-        item.title.toLowerCase().includes(normalizedKeyword) ||
-        item.typeLabel.toLowerCase().includes(normalizedKeyword) ||
-        String(item.detail || '').toLowerCase().includes(normalizedKeyword),
-    );
-  }, [keyword, sourceItems]);
-
-  const filteredSinkItems = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLowerCase();
-    if (!normalizedKeyword) {
-      return sinkItems;
-    }
-    return sinkItems.filter(
-      (item) =>
-        item.title.toLowerCase().includes(normalizedKeyword) ||
-        item.typeLabel.toLowerCase().includes(normalizedKeyword) ||
-        String(item.detail || '').toLowerCase().includes(normalizedKeyword),
-    );
-  }, [keyword, sinkItems]);
-
   const summary = useMemo(
     () => ({
-      deviceTypeCount: filteredRows.length,
-      logTypeCount: filteredRows.reduce((total, item) => total + item.logTypes.length, 0),
+      deviceTypeCount: rows.length,
+      logTypeCount: rows.reduce((total, item) => total + item.logTypes.length, 0),
     }),
-    [filteredRows],
+    [rows],
   );
 
   const columns = [
@@ -841,7 +815,12 @@ function IntegrationOverviewPage() {
       title: t('integrationOverview.deviceType'),
       dataIndex: 'deviceType',
       key: 'deviceType',
-      width: '24%',
+      width: 180,
+      render: (deviceType) => (
+        <Tag className="integration-overview-device-tag" bordered={false}>
+          {deviceType}
+        </Tag>
+      ),
     },
     {
       title: t('integrationOverview.logTypeCount'),
@@ -854,6 +833,7 @@ function IntegrationOverviewPage() {
       title: t('integrationOverview.logStatus'),
       dataIndex: 'logTypes',
       key: 'logStatus',
+      width: 320,
       render: (logTypes) => (
         <div className="integration-overview-log-list">
           {logTypes.length > 0 ? (
@@ -897,7 +877,28 @@ function IntegrationOverviewPage() {
                   {options.showMeta && 'metaLabel' in item && item.metaLabel ? (
                     <div className="integration-overview-runtime-meta">{item.metaLabel}</div>
                   ) : null}
-                  <div className="integration-overview-runtime-detail">{item.detail || '-'}</div>
+                  <div className="integration-overview-runtime-detail">
+                    {parseRuntimeDetailRows(item.detail).length > 0 ? (
+                      parseRuntimeDetailRows(item.detail).map((detailItem) => (
+                        <div
+                          key={`${item.key}-${detailItem.label}`}
+                          className="integration-overview-runtime-detail-row"
+                        >
+                          <span className="integration-overview-runtime-detail-icon">
+                            {renderRuntimeDetailIcon(detailItem.label)}
+                          </span>
+                          <span className="integration-overview-runtime-detail-label">
+                            {detailItem.label}
+                          </span>
+                          <span className="integration-overview-runtime-detail-value">
+                            {detailItem.value}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="integration-overview-runtime-detail-empty">-</div>
+                    )}
+                  </div>
                 </div>
               </div>
             </article>
@@ -911,68 +912,62 @@ function IntegrationOverviewPage() {
     </section>
   );
 
+  const summaryCards = [
+    {
+      key: 'device',
+      label: t('integrationOverview.coveredDeviceTypes'),
+      value: summary.deviceTypeCount,
+    },
+    {
+      key: 'log',
+      label: t('integrationOverview.coveredLogTypes'),
+      value: summary.logTypeCount,
+    },
+    {
+      key: 'source',
+      label: t('integrationOverview.supportedSourceTypes'),
+      value: supportedSourceTypeCount,
+    },
+    {
+      key: 'sink',
+      label: t('integrationOverview.supportedSinkTypes'),
+      value: supportedSinkTypeCount,
+    },
+  ];
+
   return (
-    <section className="page-panels">
-      <article className="panel is-visible">
+    <section className="page-panels integration-overview-page">
+      <article className="panel is-visible integration-overview-panel">
         <header className="panel-header">
           <h2>{t('integrationOverview.title')}</h2>
         </header>
         <section className="panel-body integration-overview-body">
           <div className="integration-overview-toolbar">
             <div className="integration-overview-summary">
-              <div className="integration-overview-summary-card">
-                <span className="integration-overview-summary-label">
-                  {t('integrationOverview.coveredDeviceTypes')}
-                </span>
-                <strong className="integration-overview-summary-value">
-                  {summary.deviceTypeCount}
-                </strong>
-              </div>
-              <div className="integration-overview-summary-card">
-                <span className="integration-overview-summary-label">
-                  {t('integrationOverview.coveredLogTypes')}
-                </span>
-                <strong className="integration-overview-summary-value">
-                  {summary.logTypeCount}
-                </strong>
-              </div>
-              <div className="integration-overview-summary-card">
-                <span className="integration-overview-summary-label">
-                  {t('integrationOverview.supportedSourceTypes')}
-                </span>
-                <strong className="integration-overview-summary-value">
-                  {supportedSourceTypeCount}
-                </strong>
-              </div>
-              <div className="integration-overview-summary-card">
-                <span className="integration-overview-summary-label">
-                  {t('integrationOverview.supportedSinkTypes')}
-                </span>
-                <strong className="integration-overview-summary-value">
-                  {supportedSinkTypeCount}
-                </strong>
-              </div>
-            </div>
-            <div className="integration-overview-filters">
-              <Input
-                allowClear
-                value={keyword}
-                onChange={(event) => setKeyword(event.target.value)}
-                placeholder={t('integrationOverview.searchPlaceholder')}
-              />
+              {summaryCards.map((card) => (
+                <div key={card.key} className="integration-overview-summary-card">
+                  <span className="integration-overview-summary-icon">
+                    {renderSummaryIcon(card.key)}
+                  </span>
+                  <div className="integration-overview-summary-content">
+                    <span className="integration-overview-summary-label">{card.label}</span>
+                    <strong className="integration-overview-summary-value">{card.value}</strong>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
           <div className="integration-overview-runtime-grid">
             {renderRuntimeSection(
               t('integrationOverview.sourceOverview'),
-              filteredSourceItems,
+              sourceItems,
               'sourceEmpty',
               { showMeta: false },
             )}
             {renderRuntimeSection(
               t('integrationOverview.sinkOverview'),
-              filteredSinkItems,
+              sinkItems,
               'sinkEmpty',
               { showMeta: false },
             )}
@@ -983,7 +978,7 @@ function IntegrationOverviewPage() {
             rowKey="key"
             loading={loading}
             columns={columns}
-            dataSource={filteredRows}
+            dataSource={rows}
             scroll={{ x: 1080 }}
             pagination={{
               pageSize: 10,

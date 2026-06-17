@@ -18,3 +18,34 @@ export async function fetchDataCollectConfig() {
     default_data_collect_url: payload.default_data_collect_url || payload.data_collect_url || '',
   };
 }
+
+/**
+ * 获取接入概览页的输入源 / 输出源运行时摘要
+ */
+export async function fetchIntegrationRuntimeOverview() {
+  const response = await httpRequest.get('/integration-overview/runtime');
+  const payload = response?.sources ? response : response?.data || response || {};
+
+  const normalizeItems = (items = []) =>
+    (Array.isArray(items) ? items : []).map((item) => ({
+      key: item?.key || '',
+      title: item?.title || '',
+      connect: item?.connect || '',
+      typeKey: item?.type_key || '',
+      typeLabel: item?.type_label || '',
+      detail: item?.detail || '-',
+    }));
+
+  return {
+    sources: normalizeItems(payload.sources),
+    sinks: normalizeItems(payload.sinks),
+    supportedSourceTypeCount:
+      typeof payload.supported_source_type_count === 'number'
+        ? payload.supported_source_type_count
+        : 0,
+    supportedSinkTypeCount:
+      typeof payload.supported_sink_type_count === 'number'
+        ? payload.supported_sink_type_count
+        : 0,
+  };
+}

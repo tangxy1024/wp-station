@@ -1323,7 +1323,7 @@ output_path = "./logs/"`);
                 <div className="split-layout">
                   <div className="split-col">
                     <div className="panel-block panel-block--fill">
-                      <div className="block-header" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
+                      <div className="block-header" style={{ alignItems: 'center' }}>
                         <div style={{ minWidth: 0, flex: 1, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                           <h3>{t('simulateDebug.parseRule.title')}</h3>
                           {workspaceMode === 'workspace' && (
@@ -1339,10 +1339,11 @@ output_path = "./logs/"`);
                               inlineMaxWidth="400px"
                               showAddButton={false}
                               collapseThreshold={6}
+                              forceSelect
                             />
                           )}
                         </div>
-                        <div className="block-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', minWidth: 0 }}>
+                        <div className="block-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
                           {workspaceMode === 'workspace' && (
                             <button
                               type="button"
@@ -1514,7 +1515,7 @@ output_path = "./logs/"`);
               <div className="split-layout transform-layout">
                 <div className="split-col transform-col">
                   <div className="panel-block panel-block--stretch panel-block--fill">
-                    <div className="block-header" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
+                    <div className="block-header" style={{ alignItems: 'center' }}>
                       <div style={{ minWidth: 0, flex: 1, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <h3>{t('simulateDebug.omlInput.title')}</h3>
                         {workspaceMode === 'workspace' && (
@@ -1530,10 +1531,11 @@ output_path = "./logs/"`);
                             inlineMaxWidth="400px"
                             showAddButton={false}
                             collapseThreshold={6}
+                            forceSelect
                           />
                         )}
                       </div>
-                      <div className="block-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', minWidth: 0 }}>
+                      <div className="block-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
                         {workspaceMode === 'workspace' && (
                           <button
                             type="button"

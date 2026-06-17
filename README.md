@@ -22,7 +22,7 @@ WarpParse 配置与发布控制台。把规则维护、知识库管理、调试�
 |------|------|
 | Rust 后端 | 提供 API、持久化、任务调度、规则校验、设备健康检查 |
 | React 前端 | 控制台 UI，通过 `/api` 调后端 |
-| PostgreSQL | 系统数据库，承载设备、发布、用户、操作日志等运行态数据 |
+| PostgreSQL / SQLite | 系统数据库，承载设备、发布、用户、操作日志等运行态数据 |
 | `project_models` | `wpl` / `oml` / `knowledge` 等 model 侧文件主数据源 |
 | `project_infra` | `conf` / `connectors` / `topology` 等 infra 侧文件主数据源 |
 | Gitea / WarpParse 设备 | 分别承接配置版本化和远端配置加载 |
@@ -35,7 +35,7 @@ WarpParse 配置与发布控制台。把规则维护、知识库管理、调试�
 
 - Rust
 - Node.js
-- PostgreSQL
+- PostgreSQL 或 SQLite
 
 **按功能需要**
 
@@ -58,6 +58,9 @@ project_models = "./project_models"
 project_infra = "./project_infra"
 
 [database]
+# 默认示例使用 SQLite
+url = "sqlite:///data/wp-station/station.db"
+# 以下字段仅在 url 为空时，作为 PostgreSQL 兼容配置生效
 host = "localhost"
 port = 5432
 name = "wp-station"
@@ -80,7 +83,7 @@ ca_file = "./tls/CA.crt"
 data_collect_url = "http://localhost:18080/wp-monitor"
 ```
 
-> `project_models` 默认 `./project_models`，`project_infra` 默认 `./project_infra`。配置文件支持环境变量覆盖，例如 `WP_STATION__WEB__PORT=8082`、`WP_STATION__PROJECT_INFRA=/data/project_infra`。WarpParse 客户端 API 路径固定为 `/admin/v1/reloads/model` 与 `/admin/v1/runtime/status`，设备的 IP/端口由设备记录决定。
+> 默认推荐直接使用 `database.url="sqlite:///data/wp-station/station.db"`。只有当 `database.url` 为空时，才会按 `host/port/name/username/password` 连接 PostgreSQL。`project_models` 默认 `./project_models`，`project_infra` 默认 `./project_infra`。配置文件支持环境变量覆盖，例如 `WP_STATION__WEB__PORT=8082`、`WP_STATION__PROJECT_INFRA=/data/project_infra`。WarpParse 客户端 API 路径固定为 `/admin/v1/reloads/model` 与 `/admin/v1/runtime/status`，设备的 IP/端口由设备记录决定。
 
 ### 2. 启动后端
 

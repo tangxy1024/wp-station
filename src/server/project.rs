@@ -397,7 +397,7 @@ async fn finalize_import_side_effects(layout: &ProjectLayout) -> Result<(), AppE
     }
 
     let commit_message = format!("导入项目配置 {}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
-    sync_to_gitea_all(&commit_message).await;
+    sync_to_gitea_all(&commit_message).await?;
     refresh_draft_release_logic(Some(&commit_message)).await?;
     Ok(())
 }

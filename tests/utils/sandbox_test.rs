@@ -7,8 +7,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::common::{setup_db, test_infra_root};
+use wp_station::constants::sandbox::OUTPUT_PATHS;
 use wp_station::server::Setting;
-use wp_station::utils::common::OUTPUT_PATHS;
 use wp_station::utils::sandbox::{SandboxWorkspace, collect_output_checks, command_version_output};
 
 // ============ 测试辅助函数 ============

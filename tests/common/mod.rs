@@ -16,12 +16,20 @@ fn init_test_environment() {
         let base = std::env::temp_dir().join(format!("wp-station-tests-{}", std::process::id()));
         let models_dir = base.join("project_models");
         let infra_dir = base.join("project_infra");
+        let sqlite_db = base.join("station-test.db");
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&models_dir).expect("failed to create test models root");
         std::fs::create_dir_all(&infra_dir).expect("failed to create test infra root");
+        std::fs::File::create(&sqlite_db).expect("failed to create test sqlite database file");
         unsafe {
             std::env::set_var("WP_STATION__PROJECT_MODELS", &models_dir);
             std::env::set_var("WP_STATION__PROJECT_INFRA", &infra_dir);
+            std::env::set_var(
+                "WP_STATION__DATABASE__URL",
+                format!("sqlite://{}", sqlite_db.display()),
+            );
+            std::env::set_var("WP_STATION__DATABASE__MAX_CONNECTIONS", "1");
+            std::env::set_var("WP_STATION__DATABASE__MIN_CONNECTIONS", "1");
             std::env::set_var("WARP_STATION_SKIP_GITEA", "1");
             std::env::set_var("WARP_STATION_SKIP_RULE_CHECK", "1");
             std::env::set_var("WARP_STATION_SKIP_SANDBOX", "1");

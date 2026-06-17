@@ -16,5 +16,5 @@ pub use db::{
     PerformanceTask, Release, RuleType, init_default_configs_to_infra,
     init_default_configs_to_models, init_pool,
 };
-pub use server::{DatabaseConf, Setting, WebConf};
+pub use server::{DatabaseConf, DatabaseKind, Setting, WebConf};
 pub use utils::{ParsedField, warp_check_record};

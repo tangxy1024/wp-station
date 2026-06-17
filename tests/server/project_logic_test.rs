@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::common::{
     rand_suffix, setup_db, test_base_root, test_infra_root, test_models_root, test_project_layout,
@@ -43,7 +43,7 @@ fn copy_dir(source: PathBuf, target: PathBuf) {
     }
 }
 
-fn build_archive_with_dirs(source_dir: &PathBuf, dirs: &[&str]) -> Vec<u8> {
+fn build_archive_with_dirs(source_dir: &Path, dirs: &[&str]) -> Vec<u8> {
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
     let mut builder = tar::Builder::new(encoder);
     for dir in dirs {

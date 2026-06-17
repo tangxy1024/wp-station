@@ -7,13 +7,14 @@ pub mod assist_service;
 pub mod common;
 pub mod config_templates;
 pub mod health_check;
+pub mod integration_overview;
 pub mod knowledge;
 pub mod oml;
 pub mod pagination;
 pub mod project;
 pub mod project_check;
 pub mod sandbox;
-pub mod warparse_service;
+pub mod wparse_service;
 pub mod wpl;
 
 pub use assist_service::{
@@ -27,6 +28,10 @@ pub use config_templates::{
     template_id_from_file,
 };
 pub use health_check::check_device_health;
+pub use integration_overview::{
+    IntegrationRuntimeItem, IntegrationRuntimeOverview,
+    load_integration_runtime_overview_from_layout,
+};
 pub use knowledge::{
     configured_provider_name, is_knowledge_loaded, load_knowledge, load_sqlite_knowledge,
     reload_knowledge, reload_sqlite_knowledge, sql_knowdb_list, sql_query, sql_query_rows,
@@ -42,7 +47,7 @@ pub use project::{
     touch_knowledge_in_project, touch_rule_in_project, write_knowdb_config, write_knowledge_files,
     write_rule_content, write_rule_content_in_project_dir, write_wpl_sample_content,
 };
-pub use warparse_service::{
+pub use wparse_service::{
     DeployCheckResult, DeployResult, OnlineStatus, ServiceError, WarpParseService,
 };
 pub use wpl::{ParsedField, WplFormatter, warp_check_record};

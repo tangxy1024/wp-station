@@ -1,9 +1,13 @@
 // 数据库连接池管理 - 全局单例模式
 
-use crate::error::DbResult;
-use crate::server::DatabaseConf;
+use crate::error::{DbError, DbResult};
+use crate::server::{DatabaseConf, DatabaseKind};
 use lazy_static::lazy_static;
-use sea_orm::{ConnectOptions, Database, DatabaseConnection};
+use sea_orm::{
+    ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, Statement,
+};
+use std::fs;
+use std::path::PathBuf;
 use std::sync::RwLock;
 use std::time::Duration;
 
@@ -19,6 +23,7 @@ pub struct DbPool {
 impl DbPool {
     /// 创建新的数据库连接池
     pub async fn new(
+        kind: DatabaseKind,
         database_url: &str,
         max_connections: u32,
         min_connections: u32,
@@ -38,6 +43,9 @@ impl DbPool {
             .sqlx_logging(false);
 
         let conn = Database::connect(opt).await?;
+        if matches!(kind, DatabaseKind::Sqlite) {
+            apply_sqlite_pragmas(&conn).await?;
+        }
         info!("数据库连接池创建成功");
         Ok(Self { conn })
     }
@@ -58,8 +66,13 @@ impl DbPool {
 pub async fn init_pool(config: &DatabaseConf) -> DbResult<()> {
     info!("初始化全局数据库连接池: {}", config.safe_summary());
 
+    let database_kind = config.database_kind();
     let conn_str = config.connection_string_with_options();
+    if matches!(database_kind, DatabaseKind::Sqlite) {
+        ensure_sqlite_parent_dir(&conn_str)?;
+    }
     let pool = DbPool::new(
+        database_kind,
         &conn_str,
         config.max_connections,
         config.min_connections,
@@ -78,6 +91,52 @@ pub async fn init_pool(config: &DatabaseConf) -> DbResult<()> {
     *global = Some(pool);
 
     info!("全局数据库连接池初始化成功");
+    Ok(())
+}
+
+async fn apply_sqlite_pragmas(conn: &DatabaseConnection) -> DbResult<()> {
+    for pragma in [
+        "PRAGMA journal_mode = WAL;",
+        "PRAGMA synchronous = NORMAL;",
+        "PRAGMA busy_timeout = 5000;",
+        "PRAGMA foreign_keys = ON;",
+    ] {
+        conn.execute(Statement::from_string(
+            DbBackend::Sqlite,
+            pragma.to_string(),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+fn ensure_sqlite_parent_dir(database_url: &str) -> DbResult<()> {
+    let sqlite_path = database_url
+        .trim()
+        .trim_start_matches("sqlite://")
+        .trim_start_matches("sqlite:")
+        .split(['?', '#'])
+        .next()
+        .unwrap_or("");
+    if sqlite_path.is_empty() || sqlite_path == ":memory:" {
+        return Ok(());
+    }
+
+    let path = PathBuf::from(sqlite_path);
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)
+            .map_err(|err| DbError::Db(sea_orm::DbErr::Custom(err.to_string())))?;
+    }
+    if !path.exists() {
+        fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&path)
+            .map_err(|err| DbError::Db(sea_orm::DbErr::Custom(err.to_string())))?;
+    }
     Ok(())
 }
 

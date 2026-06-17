@@ -694,8 +694,7 @@ function SystemReleasePage() {
               showTotal: (total) => t('systemRelease.total', { count: total }),
               position: ['bottomCenter'],
             }}
-            size="small"
-            className="data-table release-table"
+            className="release-table"
           />
         </div>
       </section>

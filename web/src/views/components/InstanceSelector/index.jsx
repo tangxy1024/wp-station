@@ -31,6 +31,7 @@ function InstanceSelector({
   inlineMaxWidth,
   showAddButton = true,
   collapseThreshold = 0,
+  forceSelect = false,
 }) {
   const { t } = useTranslation();
   const { modal } = AntdApp.useApp();
@@ -255,7 +256,7 @@ function InstanceSelector({
   const instanceSelect = (
     <Select
       size="small"
-      className={styles.inlineSelect}
+      className={`${styles.inlineSelect} ${forceSelect ? styles.inlineSelectForced : ''}`}
       value={activeIndex}
       open={selectOpen}
       onOpenChange={setSelectOpen}
@@ -351,8 +352,11 @@ function InstanceSelector({
   if (inline) {
     return (
       <>
-        <div ref={wrapperRef} className={styles.inlineWrap}>
-          {shouldCollapse ? instanceSelect : instanceList}
+        <div
+          ref={wrapperRef}
+          className={`${styles.inlineWrap} ${forceSelect ? styles.inlineWrapForced : ''}`}
+        >
+          {forceSelect ? instanceSelect : shouldCollapse ? instanceSelect : instanceList}
           {shouldAutoCollapse ? measureList : null}
         </div>
         {addButton}

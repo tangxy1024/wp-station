@@ -272,7 +272,7 @@ pub async fn save_config_logic(
             &commit_message,
             crate::db::ReleaseGroup::from_rule_type(rule_type),
         )
-        .await;
+        .await?;
         let _ = refresh_draft_release_logic(Some(&commit_message)).await;
 
         Ok::<_, AppError>(SimpleResult { success: true })
@@ -329,7 +329,7 @@ pub async fn create_config_file_logic(
             &commit_message,
             crate::db::ReleaseGroup::from_rule_type(rule_type),
         )
-        .await;
+        .await?;
         let _ = refresh_draft_release_logic(Some(&commit_message)).await;
 
         Ok::<_, AppError>(SimpleResult { success: true })
@@ -378,7 +378,7 @@ pub async fn delete_config_file_logic(
             deleted_path
         );
 
-        sync_delete_to_gitea(rule_type, &file).await;
+        sync_delete_to_gitea(rule_type, &file).await?;
         let draft_note = format!("删除配置文件: {} - {}", rule_type.as_ref(), file);
         let _ = refresh_draft_release_logic(Some(&draft_note)).await;
 

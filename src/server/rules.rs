@@ -397,7 +397,7 @@ pub async fn delete_rule_file_logic(
             );
 
             // 同步到 Gitea
-            sync_delete_to_gitea(rule_type, &normalized_file).await;
+            sync_delete_to_gitea(rule_type, &normalized_file).await?;
             let draft_note = format!("删除知识库: {}", normalized_file);
             let _ = refresh_draft_release_logic(Some(&draft_note)).await;
 
@@ -412,7 +412,7 @@ pub async fn delete_rule_file_logic(
         );
 
         // 同步到 Gitea
-        sync_delete_to_gitea(rule_type, &normalized_file).await;
+        sync_delete_to_gitea(rule_type, &normalized_file).await?;
         let draft_note = format!("删除规则文件: {} - {}", rule_type.as_ref(), normalized_file);
         let _ = refresh_draft_release_logic(Some(&draft_note)).await;
 
@@ -497,7 +497,7 @@ pub async fn save_rule_logic(
             &commit_message,
             crate::db::ReleaseGroup::from_rule_type(rule_type),
         )
-        .await;
+        .await?;
         let _ = refresh_draft_release_logic(Some(&commit_message)).await;
 
         Ok::<_, AppError>(())
@@ -559,7 +559,7 @@ pub async fn save_knowledge_rule_logic(
 
         // 同步到 Gitea
         let commit_message = format!("知识库改动: {}", file);
-        sync_to_gitea(&commit_message, crate::db::ReleaseGroup::Models).await;
+        sync_to_gitea(&commit_message, crate::db::ReleaseGroup::Models).await?;
         let _ = refresh_draft_release_logic(Some(&commit_message)).await;
 
         Ok::<_, AppError>(())
@@ -632,7 +632,7 @@ pub async fn save_knowdb_config_logic(
         reload_knowledge(&layout).map_err(AppError::internal)?;
 
         let commit_message = format!("知识库改动: {}", FILE_KNOWDB);
-        sync_to_gitea(&commit_message, crate::db::ReleaseGroup::Models).await;
+        sync_to_gitea(&commit_message, crate::db::ReleaseGroup::Models).await?;
         let _ = refresh_draft_release_logic(Some(&commit_message)).await;
 
         Ok::<_, AppError>(())

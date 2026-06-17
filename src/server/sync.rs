@@ -42,43 +42,34 @@ fn should_skip_gitea_sync() -> bool {
 }
 
 /// 同步指定分组仓库到 Gitea（支持自动处理冲突）
-pub async fn sync_to_gitea(commit_message: &str, group: ReleaseGroup) {
+pub async fn sync_to_gitea(commit_message: &str, group: ReleaseGroup) -> Result<(), AppError> {
     if should_skip_gitea_sync() {
         info!(
             "跳过 Gitea 同步: group={}, reason=WARP_STATION_SKIP_GITEA",
             group.as_ref()
         );
-        return;
+        return Ok(());
     }
 
     let setting = Setting::load();
     let layout = setting.project_layout();
-
-    match build_gitea_client(&setting) {
-        Ok(gitea_client) => {
-            let project_path = project_path_for_group(&layout, group);
-            sync_repo_with_retry(&gitea_client, &project_path, commit_message, group);
-        }
-        Err(e) => {
-            warn!(
-                "创建 Gitea 客户端失败（配置已保存）: group={}, error={}",
-                group.as_ref(),
-                e
-            );
-        }
-    }
+    let gitea_client = build_gitea_client(&setting)?;
+    let project_path = project_path_for_group(&layout, group);
+    sync_repo_with_retry(&gitea_client, &project_path, commit_message, group)
 }
 
 /// 同步所有仓库到 Gitea。
-pub async fn sync_to_gitea_all(commit_message: &str) {
-    sync_to_gitea(commit_message, ReleaseGroup::Models).await;
-    sync_to_gitea(commit_message, ReleaseGroup::Infra).await;
+pub async fn sync_to_gitea_all(commit_message: &str) -> Result<(), AppError> {
+    sync_to_gitea(commit_message, ReleaseGroup::Models).await?;
+    sync_to_gitea(commit_message, ReleaseGroup::Infra).await?;
+    Ok(())
 }
 
 /// 同步删除到 Gitea
-pub async fn sync_delete_to_gitea(rule_type: RuleType, file_name: &str) {
+pub async fn sync_delete_to_gitea(rule_type: RuleType, file_name: &str) -> Result<(), AppError> {
     let commit_message = format!("删除 {} 文件: {}", rule_type.as_ref(), file_name);
-    sync_to_gitea(&commit_message, ReleaseGroup::from_rule_type(rule_type)).await;
+    sync_to_gitea(&commit_message, ReleaseGroup::from_rule_type(rule_type)).await?;
+    Ok(())
 }
 
 /// 初始化双仓库 Gitea 仓库和基线 tag（系统首次启动且本地 .git 不存在时调用）
@@ -450,7 +441,7 @@ pub async fn push_and_tag_release(version: &str, group: ReleaseGroup) -> Result<
 
     if has_changes {
         let commit_message = format!("Release {}", version);
-        sync_repo_with_retry(&gitea_client, &project_path, &commit_message, group);
+        sync_repo_with_retry(&gitea_client, &project_path, &commit_message, group)?;
     } else {
         info!(
             "仓库无未提交改动，跳过 commit/push: group={}, version={}",
@@ -487,10 +478,11 @@ fn sync_repo_with_retry(
     project_path: &Path,
     commit_message: &str,
     group: ReleaseGroup,
-) {
+) -> Result<(), AppError> {
     match gitea_client.add_commit_push(commit_message, project_path) {
         Ok(_) => {
             info!("配置同步到 Gitea 成功: group={}", group.as_ref());
+            Ok(())
         }
         Err(e) => {
             let error_msg = e.to_string();
@@ -502,24 +494,39 @@ fn sync_repo_with_retry(
                 match gitea_client.open(project_path) {
                     Ok(local_repo) => match local_repo.pull() {
                         Ok(_) => match gitea_client.add_commit_push(commit_message, project_path) {
-                            Ok(_) => info!("配置同步到 Gitea 成功: group={}", group.as_ref()),
-                            Err(retry_err) => warn!(
-                                "重新推送失败（配置已保存）: group={}, error={}",
-                                group.as_ref(),
-                                retry_err
-                            ),
+                            Ok(_) => {
+                                info!("配置同步到 Gitea 成功: group={}", group.as_ref());
+                                Ok(())
+                            }
+                            Err(retry_err) => {
+                                let message = format!(
+                                    "重新推送到 Gitea 失败: group={}, error={}",
+                                    group.as_ref(),
+                                    retry_err
+                                );
+                                warn!("{}", message);
+                                Err(AppError::git(message))
+                            }
                         },
-                        Err(pull_err) => warn!(
-                            "拉取远程更改失败（配置已保存）: group={}, error={}",
-                            group.as_ref(),
-                            pull_err
-                        ),
+                        Err(pull_err) => {
+                            let message = format!(
+                                "拉取远程更改失败: group={}, error={}",
+                                group.as_ref(),
+                                pull_err
+                            );
+                            warn!("{}", message);
+                            Err(AppError::git(message))
+                        }
                     },
-                    Err(open_err) => warn!(
-                        "打开本地仓库失败（配置已保存）: group={}, error={}",
-                        group.as_ref(),
-                        open_err
-                    ),
+                    Err(open_err) => {
+                        let message = format!(
+                            "打开本地仓库失败: group={}, error={}",
+                            group.as_ref(),
+                            open_err
+                        );
+                        warn!("{}", message);
+                        Err(AppError::git(message))
+                    }
                 }
             } else if error_msg.contains("current tip is not the first parent")
                 || error_msg.contains("failed to create commit")
@@ -529,12 +536,15 @@ fn sync_repo_with_retry(
                     group.as_ref(),
                     error_msg
                 );
+                Ok(())
             } else {
-                warn!(
-                    "同步配置到 Gitea 失败（配置已保存）: group={}, error={}",
+                let message = format!(
+                    "同步配置到 Gitea 失败: group={}, error={}",
                     group.as_ref(),
                     e
                 );
+                warn!("{}", message);
+                Err(AppError::git(message))
             }
         }
     }

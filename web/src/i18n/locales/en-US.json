@@ -168,7 +168,7 @@
     "supportedSourceTypes": "Supported Source Types",
     "supportedSinkTypes": "Supported Sink Types",
     "deviceType": "Device Type",
-    "logTypeCount": "Log Count",
+    "logTypeCount": "Log Type",
     "logStatus": "Log Status",
     "sourceOverview": "Sources",
     "sinkOverview": "Sinks",

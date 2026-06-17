@@ -78,7 +78,7 @@
 1. 前端创建或选择发布版本
 2. 发布时为每台设备生成 `release_targets`
 3. `release_task_runner` 周期轮询待处理任务
-4. 通过 `WarpParseService`（`src/utils/warparse_service.rs`）调设备部署接口和状态接口
+4. 通过 `WarpParseService`（`src/utils/wparse_service.rs`）调设备部署接口和状态接口
 5. 汇总设备结果后刷新 release 聚合状态
 
 ### 4. 沙盒预发布验证链路
@@ -106,7 +106,7 @@
 | `src/utils/project.rs` | 双仓库中的规则、配置、知识库文件读写、扫描和初始化辅助 |
 | `src/utils/config_templates.rs` | 从 `project_infra/connectors/source.d|sink.d` 扫描 connector 并转换为 source / sink 模板片段 |
 | `src/utils/project_check.rs` | 项目组件完整性校验（基于 wp_proj） |
-| `src/utils/warparse_service.rs` | 设备状态与发布接口，设备调用统一入口 |
+| `src/utils/wparse_service.rs` | 设备状态与发布接口，设备调用统一入口 |
 | `src/utils/health_check.rs` | 设备在线检查 |
 | `src/utils/sandbox.rs` | 沙盒运行时管理（工作区准备、进程启停、配置生成、输出收集） |
 | `src/utils/wpl.rs` | WPL 解析与格式化 |

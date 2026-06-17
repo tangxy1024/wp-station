@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::process::Command;
+use std::process::{Command, Output};
 
 fn get_cargo_metadata() -> Value {
     let output = Command::new("cargo")
@@ -17,9 +17,20 @@ fn get_package_version<'a>(packages: &'a [Value], name: &str) -> &'a str {
         .unwrap_or("unknown")
 }
 
-fn run_npm_build() {
-    println!("cargo:warning=开始构建前端资源...");
+fn print_command_output(label: &str, output: &Output) {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
 
+    for line in stdout.lines().filter(|line| !line.trim().is_empty()) {
+        println!("cargo:warning=[{} stdout] {}", label, line);
+    }
+
+    for line in stderr.lines().filter(|line| !line.trim().is_empty()) {
+        println!("cargo:warning=[{} stderr] {}", label, line);
+    }
+}
+
+fn run_npm_build() {
     // 检查 npm 是否可用
     let npm_check = Command::new("npm").arg("--version").output();
 
@@ -28,30 +39,44 @@ fn run_npm_build() {
         return;
     }
 
-    println!("cargo:warning=运行 npm install...");
     let install_result = Command::new("npm")
         .arg("install")
         .current_dir("web")
-        .status();
+        .output();
 
-    if let Err(e) = install_result {
-        println!("cargo:warning=npm install 失败: {}", e);
-        return;
+    match install_result {
+        Ok(output) => {
+            if !output.status.success() {
+                println!("cargo:warning=npm install 失败");
+                print_command_output("npm install", &output);
+                println!(
+                    "cargo:warning=npm install 失败，退出码: {:?}",
+                    output.status.code()
+                );
+                return;
+            }
+        }
+        Err(e) => {
+            println!("cargo:warning=npm install 失败: {}", e);
+            return;
+        }
     }
 
-    println!("cargo:warning=运行 npm run build...");
     let build_result = Command::new("npm")
         .arg("run")
         .arg("build")
         .current_dir("web")
-        .status();
+        .output();
 
     match build_result {
-        Ok(status) => {
-            if status.success() {
-                println!("cargo:warning=前端构建成功");
-            } else {
-                println!("cargo:warning=前端构建失败，退出码: {:?}", status.code());
+        Ok(output) => {
+            if !output.status.success() {
+                println!("cargo:warning=前端构建失败");
+                print_command_output("npm run build", &output);
+                println!(
+                    "cargo:warning=前端构建失败，退出码: {:?}",
+                    output.status.code()
+                );
             }
         }
         Err(e) => {

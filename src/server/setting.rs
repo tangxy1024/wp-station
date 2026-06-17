@@ -2,6 +2,7 @@ use config::{Config, File};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use strum::{AsRefStr, Display, EnumString};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct LogConf {
@@ -37,10 +38,17 @@ impl Default for WebConf {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct DatabaseConf {
+    #[serde(default)]
+    pub url: String,
+    #[serde(default = "default_database_host")]
     pub host: String,
+    #[serde(default = "default_database_port")]
     pub port: u16,
+    #[serde(default = "default_database_name")]
     pub name: String,
+    #[serde(default = "default_database_username")]
     pub username: String,
+    #[serde(default = "default_database_password")]
     pub password: String,
     #[serde(default = "default_max_connections")]
     pub max_connections: u32,
@@ -52,6 +60,33 @@ pub struct DatabaseConf {
     pub idle_timeout: u64,
     #[serde(default = "default_ssl_mode")]
     pub ssl_mode: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Display, EnumString, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum DatabaseKind {
+    Postgres,
+    Sqlite,
+}
+
+fn default_database_host() -> String {
+    "localhost".to_string()
+}
+
+fn default_database_port() -> u16 {
+    5432
+}
+
+fn default_database_name() -> String {
+    "wp-station".to_string()
+}
+
+fn default_database_username() -> String {
+    "postgres".to_string()
+}
+
+fn default_database_password() -> String {
+    "123456".to_string()
 }
 
 fn default_max_connections() -> u32 {
@@ -77,23 +112,37 @@ fn default_ssl_mode() -> String {
 impl Default for DatabaseConf {
     fn default() -> Self {
         DatabaseConf {
-            host: "localhost".to_string(),
-            port: 5432,
-            name: "wp-station".to_string(),
-            username: "postgres".to_string(),
-            password: "123456".to_string(),
-            max_connections: 10,
-            min_connections: 2,
-            connect_timeout: 30,
-            idle_timeout: 600,
-            ssl_mode: "prefer".to_string(),
+            url: String::new(),
+            host: default_database_host(),
+            port: default_database_port(),
+            name: default_database_name(),
+            username: default_database_username(),
+            password: default_database_password(),
+            max_connections: default_max_connections(),
+            min_connections: default_min_connections(),
+            connect_timeout: default_connect_timeout(),
+            idle_timeout: default_idle_timeout(),
+            ssl_mode: default_ssl_mode(),
         }
     }
 }
 
 impl DatabaseConf {
+    /// 返回数据库类型。
+    pub fn database_kind(&self) -> DatabaseKind {
+        let url = self.url.trim().to_ascii_lowercase();
+        if url.starts_with("sqlite:") {
+            DatabaseKind::Sqlite
+        } else {
+            DatabaseKind::Postgres
+        }
+    }
+
     /// 生成连接字符串
     pub fn connection_string(&self) -> String {
+        if !self.url.trim().is_empty() {
+            return self.url.trim().to_string();
+        }
         format!(
             "postgresql://{}:{}@{}:{}/{}",
             self.username, self.password, self.host, self.port, self.name
@@ -102,15 +151,38 @@ impl DatabaseConf {
 
     /// 生成连接字符串（带 SSL 模式）
     pub fn connection_string_with_options(&self) -> String {
-        format!("{}?sslmode={}", self.connection_string(), self.ssl_mode)
+        if !self.url.trim().is_empty() {
+            return self.connection_string();
+        }
+        match self.database_kind() {
+            DatabaseKind::Sqlite => self.connection_string(),
+            DatabaseKind::Postgres => {
+                format!("{}?sslmode={}", self.connection_string(), self.ssl_mode)
+            }
+        }
     }
 
     /// 生成用于日志输出的脱敏数据库描述
     pub fn safe_summary(&self) -> String {
-        format!(
-            "{}@{}:{}/{}?sslmode={}",
-            self.username, self.host, self.port, self.name, self.ssl_mode
-        )
+        match self.database_kind() {
+            DatabaseKind::Sqlite => {
+                let sqlite_url = self.connection_string();
+                let path = sqlite_url
+                    .trim_start_matches("sqlite://")
+                    .trim_start_matches("sqlite:");
+                format!("sqlite:{}", path)
+            }
+            DatabaseKind::Postgres => {
+                if !self.url.trim().is_empty() {
+                    "postgres:url(provided)".to_string()
+                } else {
+                    format!(
+                        "{}@{}:{}/{}?sslmode={}",
+                        self.username, self.host, self.port, self.name, self.ssl_mode
+                    )
+                }
+            }
+        }
     }
 }
 

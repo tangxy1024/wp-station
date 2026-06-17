@@ -160,11 +160,10 @@ pub async fn start() -> std::io::Result<()> {
     // 启动发布任务调度器
     spawn_release_task_runner(setting.warparse.clone());
 
-    ensure_project_repositories().await.map_err(|e| {
-        error!("检查项目 Git 仓库失败: {}", e);
-        std::io::Error::other(format!("检查项目 Git 仓库失败: {}", e))
-    })?;
-    info!("项目 Git 仓库检查完成");
+    match ensure_project_repositories().await {
+        Ok(_) => info!("项目 Git 仓库检查完成"),
+        Err(e) => warn!("检查项目 Git 仓库失败，已降级跳过 Gitea 初始化: {}", e),
+    }
 
     // 双仓库默认配置只补齐缺失文件，不覆盖用户编辑。
     init_default_configs_to_models(&setting.project_models).map_err(|e| {
@@ -210,6 +209,7 @@ pub async fn start() -> std::io::Result<()> {
             .service(api::hello)
             .service(api::get_version)
             .service(api::get_features_config)
+            .service(api::get_integration_runtime_overview)
             .service(api::import_project_from_files)
             .service(api::import_project_archive)
             .service(api::confirm_project_archive_import)

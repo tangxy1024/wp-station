@@ -1,4 +1,5 @@
-use sea_orm::{ConnectionTrait, DbBackend, Schema, Statement};
+use chrono::Utc;
+use sea_orm::{ActiveModelTrait, Schema, Set};
 use sea_orm_migration::prelude::*;
 
 #[derive(DeriveMigrationName)]
@@ -7,7 +8,8 @@ pub struct Migration;
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let schema = Schema::new(DbBackend::Postgres);
+        let backend = manager.get_database_backend();
+        let schema = Schema::new(backend);
 
         // 创建 devices 表（机器管理）
         let stmt = schema.create_table_from_entity(crate::entity::device::Entity);
@@ -46,22 +48,22 @@ impl MigrationTrait for Migration {
         manager.create_table(stmt).await?;
 
         // 插入初始 admin 用户
-        manager
-            .get_connection()
-            .execute(Statement::from_sql_and_values(
-                DbBackend::Postgres,
-                r#"INSERT INTO "user" (username, password, display_name, email, role, status, created_at, updated_at)
-                   VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())"#,
-                [
-                    "admin".into(),
-                    "$2b$12$es3GK5p3xP0dRV6k2AIB8.1JDH/TLzZtzE6iI9Hep1DQsJgI04f22".into(),
-                    "管理员".into(),
-                    "admin@xx.com".into(),
-                    "admin".into(),
-                    "active".into(),
-                ],
-            ))
-            .await?;
+        let now = Utc::now();
+        crate::entity::user::ActiveModel {
+            username: Set("admin".to_string()),
+            password: Set(
+                "$2b$12$es3GK5p3xP0dRV6k2AIB8.1JDH/TLzZtzE6iI9Hep1DQsJgI04f22".to_string(),
+            ),
+            display_name: Set(Some("管理员".to_string())),
+            email: Set(Some("admin@xx.com".to_string())),
+            role: Set("admin".to_string()),
+            status: Set("active".to_string()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(manager.get_connection())
+        .await?;
 
         Ok(())
     }

@@ -278,7 +278,7 @@
     "supportedSourceTypes": "已支持输入源种类",
     "supportedSinkTypes": "已支持输出源种类",
     "deviceType": "设备类型",
-    "logTypeCount": "日志数量",
+    "logTypeCount": "日志类型",
     "logStatus": "日志情况",
     "sourceOverview": "输入源",
     "sinkOverview": "输出源",

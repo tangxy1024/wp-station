@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Table, Modal, Form, Input, Select, message } from 'antd';
+import dayjs from 'dayjs';
+import { Table, Modal, Form, Input, Select, DatePicker, message } from 'antd';
 import { fetchUsers, createUser, updateUser, updateUserStatus, resetUserPassword, changeUserPassword, deleteUser } from '@/services/user';
 import { fetchOperationLogs } from '@/services/operation_log';
 import { importProjectFromFiles } from '@/services/project';
 import ProjectImportResult from '@/views/components/ProjectImportResult';
 import ConnectionManage from './ConnectionManage';
+
+const { RangePicker } = DatePicker;
 
 /**
  * 系统管理页面
@@ -512,40 +515,46 @@ function SystemManagePage() {
             {activeKey === 'connections' && <ConnectionManage />}
             {activeKey === 'users' && (
               <>
-                <form className="form-grid">
-                  <div className="form-row">
+                <form className="form-grid system-manage-query">
+                  <div className="form-row system-manage-query-row">
                     <label>{t('systemManage.username')}</label>
-                    <input
-                      type="text"
+                    <Input
                       placeholder={t('systemManage.usernamePlaceholder')}
                       value={searchForm.username}
                       onChange={(e) => setSearchForm({ ...searchForm, username: e.target.value })}
+                      allowClear
                     />
                   </div>
-                  <div className="form-row">
+                  <div className="form-row system-manage-query-row">
                     <label>{t('systemManage.role')}</label>
-                    <select
-                      value={searchForm.role}
-                      onChange={(e) => setSearchForm({ ...searchForm, role: e.target.value })}
+                    <Select
+                      value={searchForm.role || undefined}
+                      onChange={(value) => setSearchForm({ ...searchForm, role: value || '' })}
+                      allowClear
+                      placeholder={t('systemManage.all')}
+                      options={[
+                        { value: 'admin', label: t('systemManage.admin') },
+                        { value: 'operator', label: t('systemManage.operator') },
+                        { value: 'viewer', label: t('systemManage.viewer') },
+                      ]}
                     >
-                      <option value="">{t('systemManage.all')}</option>
-                      <option value="admin">{t('systemManage.admin')}</option>
-                      <option value="operator">{t('systemManage.operator')}</option>
-                      <option value="viewer">{t('systemManage.viewer')}</option>
-                    </select>
+                    </Select>
                   </div>
-                  <div className="form-row">
+                  <div className="form-row system-manage-query-row">
                     <label>{t('systemManage.status')}</label>
-                    <select
-                      value={searchForm.status}
-                      onChange={(e) => setSearchForm({ ...searchForm, status: e.target.value })}
+                    <Select
+                      value={searchForm.status || undefined}
+                      onChange={(value) => setSearchForm({ ...searchForm, status: value || '' })}
+                      allowClear
+                      placeholder={t('systemManage.all')}
+                      options={[
+                        { value: 'active', label: t('systemManage.enable') },
+                        { value: 'inactive', label: t('systemManage.disable') },
+                      ]}
                     >
-                      <option value="">{t('systemManage.all')}</option>
-                      <option value="active">{t('systemManage.enable')}</option>
-                      <option value="inactive">{t('systemManage.disable')}</option>
-                    </select>
+                    </Select>
                   </div>
-                  <div className="form-row-actions">
+                  <div className="form-row-actions system-manage-query-actions">
                     <button type="button" className="btn primary" onClick={handleSearch}>
                       {t('systemManage.query')}
                     </button>
@@ -577,48 +586,51 @@ function SystemManagePage() {
             )}
             {activeKey === 'logs' && (
               <>
-                <form className="form-grid">
-                  <div className="form-row">
+                <form className="form-grid system-manage-query">
+                  <div className="form-row system-manage-query-row">
                     <label>{t('systemManage.operationPerson')}</label>
-                    <input
-                      type="text"
+                    <Input
                       placeholder={t('systemManage.operationPersonPlaceholder')}
                       value={logSearchForm.operator}
                       onChange={(e) => setLogSearchForm({ ...logSearchForm, operator: e.target.value })}
+                      allowClear
                     />
                   </div>
-                  <div className="form-row">
+                  <div className="form-row system-manage-query-row">
                     <label>{t('systemManage.operationType')}</label>
-                    <select
-                      value={logSearchForm.operation}
-                      onChange={(e) => setLogSearchForm({ ...logSearchForm, operation: e.target.value })}
+                    <Select
+                      value={logSearchForm.operation || undefined}
+                      onChange={(value) => setLogSearchForm({ ...logSearchForm, operation: value || '' })}
+                      allowClear
+                      placeholder={t('systemManage.all')}
+                      options={[
+                        { value: 'create', label: t('systemManage.operationCreate') },
+                        { value: 'update', label: t('systemManage.operationUpdate') },
+                        { value: 'delete', label: t('common.delete') },
+                        { value: 'publish', label: t('systemRelease.publish') },
+                      ]}
                     >
-                      <option value="">{t('systemManage.all')}</option>
-                      <option value="create">{t('systemManage.operationCreate')}</option>
-                      <option value="update">{t('systemManage.operationUpdate')}</option>
-                      <option value="delete">{t('common.delete')}</option>
-                      <option value="publish">{t('systemRelease.publish')}</option>
-                    </select>
+                    </Select>
                   </div>
-                  <div className="form-row" style={{ gridColumn: 'span 2' }}>
+                  <div className="form-row system-manage-query-row system-manage-query-row--wide">
                     <label>{t('systemManage.timeRange')}</label>
-                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                      <input
-                        type="date"
-                        value={logSearchForm.startDate}
-                        onChange={(e) => setLogSearchForm({ ...logSearchForm, startDate: e.target.value })}
-                        style={{ flex: 1 }}
-                      />
-                      <span>-</span>
-                      <input
-                        type="date"
-                        value={logSearchForm.endDate}
-                        onChange={(e) => setLogSearchForm({ ...logSearchForm, endDate: e.target.value })}
-                        style={{ flex: 1 }}
-                      />
-                    </div>
+                    <RangePicker
+                      style={{ width: '100%' }}
+                      value={
+                        logSearchForm.startDate && logSearchForm.endDate
+                          ? [dayjs(logSearchForm.startDate), dayjs(logSearchForm.endDate)]
+                          : null
+                      }
+                      onChange={(_, dateStrings) =>
+                        setLogSearchForm({
+                          ...logSearchForm,
+                          startDate: dateStrings?.[0] || '',
+                          endDate: dateStrings?.[1] || '',
+                        })
+                      }
+                    />
                   </div>
-                  <div className="form-row-actions">
+                  <div className="form-row-actions system-manage-query-actions">
                     <button
                       type="button"
                       className="btn primary"

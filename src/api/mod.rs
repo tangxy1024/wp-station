@@ -4,6 +4,7 @@ pub mod assist_task;
 pub mod config;
 pub mod debug;
 pub mod device;
+pub mod integration_overview;
 pub mod knowledge;
 pub mod operation_log;
 pub mod project;
@@ -26,6 +27,7 @@ pub use device::{
     create_device, delete_device, list_devices, list_online_devices, refresh_device_status,
     update_device,
 };
+pub use integration_overview::get_integration_runtime_overview;
 pub use knowledge::{get_db_list, query};
 pub use operation_log::list_operation_logs;
 pub use project::{
