@@ -2,13 +2,12 @@ use actix_web::{HttpRequest, HttpResponse, get, http::header, post, web};
 use futures_util::StreamExt;
 use urlencoding::decode;
 
+use crate::constants::api::MAX_ARCHIVE_BYTES;
 use crate::error::AppError;
 use crate::server::project::{
     ProjectArchiveConfirmRequest, ProjectImportRequest, confirm_project_archive_import_logic,
     export_project_archive_logic, import_project_from_files_logic, preview_project_archive_logic,
 };
-
-const MAX_ARCHIVE_BYTES: usize = 200 * 1024 * 1024;
 
 fn operator_from_request(req: &HttpRequest) -> Option<String> {
     req.headers().get("x-operator").and_then(|value| {

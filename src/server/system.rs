@@ -3,6 +3,7 @@
 use serde::Serialize;
 
 use crate::server::Setting;
+use crate::server::setting::default_data_collect_url;
 
 #[derive(Serialize)]
 pub struct VersionResponse {
@@ -13,6 +14,7 @@ pub struct VersionResponse {
 #[derive(Serialize)]
 pub struct FeaturesConfigResponse {
     pub data_collect_url: String,
+    pub default_data_collect_url: String,
 }
 
 /// 返回服务存活探针信息。
@@ -33,5 +35,6 @@ pub fn get_features_config_logic() -> FeaturesConfigResponse {
     let setting = Setting::load();
     FeaturesConfigResponse {
         data_collect_url: setting.features.data_collect_url,
+        default_data_collect_url: default_data_collect_url(),
     }
 }

@@ -40,7 +40,7 @@ pub use project::{
     load_project_snapshot_from_layout, read_knowdb_config, read_knowledge_files, read_rule_content,
     read_wpl_sample_content, resolve_dir_for_rule, resolve_project_root,
     touch_knowledge_in_project, touch_rule_in_project, write_knowdb_config, write_knowledge_files,
-    write_rule_content, write_wpl_sample_content,
+    write_rule_content, write_rule_content_in_project_dir, write_wpl_sample_content,
 };
 pub use warparse_service::{
     DeployCheckResult, DeployResult, OnlineStatus, ServiceError, WarpParseService,

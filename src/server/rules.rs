@@ -1,5 +1,6 @@
 // 规则配置业务逻辑层
 
+use crate::constants::project::{FILE_KNOWDB, FILE_WPL_PARSE, FILE_WPL_SAMPLE};
 use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::sync::{sync_delete_to_gitea, sync_to_gitea};
@@ -7,15 +8,16 @@ use crate::server::{
     OperationLogAction, OperationLogBiz, OperationLogParams, ProjectLayout, Setting,
     refresh_draft_release_logic, write_operation_log_for_result,
 };
-use crate::utils::common::{WPL_PARSE_FILENAME, WPL_SAMPLE_FILENAME, fallback_sink_display};
+use crate::utils::common::fallback_sink_display;
 use crate::utils::knowledge::reload_knowledge;
-use crate::utils::pagination::{MemoryPaginate, PageQuery, PageResponse};
-use crate::utils::project_check::check_component;
+use crate::utils::pagination::{MemoryPaginate, PageQuery};
+use crate::utils::project_check::check_component_in_dir;
 use crate::utils::{
-    delete_knowledge_from_project, delete_rule_from_project, list_knowledge_dirs, list_rule_files,
-    read_knowdb_config, read_knowledge_files, read_rule_content, read_wpl_sample_content,
-    touch_knowledge_in_project, touch_rule_in_project, write_knowdb_config, write_knowledge_files,
-    write_rule_content, write_wpl_sample_content,
+    compose_project_layout_into, delete_knowledge_from_project, delete_rule_from_project,
+    list_knowledge_dirs, list_rule_files, read_knowdb_config, read_knowledge_files,
+    read_rule_content, read_wpl_sample_content, touch_knowledge_in_project, touch_rule_in_project,
+    write_knowdb_config, write_knowledge_files, write_rule_content,
+    write_rule_content_in_project_dir, write_wpl_sample_content,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -100,6 +102,13 @@ pub struct RuleFileItem {
 }
 
 #[derive(Serialize)]
+pub struct RuleFilesMeta {
+    pub wpl_parse_file: String,
+    pub wpl_sample_file: String,
+    pub knowledge_config_file: String,
+}
+
+#[derive(Serialize)]
 pub struct KnowledgeRuleContentResponse {
     pub rule_type: RuleType,
     pub file: String,
@@ -123,7 +132,14 @@ pub struct ValidateRuleResponse {
     pub details: Vec<String>,
 }
 
-pub type RuleFilesResponse = PageResponse<RuleFileItem>;
+#[derive(Serialize)]
+pub struct RuleFilesResponse {
+    pub items: Vec<RuleFileItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+    pub meta: RuleFilesMeta,
+}
 
 // ============ 业务逻辑函数 ============
 
@@ -183,7 +199,18 @@ pub async fn get_rule_files_logic(query: RuleFilesQuery) -> Result<RuleFilesResp
         })
         .collect();
 
-    Ok(items.paginate(page, page_size))
+    let paged = items.paginate(page, page_size);
+    Ok(RuleFilesResponse {
+        items: paged.items,
+        total: paged.total,
+        page: paged.page,
+        page_size: paged.page_size,
+        meta: RuleFilesMeta {
+            wpl_parse_file: FILE_WPL_PARSE.to_string(),
+            wpl_sample_file: FILE_WPL_SAMPLE.to_string(),
+            knowledge_config_file: FILE_KNOWDB.to_string(),
+        },
+    })
 }
 
 /// 获取规则内容
@@ -580,7 +607,7 @@ pub async fn get_knowdb_config_logic() -> Result<KnowdbConfigResponse, AppError>
     let layout = project_layout();
     let entry = read_knowdb_config(&layout)?;
     let response = KnowdbConfigResponse {
-        file: "knowdb.toml".to_string(),
+        file: FILE_KNOWDB.to_string(),
         content: entry.as_ref().map(|(content, _)| content.clone()),
         last_modified: entry
             .as_ref()
@@ -604,7 +631,7 @@ pub async fn save_knowdb_config_logic(
 
         reload_knowledge(&layout).map_err(AppError::internal)?;
 
-        let commit_message = "知识库改动: knowdb.toml".to_string();
+        let commit_message = format!("知识库改动: {}", FILE_KNOWDB);
         sync_to_gitea(&commit_message, crate::db::ReleaseGroup::Models).await;
         let _ = refresh_draft_release_logic(Some(&commit_message)).await;
 
@@ -616,7 +643,7 @@ pub async fn save_knowdb_config_logic(
         OperationLogBiz::KnowledgeConfig,
         OperationLogAction::Update,
         OperationLogParams::new()
-            .with_target_name("knowdb.toml")
+            .with_target_name(FILE_KNOWDB)
             .with_field("config_only", "yes")
             .with_field("sync", "project+gitea")
             .with_field("knowledge_reload", "yes"),
@@ -631,32 +658,33 @@ pub async fn save_knowdb_config_logic(
 pub async fn validate_rule_logic(
     rule_type: RuleType,
     file: String,
+    content: Option<String>,
 ) -> Result<ValidateRuleResponse, AppError> {
     info!("规则配置校验请求: rule_type={:?}, file={}", rule_type, file);
 
     // 将 RuleType 映射到 CheckComponent
     let component = rule_type.to_check_component();
 
-    // 执行组件校验
-    let result = match check_component(component) {
-        Ok(_) => {
-            info!("规则配置校验通过: rule_type={:?}", rule_type);
-            Ok(ValidateRuleResponse {
-                valid: true,
-                message: None,
-                details: vec![],
-            })
-        }
-        Err(e) => {
-            warn!("规则配置校验失败: rule_type={:?}, error={}", rule_type, e);
-            let err_msg = e.to_string();
-            Ok(ValidateRuleResponse {
-                valid: false,
-                message: Some(err_msg.clone()),
-                details: vec![err_msg],
-            })
-        }
-    };
+    let result =
+        match validate_rule_with_current_content(rule_type, &file, content.as_deref(), component) {
+            Ok(_) => {
+                info!("规则配置校验通过: rule_type={:?}", rule_type);
+                Ok(ValidateRuleResponse {
+                    valid: true,
+                    message: None,
+                    details: vec![],
+                })
+            }
+            Err(e) => {
+                warn!("规则配置校验失败: rule_type={:?}, error={}", rule_type, e);
+                let err_msg = e.to_string();
+                Ok(ValidateRuleResponse {
+                    valid: false,
+                    message: Some(err_msg.clone()),
+                    details: vec![err_msg],
+                })
+            }
+        };
 
     write_operation_log_for_result(
         if matches!(rule_type, RuleType::Knowledge) {
@@ -676,6 +704,40 @@ pub async fn validate_rule_logic(
     result
 }
 
+fn validate_rule_with_current_content(
+    rule_type: RuleType,
+    file: &str,
+    content: Option<&str>,
+    components: Vec<wp_proj::project::checker::CheckComponent>,
+) -> Result<(), AppError> {
+    if matches!(rule_type, RuleType::Wpl)
+        && file.trim().ends_with(FILE_WPL_PARSE)
+        && content.is_some_and(|value| value.trim().is_empty())
+    {
+        return Err(AppError::validation(
+            "WPL 规则内容为空，请先填写 parse.wpl 后再校验",
+        ));
+    }
+
+    let layout = project_layout();
+    let tmp_dir = Setting::workspace_root()
+        .join("tmp")
+        .join("project-check")
+        .join(format!("{}", chrono::Utc::now().timestamp_millis()));
+    std::fs::create_dir_all(&tmp_dir).map_err(AppError::internal)?;
+
+    let result = (|| {
+        compose_project_layout_into(&layout, &tmp_dir)?;
+        if let Some(current_content) = content {
+            write_rule_content_in_project_dir(&tmp_dir, rule_type, file, current_content)?;
+        }
+        check_component_in_dir(&tmp_dir, components)
+    })();
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    result
+}
+
 fn split_wpl_virtual_file(file: &str) -> (String, WplSubFile) {
     let trimmed = file.trim().trim_matches('/');
     if trimmed.is_empty() {
@@ -684,7 +746,7 @@ fn split_wpl_virtual_file(file: &str) -> (String, WplSubFile) {
 
     if let Some((base, sub)) = trimmed.split_once('/') {
         let normalized = normalize_wpl_rule_name(base);
-        if sub.eq_ignore_ascii_case(WPL_SAMPLE_FILENAME) {
+        if sub.eq_ignore_ascii_case(FILE_WPL_SAMPLE) {
             (normalized, WplSubFile::Sample)
         } else {
             (normalized, WplSubFile::Parse)
@@ -700,8 +762,8 @@ fn format_wpl_virtual_file(base: &str, sub_file: WplSubFile) -> String {
         return String::new();
     }
     match sub_file {
-        WplSubFile::Parse => format!("{}/{}", normalized, WPL_PARSE_FILENAME),
-        WplSubFile::Sample => format!("{}/{}", normalized, WPL_SAMPLE_FILENAME),
+        WplSubFile::Parse => format!("{}/{}", normalized, FILE_WPL_PARSE),
+        WplSubFile::Sample => format!("{}/{}", normalized, FILE_WPL_SAMPLE),
     }
 }
 

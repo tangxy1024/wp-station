@@ -17,44 +17,9 @@ import {
 } from '@/services/config';
 import CodeEditor from '@/views/components/CodeEditor/CodeEditor';
 import ValidateResultModal from '@/components/ValidateResultModal';
-
-const CONNECTION_FILE_ORDER = Object.freeze([
-  '00-file-default.toml',
-  '10-syslog-udp.toml',
-  '11-syslog-tcp.toml',
-  '12-tcp.toml',
-  '30-kafka.toml',
-  '40-mysql.toml',
-  '00-blackhole-sink.toml',
-  '01-file-prototext.toml',
-  '02-file-json.toml',
-  '03-file-kv.toml',
-  '04-file-raw.toml',
-  '09-file-test.toml',
-  '40-prometheus.toml',
-  '50-mysql.toml',
-  '60-doris.toml',
-  '60-postgres.toml',
-  '70-victorialogs.toml',
-  '80-victoriametrics.toml',
-  '90-elasticsearch.toml',
-  '100-clickhouse.toml',
-  '101-http.toml',
-]);
-
-const SINK_FILE_ORDER = Object.freeze([
-  'business.d/sink.toml',
-  'infra.d/monitor.toml',
-  'infra.d/miss.toml',
-  'infra.d/default.toml',
-  'infra.d/error.toml',
-  'infra.d/residue.toml',
-]);
 const TEMPLATE_PAGE_SIZE = 10;
 
 const sortSinkItems = (items = []) => {
-  const orderMap = new Map(SINK_FILE_ORDER.map((file, index) => [file, index]));
-
   return items
     .map((item) => {
       if (!item?.file) {
@@ -63,6 +28,7 @@ const sortSinkItems = (items = []) => {
 
       return {
         file: item.file,
+        sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : Number.MAX_SAFE_INTEGER,
         displayName:
           typeof item.displayName === 'string' && item.displayName.trim()
             ? item.displayName.trim()
@@ -71,11 +37,8 @@ const sortSinkItems = (items = []) => {
     })
     .filter(Boolean)
     .sort((a, b) => {
-      const aOrder = orderMap.has(a.file) ? orderMap.get(a.file) : Number.MAX_SAFE_INTEGER;
-      const bOrder = orderMap.has(b.file) ? orderMap.get(b.file) : Number.MAX_SAFE_INTEGER;
-
-      if (aOrder !== bOrder) {
-        return aOrder - bOrder;
+      if (a.sortOrder !== b.sortOrder) {
+        return a.sortOrder - b.sortOrder;
       }
 
       return a.displayName.localeCompare(b.displayName, 'zh-CN');
@@ -131,6 +94,7 @@ function ConfigManagePage() {
   const [templatePreviewLoading, setTemplatePreviewLoading] = useState(false);
   const [templatePage, setTemplatePage] = useState(1);
   const [templateSearch, setTemplateSearch] = useState('');
+  const [currentSingleConfigFile, setCurrentSingleConfigFile] = useState('');
 
   const getConnectionLabel = React.useCallback(
     (file, displayName) => {
@@ -150,8 +114,6 @@ function ConfigManagePage() {
 
   const sortConnectionItems = React.useCallback(
     (items, category) => {
-      const orderMap = new Map(CONNECTION_FILE_ORDER.map((file, index) => [file, index]));
-
       return (items || [])
         .filter((item) => {
           if (!connectionSearch) {
@@ -168,14 +130,13 @@ function ConfigManagePage() {
           key: `${category}:${item.file}`,
           file: item.file,
           category,
+          sortOrder:
+            typeof item.sortOrder === 'number' ? item.sortOrder : Number.MAX_SAFE_INTEGER,
           displayName: item.displayName || item.file,
         }))
         .sort((a, b) => {
-          const aOrder = orderMap.has(a.file) ? orderMap.get(a.file) : Number.MAX_SAFE_INTEGER;
-          const bOrder = orderMap.has(b.file) ? orderMap.get(b.file) : Number.MAX_SAFE_INTEGER;
-
-          if (aOrder !== bOrder) {
-            return aOrder - bOrder;
+          if (a.sortOrder !== b.sortOrder) {
+            return a.sortOrder - b.sortOrder;
           }
 
           return a.displayName.localeCompare(b.displayName, 'zh-CN');
@@ -256,11 +217,8 @@ function ConfigManagePage() {
   }, [sinkGroups]);
 
   const getDefaultFileForKey = (key) => {
-    if (key === RuleType.PARSE) {
-      return 'wparse.toml';
-    }
-    if (key === RuleType.SOURCE) {
-      return 'wpsrc.toml';
+    if (key === RuleType.PARSE || key === RuleType.SOURCE) {
+      return currentSingleConfigFile || '';
     }
     if (key === RuleType.SINK) {
       return activeSinkFile || '';
@@ -337,6 +295,7 @@ function ConfigManagePage() {
     setLoading(true);
     try {
       if (activeKey === RuleType.SINK) {
+        setCurrentSingleConfigFile('');
         if (!activeSinkFile) {
           setContent('');
           setOriginalContent('');
@@ -352,6 +311,7 @@ function ConfigManagePage() {
       }
 
       if (activeKey === 'connection') {
+        setCurrentSingleConfigFile('');
         if (!activeConnectionFile) {
           setContent('');
           setOriginalContent('');
@@ -372,6 +332,7 @@ function ConfigManagePage() {
       }
 
       const response = await fetchRuleConfig({ type: activeKey });
+      setCurrentSingleConfigFile(response?.file || '');
       const newContent = response?.content || '';
       setContent(newContent);
       setOriginalContent(newContent);
@@ -1271,10 +1232,10 @@ function ConfigManagePage() {
           </header>
           <section className="panel-body config-body">
             {activeKey === RuleType.PARSE
-              ? renderSingleConfig('wparse.toml')
+              ? renderSingleConfig(currentSingleConfigFile || t('configManage.parseConfig'))
               : activeKey === RuleType.SOURCE
                 ? renderSingleConfig(
-                    'wpsrc.toml',
+                    currentSingleConfigFile || t('configManage.sourceConfig'),
                     'toml',
                     <button
                       type="button"

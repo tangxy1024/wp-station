@@ -26,14 +26,9 @@ const EMPTY_KNOWLEDGE_DATASET = Object.freeze({
   insertSql: '',
   data: '',
 });
-
-const KNOWLEDGE_CONFIG_FILE = 'knowdb.toml';
-
-const WPL_PARSE_FILE = 'parse.wpl';
-const WPL_SAMPLE_FILE = 'sample.dat';
 const INTEGRATION_OVERVIEW_KEY = 'integration-overview';
 
-const normalizeWplEntry = (value) => {
+const normalizeWplEntry = (value, parseFileName) => {
   if (value === undefined || value === null) {
     return '';
   }
@@ -42,21 +37,21 @@ const normalizeWplEntry = (value) => {
     return '';
   }
   if (!trimmed.includes('/')) {
-    return `${trimmed}/${WPL_PARSE_FILE}`;
+    return `${trimmed}/${parseFileName}`;
   }
   const [rulePart, ...restParts] = trimmed.split('/');
   const rule = (rulePart || '').trim();
-  const sub = (restParts.join('/') || '').trim() || WPL_PARSE_FILE;
+  const sub = (restParts.join('/') || '').trim() || parseFileName;
   if (!rule) {
     return sub;
   }
   return `${rule}/${sub}`;
 };
 
-const normalizeWplList = (items) => {
+const normalizeWplList = (items, parseFileName) => {
   const deduped = new Set();
   (Array.isArray(items) ? items : []).forEach((item) => {
-    const entry = normalizeWplEntry(item);
+    const entry = normalizeWplEntry(item, parseFileName);
     if (entry) {
       deduped.add(entry);
     }
@@ -64,11 +59,11 @@ const normalizeWplList = (items) => {
   return Array.from(deduped);
 };
 
-const getWplEntryParts = (entry) => {
+const getWplEntryParts = (entry, parseFileName) => {
   if (!entry) {
     return { rule: '', sub: '' };
   }
-  const normalized = normalizeWplEntry(entry);
+  const normalized = normalizeWplEntry(entry, parseFileName);
   if (!normalized) {
     return { rule: '', sub: '' };
   }
@@ -79,11 +74,12 @@ const getWplEntryParts = (entry) => {
   };
 };
 
-const isWplSampleEntry = (entry) => normalizeWplEntry(entry).endsWith(`/${WPL_SAMPLE_FILE}`);
+const isWplSampleEntry = (entry, parseFileName, sampleFileName) =>
+  normalizeWplEntry(entry, parseFileName).endsWith(`/${sampleFileName}`);
 const isIgnoredWplIdentifier = (value) => String(value || '').trim().toLowerCase().startsWith('ignore');
 
-const formatWplDisplayName = (entry) => {
-  const { rule, sub } = getWplEntryParts(entry);
+const formatWplDisplayName = (entry, parseFileName) => {
+  const { rule, sub } = getWplEntryParts(entry, parseFileName);
   if (!rule && !sub) {
     return '';
   }
@@ -93,22 +89,22 @@ const formatWplDisplayName = (entry) => {
   return `${rule}/${sub}`;
 };
 
-const buildWplTreeData = (items) => {
+const buildWplTreeData = (items, parseFileName, sampleFileName) => {
   const groups = new Map();
   (Array.isArray(items) ? items : []).forEach((entry) => {
-    const { rule } = getWplEntryParts(entry);
+    const { rule } = getWplEntryParts(entry, parseFileName);
     if (!rule) {
       return;
     }
     groups.set(rule, [
       {
-        value: `${rule}/${WPL_PARSE_FILE}`,
-        label: WPL_PARSE_FILE,
+        value: `${rule}/${parseFileName}`,
+        label: parseFileName,
         isSample: false,
       },
       {
-        value: `${rule}/${WPL_SAMPLE_FILE}`,
-        label: WPL_SAMPLE_FILE,
+        value: `${rule}/${sampleFileName}`,
+        label: sampleFileName,
         isSample: true,
       },
     ]);
@@ -355,9 +351,17 @@ function RuleManagePage() {
   const [wplSearch, setWplSearch] = useState('');
   const [omlSearch, setOmlSearch] = useState('');
   const [knowledgeSearch, setKnowledgeSearch] = useState('');
+  const [ruleFilesMeta, setRuleFilesMeta] = useState({
+    wplParseFile: '',
+    wplSampleFile: '',
+    knowledgeConfigFile: '',
+  });
   const activeWplFileRef = React.useRef('');
   const activeOmlFileRef = React.useRef('');
   const wplOverviewCacheRef = React.useRef(new Map());
+  const wplParseFile = ruleFilesMeta.wplParseFile;
+  const wplSampleFile = ruleFilesMeta.wplSampleFile;
+  const knowledgeConfigFile = ruleFilesMeta.knowledgeConfigFile;
   const isWplEditorMode = activeKey === RuleType.WPL || activeKey === INTEGRATION_OVERVIEW_KEY;
   const isIntegrationOverviewMode = activeKey === INTEGRATION_OVERVIEW_KEY;
   const isRepoMode = isWplEditorMode || activeKey === RuleType.OML;
@@ -369,6 +373,14 @@ function RuleManagePage() {
   useEffect(() => {
     activeOmlFileRef.current = activeOmlFile;
   }, [activeOmlFile]);
+
+  const applyRuleFilesMeta = useCallback((meta) => {
+    setRuleFilesMeta((prev) => ({
+      wplParseFile: meta?.wplParseFile || prev.wplParseFile,
+      wplSampleFile: meta?.wplSampleFile || prev.wplSampleFile,
+      knowledgeConfigFile: meta?.knowledgeConfigFile || prev.knowledgeConfigFile,
+    }));
+  }, []);
   
   useEffect(() => {
     const initRuleLists = async () => {
@@ -379,11 +391,16 @@ function RuleManagePage() {
           page: 1,
           pageSize: KNOWLEDGE_PAGE_SIZE,
         });
+        applyRuleFilesMeta(result?.meta);
         const knowledgeList = Array.isArray(result?.items) ? result.items : [];
-        const normalizedList = knowledgeList.filter((item) => item !== KNOWLEDGE_CONFIG_FILE);
+        const normalizedList = knowledgeList.filter(
+          (item) => item !== (result?.meta?.knowledgeConfigFile || ruleFilesMeta.knowledgeConfigFile),
+        );
         setKnowledgeDatasets(normalizedList);
         setKnowledgeTotal(result?.total || normalizedList.length);
-        setActiveKnowledgeDataset((prev) => prev || KNOWLEDGE_CONFIG_FILE);
+        setActiveKnowledgeDataset(
+          (prev) => prev || result?.meta?.knowledgeConfigFile || ruleFilesMeta.knowledgeConfigFile,
+        );
         setKnowledgePage(result?.page || 1);
       } catch (error) {
         message.error('加载规则列表失败：' + error.message);
@@ -399,7 +416,7 @@ function RuleManagePage() {
       }
     };
     initRuleLists();
-  }, []);
+  }, [applyRuleFilesMeta, ruleFilesMeta.knowledgeConfigFile]);
 
   const totalKnowledgePages = Math.max(
     1,
@@ -408,8 +425,8 @@ function RuleManagePage() {
   const pagedKnowledgeDatasets = knowledgeDatasets; // 当前页数据由后端提供
   const knowledgeListForDisplay = React.useMemo(() => {
     const datasets = Array.isArray(pagedKnowledgeDatasets) ? pagedKnowledgeDatasets : [];
-    return [KNOWLEDGE_CONFIG_FILE, ...datasets];
-  }, [pagedKnowledgeDatasets]);
+    return [ruleFilesMeta.knowledgeConfigFile, ...datasets].filter(Boolean);
+  }, [pagedKnowledgeDatasets, ruleFilesMeta.knowledgeConfigFile]);
   
   /**
    * 加载配置内容
@@ -418,12 +435,12 @@ function RuleManagePage() {
     // 调用服务层获取配置（使用对象参数）
     const options = { type: activeKey };
     if (isWplEditorMode) {
-      const targetFile = normalizeWplEntry(activeWplFile);
+      const targetFile = normalizeWplEntry(activeWplFile, ruleFilesMeta.wplParseFile);
       if (!targetFile) {
         setContent('');
         return;
       }
-      const targetRule = getWplEntryParts(targetFile).rule;
+      const targetRule = getWplEntryParts(targetFile, ruleFilesMeta.wplParseFile).rule;
       if (targetRule && localWplFiles.includes(targetRule)) {
         setContent('');
         return;
@@ -445,7 +462,7 @@ function RuleManagePage() {
         setKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
         return;
       }
-      if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+      if (activeKnowledgeDataset === ruleFilesMeta.knowledgeConfigFile) {
         setLoading(true);
         try {
           const resp = await fetchKnowdbConfig();
@@ -467,7 +484,7 @@ function RuleManagePage() {
     try {
       const response = await fetchRuleConfig(options);
       if (activeKey === 'knowledge') {
-        if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+        if (activeKnowledgeDataset === ruleFilesMeta.knowledgeConfigFile) {
           const content = response?.content || '';
           setKnowdbConfig(content);
           setOriginalKnowdbConfig(content);
@@ -496,7 +513,7 @@ function RuleManagePage() {
       message.error(t('ruleManage.loadFailed', { message: error?.message || error }));
       // 加载失败时设置为空
       if (activeKey === 'knowledge') {
-        if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+        if (activeKnowledgeDataset === knowledgeConfigFile) {
           setKnowdbConfig('');
           setOriginalKnowdbConfig('');
         } else {
@@ -514,10 +531,12 @@ function RuleManagePage() {
 
   const applyWplListState = useCallback(
     (rawItems, options = {}) => {
-      const { preferredActive, preserveActive, page, total } = options;
-      const normalizedList = normalizeWplList(rawItems);
+      const { preferredActive, preserveActive, page, total, meta } = options;
+      const parseFileName = meta?.wplParseFile || ruleFilesMeta.wplParseFile;
+      const sampleFileName = meta?.wplSampleFile || ruleFilesMeta.wplSampleFile;
+      const normalizedList = normalizeWplList(rawItems, parseFileName);
       setAllWplFiles(normalizedList);
-      const treeData = buildWplTreeData(normalizedList);
+      const treeData = buildWplTreeData(normalizedList, parseFileName, sampleFileName);
       setWplTotal(typeof total === 'number' && total >= 0 ? total : treeData.length);
 
       if (!normalizedList.length) {
@@ -528,8 +547,10 @@ function RuleManagePage() {
         return;
       }
 
-      const normalizedPreferred = preferredActive ? normalizeWplEntry(preferredActive) : '';
-      const normalizedActive = normalizeWplEntry(activeWplFileRef.current);
+      const normalizedPreferred = preferredActive
+        ? normalizeWplEntry(preferredActive, parseFileName)
+        : '';
+      const normalizedActive = normalizeWplEntry(activeWplFileRef.current, parseFileName);
       const currentPage = typeof page === 'number' && page > 0 ? page : 1;
       const currentTreeData = treeData;
       const currentPageFiles = currentTreeData.flatMap((node) =>
@@ -560,7 +581,7 @@ function RuleManagePage() {
           : expandedRules,
       );
     },
-    [],
+    [ruleFilesMeta.wplParseFile, ruleFilesMeta.wplSampleFile],
   );
 
   const applyOmlListState = useCallback(
@@ -626,10 +647,11 @@ function RuleManagePage() {
         pageSize: fetchPageSize,
         keyword: normalizedKeyword,
       });
+      applyRuleFilesMeta(result?.meta);
       const rawItems = Array.isArray(result?.items) ? result.items : [];
       const items =
         type === RuleType.WPL
-          ? normalizeWplList(rawItems)
+          ? normalizeWplList(rawItems, result?.meta?.wplParseFile || ruleFilesMeta.wplParseFile)
           : normalizeOmlList(rawItems);
       const pageSize =
         typeof result?.pageSize === 'number' && result.pageSize > 0
@@ -656,7 +678,7 @@ function RuleManagePage() {
     }
 
     return collected;
-  }, []);
+  }, [applyRuleFilesMeta, ruleFilesMeta.wplParseFile]);
 
   const refreshWplFiles = useCallback(
     async (options = {}) => {
@@ -672,8 +694,10 @@ function RuleManagePage() {
         pageSize: WPL_PAGE_SIZE,
         keyword: keyword?.trim() ? keyword.trim() : undefined,
       });
+      applyRuleFilesMeta(result?.meta);
       const files = Array.isArray(result?.items) ? result.items : [];
       applyWplListState(files, {
+        meta: result?.meta,
         page: result?.page || page || 1,
         total: typeof result?.total === 'number' ? result.total : files.length,
         preferredActive,
@@ -681,7 +705,7 @@ function RuleManagePage() {
       });
       return files;
     },
-    [applyWplListState, wplSearch],
+    [applyRuleFilesMeta, applyWplListState, wplSearch],
   );
 
   const refreshOmlFiles = useCallback(
@@ -727,8 +751,14 @@ function RuleManagePage() {
       const packageKeys = Array.from(
         new Set(
           (Array.isArray(allWplFiles) ? allWplFiles : [])
-            .filter((entry) => !isWplSampleEntry(entry))
-            .map((entry) => getWplEntryParts(entry).rule)
+            .filter((entry) =>
+              !isWplSampleEntry(
+                entry,
+                ruleFilesMeta.wplParseFile,
+                ruleFilesMeta.wplSampleFile,
+              ),
+            )
+            .map((entry) => getWplEntryParts(entry, ruleFilesMeta.wplParseFile).rule)
             .filter(Boolean),
         ),
       );
@@ -743,7 +773,7 @@ function RuleManagePage() {
       try {
         const overviewResults = await Promise.all(
           packageKeys.map(async (packageKey) => {
-            const file = `${packageKey}/${WPL_PARSE_FILE}`;
+            const file = `${packageKey}/${ruleFilesMeta.wplParseFile}`;
             const cached = wplOverviewCacheRef.current.get(file);
             if (cached) {
               return cached;
@@ -788,7 +818,13 @@ function RuleManagePage() {
     return () => {
       cancelled = true;
     };
-  }, [allWplFiles, isIntegrationOverviewMode, t]);
+  }, [
+    allWplFiles,
+    isIntegrationOverviewMode,
+    ruleFilesMeta.wplParseFile,
+    ruleFilesMeta.wplSampleFile,
+    t,
+  ]);
 
   const handleSelectWplFile = (fileValue, options = {}) => {
     const { ruleKey = '' } = options;
@@ -833,9 +869,9 @@ function RuleManagePage() {
   );
 
   const updateWplOverviewCacheForFile = (file, nextContent) => {
-    const normalizedFile = normalizeWplEntry(file);
-    const { rule } = getWplEntryParts(normalizedFile);
-    if (!normalizedFile || !rule || !normalizedFile.endsWith(`/${WPL_PARSE_FILE}`)) {
+    const normalizedFile = normalizeWplEntry(file, wplParseFile);
+    const { rule } = getWplEntryParts(normalizedFile, wplParseFile);
+    if (!normalizedFile || !rule || !normalizedFile.endsWith(`/${wplParseFile}`)) {
       return;
     }
 
@@ -914,7 +950,7 @@ function RuleManagePage() {
     if (!activeWplFile || !activeOverviewRuleKey) {
       return;
     }
-    const { rule } = getWplEntryParts(activeWplFile);
+    const { rule } = getWplEntryParts(activeWplFile, wplParseFile);
     const stillMatched = wplOverviewItems.some(
       (item) =>
         item.packageKey === rule &&
@@ -958,7 +994,7 @@ function RuleManagePage() {
    */
   useEffect(() => {
     if (activeKey === 'knowledge') {
-      if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+      if (activeKnowledgeDataset === knowledgeConfigFile) {
         setHasUnsavedChanges(knowdbConfig !== originalKnowdbConfig);
       } else {
         const hasChanges =
@@ -991,7 +1027,7 @@ function RuleManagePage() {
       message.warning(t('ruleManage.noFileToValidate'));
       return;
     }
-    if (activeKey === 'knowledge' && activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+    if (activeKey === 'knowledge' && activeKnowledgeDataset === knowledgeConfigFile) {
       message.info('knowdb.toml 不需要执行独立校验');
       return;
     }
@@ -1037,7 +1073,7 @@ function RuleManagePage() {
 
     try {
       if (activeKey === 'knowledge') {
-        if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+        if (activeKnowledgeDataset === knowledgeConfigFile) {
           await saveKnowdbConfig(knowdbConfig);
           setOriginalKnowdbConfig(knowdbConfig);
         } else {
@@ -1112,7 +1148,7 @@ function RuleManagePage() {
       return;
     }
 
-    if (isWplEditorMode && isWplSampleEntry(activeWplFile)) {
+    if (isWplEditorMode && isWplSampleEntry(activeWplFile, wplParseFile, wplSampleFile)) {
       message.info(t('ruleManage.sampleFileFormatDisabled'));
       return;
     }
@@ -1184,7 +1220,7 @@ function RuleManagePage() {
       await saveRuleConfig({ type: RuleType.WPL, file: normalizedName, content: '' });
       await refreshWplFiles({
         page: 1,
-        preferredActive: `${normalizedName}/${WPL_PARSE_FILE}`,
+        preferredActive: `${normalizedName}/${wplParseFile}`,
         preserveActive: false,
       });
       setLocalWplFiles((prev) => prev.filter((name) => name !== normalizedName));
@@ -1232,8 +1268,9 @@ function RuleManagePage() {
           pageSize: KNOWLEDGE_PAGE_SIZE,
           keyword: knowledgeSearch || undefined,
         });
+        applyRuleFilesMeta(refreshed?.meta);
         const datasets = Array.isArray(refreshed?.items) ? refreshed.items : [];
-        const normalizedDatasets = datasets.filter((item) => item !== KNOWLEDGE_CONFIG_FILE);
+        const normalizedDatasets = datasets.filter((item) => item !== knowledgeConfigFile);
         setKnowledgeDatasets(normalizedDatasets);
         setKnowledgeTotal(refreshed?.total || normalizedDatasets.length);
         setActiveKnowledgeDataset(normalizedName);
@@ -1288,16 +1325,16 @@ function RuleManagePage() {
 
   const getCurrentFileInfo = () => {
     if (isWplEditorMode) {
-      const normalized = normalizeWplEntry(activeWplFile);
-      return { file: normalized, display: formatWplDisplayName(normalized) };
+      const normalized = normalizeWplEntry(activeWplFile, wplParseFile);
+      return { file: normalized, display: formatWplDisplayName(normalized, wplParseFile) };
     }
     if (activeKey === 'oml') {
       const displayName = activeOmlFile ? `${activeOmlFile}.oml` : '';
       return { file: activeOmlFile || '', display: displayName };
     }
   if (activeKey === 'knowledge') {
-      if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
-        return { file: KNOWLEDGE_CONFIG_FILE, display: KNOWLEDGE_CONFIG_FILE };
+      if (activeKnowledgeDataset === knowledgeConfigFile) {
+        return { file: knowledgeConfigFile, display: knowledgeConfigFile };
       }
       const datasetName = activeKnowledgeDataset ? `${activeKnowledgeDataset}.dataset` : '';
       return { file: datasetName, display: datasetName };
@@ -1307,7 +1344,7 @@ function RuleManagePage() {
 
   const buildCurrentContent = () => {
     if (activeKey === 'knowledge') {
-      if (activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE) {
+      if (activeKnowledgeDataset === knowledgeConfigFile) {
         return knowdbConfig || '';
       }
       return [
@@ -1322,7 +1359,11 @@ function RuleManagePage() {
   };
 
   const codeEditorLanguage =
-    isWplEditorMode ? (isWplSampleEntry(activeWplFile) ? 'plain' : 'wpl') : 'oml';
+    isWplEditorMode
+      ? isWplSampleEntry(activeWplFile, wplParseFile, wplSampleFile)
+        ? 'plain'
+        : 'wpl'
+      : 'oml';
 
   return (
     <>
@@ -1368,15 +1409,16 @@ function RuleManagePage() {
                 pageSize: KNOWLEDGE_PAGE_SIZE,
                 keyword: knowledgeSearch || undefined,
               });
+              applyRuleFilesMeta(result?.meta);
               const datasets = Array.isArray(result?.items) ? result.items : [];
-              const normalizedDatasets = datasets.filter((item) => item !== KNOWLEDGE_CONFIG_FILE);
+              const normalizedDatasets = datasets.filter((item) => item !== knowledgeConfigFile);
               setKnowledgeDatasets(normalizedDatasets);
               setKnowledgeTotal(result?.total || normalizedDatasets.length);
               const nextActive = normalizedDatasets.includes(activeKnowledgeDataset)
                 ? activeKnowledgeDataset
-                : KNOWLEDGE_CONFIG_FILE;
+                : knowledgeConfigFile;
               setActiveKnowledgeDataset(nextActive);
-              if (nextActive !== KNOWLEDGE_CONFIG_FILE && !normalizedDatasets.length) {
+              if (nextActive !== knowledgeConfigFile && !normalizedDatasets.length) {
                 setKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
               }
               setKnowledgePage(result?.page || 1);
@@ -1432,21 +1474,22 @@ function RuleManagePage() {
                           keyword: value || undefined,
                         })
                           .then((result) => {
+                            applyRuleFilesMeta(result?.meta);
                             const datasets = Array.isArray(result?.items)
                               ? result.items
                               : [];
                             const normalized = datasets.filter(
-                              (item) => item !== KNOWLEDGE_CONFIG_FILE,
+                              (item) => item !== knowledgeConfigFile,
                             );
                             setKnowledgeDatasets(normalized);
                             setKnowledgeTotal(result?.total || normalized.length);
                             if (
-                              activeKnowledgeDataset !== KNOWLEDGE_CONFIG_FILE &&
+                              activeKnowledgeDataset !== knowledgeConfigFile &&
                               !normalized.includes(activeKnowledgeDataset)
                             ) {
-                              const nextActive = normalized[0] || KNOWLEDGE_CONFIG_FILE;
+                              const nextActive = normalized[0] || knowledgeConfigFile;
                               setActiveKnowledgeDataset(nextActive);
-                              if (nextActive === KNOWLEDGE_CONFIG_FILE) {
+                              if (nextActive === knowledgeConfigFile) {
                                 setKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
                                 setOriginalKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
                               }
@@ -1460,7 +1503,7 @@ function RuleManagePage() {
                   </div>
                   <div className="repo-folder-content" style={{ paddingLeft: 0 }}>
                     {knowledgeListForDisplay.map((dataset) => {
-                      const isConfigEntry = dataset === KNOWLEDGE_CONFIG_FILE;
+                      const isConfigEntry = dataset === knowledgeConfigFile;
                       return (
                         <div
                           key={dataset}
@@ -1503,7 +1546,7 @@ function RuleManagePage() {
                               whiteSpace: 'nowrap',
                             }}
                           >
-                            {isConfigEntry ? KNOWLEDGE_CONFIG_FILE : dataset}
+                            {isConfigEntry ? knowledgeConfigFile : dataset}
                           </button>
                           {!isConfigEntry && (
                             <button
@@ -1547,19 +1590,19 @@ function RuleManagePage() {
                                         page: nextPage,
                                         pageSize: KNOWLEDGE_PAGE_SIZE,
                                       });
+                                      applyRuleFilesMeta(refreshed?.meta);
                                       const datasets = Array.isArray(refreshed?.items)
                                         ? refreshed.items
                                         : [];
                                       const normalized = datasets.filter(
-                                        (item) => item !== KNOWLEDGE_CONFIG_FILE,
+                                        (item) => item !== knowledgeConfigFile,
                                       );
                                       setKnowledgeDatasets(normalized);
                                       setKnowledgeTotal(refreshed?.total || normalized.length);
                                       if (filename === activeKnowledgeDataset) {
-                                        const nextActive =
-                                          normalized[0] || KNOWLEDGE_CONFIG_FILE;
+                                        const nextActive = normalized[0] || knowledgeConfigFile;
                                         setActiveKnowledgeDataset(nextActive);
-                                        if (nextActive !== KNOWLEDGE_CONFIG_FILE && !normalized.length) {
+                                        if (nextActive !== knowledgeConfigFile && !normalized.length) {
                                           setKnowledgeDatasetConfig({
                                             ...EMPTY_KNOWLEDGE_DATASET,
                                           });
@@ -1605,21 +1648,22 @@ function RuleManagePage() {
                             keyword: knowledgeSearch || undefined,
                           })
                             .then((result) => {
+                              applyRuleFilesMeta(result?.meta);
                               const datasets = Array.isArray(result?.items)
                                 ? result.items
                                 : [];
                               const normalized = datasets.filter(
-                                (item) => item !== KNOWLEDGE_CONFIG_FILE,
+                                (item) => item !== knowledgeConfigFile,
                               );
                               setKnowledgeDatasets(normalized);
                               setKnowledgeTotal(result?.total || normalized.length);
                               if (
-                                activeKnowledgeDataset !== KNOWLEDGE_CONFIG_FILE &&
+                                activeKnowledgeDataset !== knowledgeConfigFile &&
                                 !normalized.includes(activeKnowledgeDataset)
                               ) {
-                                const nextActive = normalized[0] || KNOWLEDGE_CONFIG_FILE;
+                                const nextActive = normalized[0] || knowledgeConfigFile;
                                 setActiveKnowledgeDataset(nextActive);
-                                if (nextActive === KNOWLEDGE_CONFIG_FILE) {
+                                if (nextActive === knowledgeConfigFile) {
                                   setKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
                                   setOriginalKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
                                 }
@@ -1638,8 +1682,8 @@ function RuleManagePage() {
                     <div className="editor-toolbar">
                       <span className="editor-label">
                         {activeKnowledgeDataset
-                          ? activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE
-                            ? KNOWLEDGE_CONFIG_FILE
+                          ? activeKnowledgeDataset === knowledgeConfigFile
+                            ? knowledgeConfigFile
                             : t('ruleManage.datasetLabel', { name: activeKnowledgeDataset })
                           : t('ruleManage.datasets')}
                       </span>
@@ -1652,7 +1696,7 @@ function RuleManagePage() {
                         </button>
                       </div>
                     </div>
-                    {activeKnowledgeDataset === KNOWLEDGE_CONFIG_FILE ? (
+                    {activeKnowledgeDataset === knowledgeConfigFile ? (
                       <div className="knowledge-block">
                         <span className="editor-subtitle">knowdb.toml</span>
                         <CodeEditor
@@ -2016,7 +2060,7 @@ function RuleManagePage() {
 	                <div className="repo-path">
 	                  {isWplEditorMode
 	                    ? activeWplFile
-	                      ? formatWplDisplayName(activeWplFile)
+	                      ? formatWplDisplayName(activeWplFile, wplParseFile)
 	                      : t('ruleManage.noFileSelected')
 	                    : activeOmlFile
 	                      ? `${activeOmlFile}.oml`
@@ -2073,7 +2117,8 @@ function RuleManagePage() {
 	                  ) : wplOverviewItems.length > 0 ? (
 	                    wplOverviewItems.map((item) => {
 	                      const expanded = wplOverviewExpandedDevices.includes(item.packageKey);
-	                      const isActiveDevice = getWplEntryParts(activeWplFile).rule === item.packageKey;
+	                      const isActiveDevice =
+                          getWplEntryParts(activeWplFile, wplParseFile).rule === item.packageKey;
 	                      return (
 	                        <section key={item.packageKey} className="repo-overview-group">
 	                          <button
@@ -2081,7 +2126,7 @@ function RuleManagePage() {
 	                            className={`repo-overview-device ${isActiveDevice ? 'is-active' : ''}`}
 	                            onClick={() => {
 	                              toggleWplOverviewDevice(item.packageKey);
-	                              handleSelectWplFile(`${item.packageKey}/${WPL_PARSE_FILE}`);
+	                              handleSelectWplFile(`${item.packageKey}/${wplParseFile}`);
 	                            }}
 	                          >
 	                            <span className="repo-overview-device-title">
@@ -2104,7 +2149,7 @@ function RuleManagePage() {
 	                                      : ''
 	                                  }`}
 	                                  onClick={() =>
-	                                    handleSelectWplFile(`${item.packageKey}/${WPL_PARSE_FILE}`, {
+	                                    handleSelectWplFile(`${item.packageKey}/${wplParseFile}`, {
 	                                      ruleKey: logType.ruleKey,
 	                                    })
 	                                  }

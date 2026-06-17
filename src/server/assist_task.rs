@@ -1,6 +1,7 @@
 // AI 辅助规则编写业务逻辑层
 // AI 与人工提单共用同一套逻辑，Station 只负责存储任务和提供 reply 接口
 
+use crate::constants::assist::STALE_AI_TASK_RELEASE_SECONDS;
 use crate::db::{
     AssistTargetRule, AssistTask, AssistTaskStatus, AssistTaskType, NewAssistTask,
     create_assist_task, find_active_assist_task_by_type, find_assist_task_by_id, list_assist_tasks,
@@ -17,8 +18,6 @@ use crate::utils::{AiAnalyzeRequest, AssistResultResponse, AssistService, Manual
 use chrono::Utc;
 use rand::{RngExt, distr::Alphanumeric};
 use serde::{Deserialize, Serialize};
-
-const STALE_AI_TASK_RELEASE_SECONDS: i64 = 30 * 60;
 
 // ============ 请求/响应结构体 ============
 

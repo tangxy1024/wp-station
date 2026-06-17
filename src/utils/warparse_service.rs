@@ -2,10 +2,10 @@
 //!
 //! 封装设备在线检查、配置部署、部署状态验证等 WarpParse API 调用，是设备通信的唯一入口。
 
+use crate::constants::warparse::{DEPLOY_PATH, STATUS_PATH};
 use crate::db::Device;
 use crate::db::ReleaseGroup;
 use crate::server::setting::WarparseConf;
-use crate::utils::common::{WARPARSE_DEPLOY_PATH, WARPARSE_STATUS_PATH};
 use reqwest::{Certificate, Client};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
@@ -335,7 +335,7 @@ impl WarpParseService {
         target_version: &str,
         group: ReleaseGroup,
     ) -> Result<DeployResult, ServiceError> {
-        let url = self.build_url(device, WARPARSE_DEPLOY_PATH)?;
+        let url = self.build_url(device, DEPLOY_PATH)?;
 
         let body = ReloadRequest {
             wait: true,
@@ -490,7 +490,7 @@ impl WarpParseService {
 
     /// 获取设备状态（内部方法）
     async fn fetch_status(&self, device: &Device) -> Result<StatusResponse, ServiceError> {
-        let url = self.build_url(device, WARPARSE_STATUS_PATH)?;
+        let url = self.build_url(device, STATUS_PATH)?;
 
         debug!("调用 WarpParse 状态 API: url={}", url);
 

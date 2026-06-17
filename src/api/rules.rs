@@ -131,7 +131,7 @@ pub async fn save_knowdb_config(
 #[post("/api/config/rules/validate")]
 pub async fn validate_rule(req: web::Json<ValidateRuleRequest>) -> Result<HttpResponse, AppError> {
     // 校验规则配置是否正确
-    let resp = validate_rule_logic(req.rule_type, req.file.clone()).await?;
+    let resp = validate_rule_logic(req.rule_type, req.file.clone(), req.content.clone()).await?;
 
     Ok(HttpResponse::Ok().json(resp))
 }

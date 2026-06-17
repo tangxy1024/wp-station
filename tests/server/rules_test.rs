@@ -2,7 +2,7 @@ use crate::common::{rand_suffix, remove_project_path, setup_db, test_project_lay
 use wp_station::db::RuleType;
 use wp_station::server::rules::{
     RuleFilesQuery, create_rule_file_logic, delete_rule_file_logic, get_rule_content_logic,
-    get_rule_files_logic, save_rule_logic,
+    get_rule_files_logic, save_rule_logic, validate_rule_logic,
 };
 use wp_station::utils::pagination::PageQuery;
 use wp_station::utils::{
@@ -199,4 +199,57 @@ async fn test_get_rule_content_logic_missing_file_errors() {
     let missing = format!("missing-{}", rand_suffix());
     let result = get_rule_content_logic(RuleType::Sink, Some(missing));
     assert!(result.await.is_err());
+}
+
+#[tokio::test]
+async fn test_validate_rule_logic_uses_unsaved_wpl_content_in_temp_dir() {
+    setup_db().await;
+    let file = format!("validate-{}", rand_suffix());
+
+    create_rule_file_logic(RuleType::Wpl, file.clone())
+        .await
+        .expect("create empty wpl rule");
+
+    let response = validate_rule_logic(
+        RuleType::Wpl,
+        format!("{file}/parse.wpl"),
+        Some("package demo { rule a { chars:message } }".to_string()),
+    )
+    .await
+    .expect("validate unsaved content");
+
+    assert!(response.valid);
+
+    let (saved_content, _) = read_rule_content(&test_project_layout(), RuleType::Wpl, &file)
+        .expect("read persisted wpl parse")
+        .expect("wpl parse should exist");
+    assert!(saved_content.is_empty());
+
+    cleanup_rule(RuleType::Wpl, &file);
+}
+
+#[tokio::test]
+async fn test_validate_rule_logic_rejects_empty_wpl_parse_content() {
+    setup_db().await;
+    let file = format!("validate-empty-{}", rand_suffix());
+
+    create_rule_file_logic(RuleType::Wpl, file.clone())
+        .await
+        .expect("create empty wpl rule");
+
+    let response = validate_rule_logic(
+        RuleType::Wpl,
+        format!("{file}/parse.wpl"),
+        Some(String::new()),
+    )
+    .await
+    .expect("empty parse validation should return business response");
+
+    assert!(!response.valid);
+    assert_eq!(
+        response.message.as_deref(),
+        Some("参数验证失败: WPL 规则内容为空，请先填写 parse.wpl 后再校验")
+    );
+
+    cleanup_rule(RuleType::Wpl, &file);
 }

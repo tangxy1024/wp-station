@@ -6,6 +6,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use crate::constants::project::{DIR_CONNECTORS, DIR_SINK_D, DIR_SOURCE_D};
 use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::ProjectLayout;
@@ -35,6 +36,7 @@ pub struct RenderedConfigTemplate {
     pub template_file: String,
     pub display_name: String,
     pub connect: String,
+    pub connector_type: String,
     pub instance_name: String,
     pub required_fields: Vec<String>,
     pub inserted_fields: Vec<String>,
@@ -75,8 +77,8 @@ pub fn list_config_templates_from_layout(
     scope: RuleType,
 ) -> Result<Vec<ConfigTemplateDef>, AppError> {
     let connectors_dir = match scope {
-        RuleType::Source => layout.infra_root.join("connectors").join("source.d"),
-        RuleType::Sink => layout.infra_root.join("connectors").join("sink.d"),
+        RuleType::Source => layout.infra_root.join(DIR_CONNECTORS).join(DIR_SOURCE_D),
+        RuleType::Sink => layout.infra_root.join(DIR_CONNECTORS).join(DIR_SINK_D),
         _ => {
             return Err(AppError::validation(
                 "配置模板 scope 仅支持 source 或 sink".to_string(),
@@ -150,6 +152,7 @@ pub fn render_config_template(
         template_file: template.template_file,
         display_name,
         connect: template.connect,
+        connector_type: template.connector_type,
         instance_name,
         required_fields,
         inserted_fields,
@@ -448,7 +451,8 @@ fn parse_connector_params(content: &str) -> BTreeMap<String, TomlValue> {
 
         if !matches!(
             section_stack.as_slice(),
-            [head, tail @ ..] if head == "connectors" && tail.first().map(|s| s.as_str()) == Some("params")
+            [head, tail @ ..]
+                if head == DIR_CONNECTORS && tail.first().map(|s| s.as_str()) == Some("params")
         ) {
             continue;
         }
@@ -666,8 +670,8 @@ fn strip_numeric_prefix(template_file: &str) -> &str {
 #[allow(dead_code)]
 fn _connector_dir(layout: &ProjectLayout, scope: RuleType) -> PathBuf {
     match scope {
-        RuleType::Source => layout.infra_root.join("connectors").join("source.d"),
-        RuleType::Sink => layout.infra_root.join("connectors").join("sink.d"),
-        _ => layout.infra_root.join("connectors"),
+        RuleType::Source => layout.infra_root.join(DIR_CONNECTORS).join(DIR_SOURCE_D),
+        RuleType::Sink => layout.infra_root.join(DIR_CONNECTORS).join(DIR_SINK_D),
+        _ => layout.infra_root.join(DIR_CONNECTORS),
     }
 }

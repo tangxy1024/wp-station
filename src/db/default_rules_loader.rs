@@ -1,3 +1,4 @@
+use crate::constants::project::{DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_TOPOLOGY};
 use crate::error::AppError;
 use crate::server::Setting;
 use crate::utils::project::resolve_project_root;
@@ -20,10 +21,10 @@ struct DefaultCopyMapping {
 pub fn init_default_configs_to_models(project_models: &str) -> Result<(), AppError> {
     init_default_configs_with_mappings(
         project_models,
-        "models",
+        DIR_MODELS,
         &[DefaultCopyMapping {
-            source_prefix: "models",
-            target_prefix: "models",
+            source_prefix: DIR_MODELS,
+            target_prefix: DIR_MODELS,
         }],
     )
 }
@@ -35,16 +36,16 @@ pub fn init_default_configs_to_infra(project_infra: &str) -> Result<(), AppError
         "infra",
         &[
             DefaultCopyMapping {
-                source_prefix: "conf",
-                target_prefix: "conf",
+                source_prefix: DIR_CONF,
+                target_prefix: DIR_CONF,
             },
             DefaultCopyMapping {
-                source_prefix: "topology",
-                target_prefix: "topology",
+                source_prefix: DIR_TOPOLOGY,
+                target_prefix: DIR_TOPOLOGY,
             },
             DefaultCopyMapping {
-                source_prefix: "connectors",
-                target_prefix: "connectors",
+                source_prefix: DIR_CONNECTORS,
+                target_prefix: DIR_CONNECTORS,
             },
         ],
     )

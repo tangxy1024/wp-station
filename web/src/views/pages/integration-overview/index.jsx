@@ -1,203 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Input, Table, message } from 'antd';
-import { fetchConnectionFiles, fetchRuleConfig, fetchRuleFiles, RuleType } from '@/services/config';
+import {
+  fetchConfigTemplates,
+  fetchConnectionFiles,
+  fetchRuleConfig,
+  fetchRuleFiles,
+  RuleType,
+} from '@/services/config';
 
 const WPL_FETCH_PAGE_SIZE = 50;
-const WPL_PARSE_FILE = 'parse.wpl';
-const WPL_SAMPLE_FILE = 'sample.dat';
-const WPSRC_FILE = 'wpsrc.toml';
 
-const SOURCE_CONNECTOR_EXACT_META = Object.freeze({
-  file_src: {
-    label: 'file',
-    defaultParams: {
-      base: 'data/in_dat',
-      file: 'gen.dat',
-    },
-  },
-  syslog_udp_src: {
-    label: 'syslog-udp',
-    defaultParams: {
-      addr: '0.0.0.0',
-      port: '1514',
-    },
-  },
-  syslog_tcp_src: {
-    label: 'syslog-tcp',
-    defaultParams: {
-      addr: '127.0.0.1',
-      port: '1514',
-    },
-  },
-  tcp_src: {
-    label: 'tcp',
-    defaultParams: {
-      addr: '0.0.0.0',
-      port: '9000',
-    },
-  },
-  mysql_src: {
-    label: 'mysql',
-  },
-  postgres_src: {
-    label: 'postgres',
-  },
-  kafka_src: {
-    label: 'kafka',
-  },
-  dmdb_connect_string_src: {
-    label: 'dmdb',
-  },
-});
-
-const SOURCE_CONNECTOR_FALLBACK_META = [
-  { pattern: /syslog[_-]?udp/i, label: 'syslog-udp' },
-  { pattern: /syslog[_-]?tcp/i, label: 'syslog-tcp' },
-  { pattern: /tcp/i, label: 'tcp' },
-  { pattern: /udp/i, label: 'udp' },
-  { pattern: /mysql/i, label: 'mysql' },
-  { pattern: /postgres/i, label: 'postgres' },
-  { pattern: /doris/i, label: 'doris' },
-  { pattern: /clickhouse/i, label: 'clickhouse' },
-  { pattern: /dmdb[_-]?connect[_-]?string/i, label: 'dmdb' },
-  { pattern: /dmdb/i, label: 'dmdb' },
-  { pattern: /file/i, label: 'file' },
-  { pattern: /kafka/i, label: 'kafka' },
-];
-
-const SINK_CONNECTOR_EXACT_META = Object.freeze({
-  file_proto_sink: {
-    label: 'file',
-    defaultParams: {
-      base: './data/out_dat',
-      file: 'default.dat',
-    },
-  },
-  file_json_sink: {
-    label: 'file',
-    defaultParams: {
-      base: './data/out_dat',
-      file: 'default.json',
-    },
-  },
-  file_kv_sink: {
-    label: 'file',
-    defaultParams: {
-      base: './data/out_dat',
-      file: 'default.kv',
-    },
-  },
-  file_raw_sink: {
-    label: 'file',
-    defaultParams: {
-      base: './data/out_dat',
-      file: 'default.raw',
-    },
-  },
-  syslog_udp_sink: {
-    label: 'syslog-udp',
-    defaultParams: {
-      addr: '127.0.0.1',
-      port: '1514',
-    },
-  },
-  syslog_tcp_sink: {
-    label: 'syslog-tcp',
-    defaultParams: {
-      addr: '127.0.0.1',
-      port: '1514',
-    },
-  },
-  tcp_sink: {
-    label: 'tcp',
-    defaultParams: {
-      addr: '127.0.0.1',
-      port: '9000',
-    },
-  },
-  udp_out_sink: {
-    label: 'udp',
-    defaultParams: {
-      addr: '127.0.0.1',
-      port: '31600',
-    },
-  },
-  kafka_sink: {
-    label: 'kafka',
-  },
-  mysql_sink: {
-    label: 'mysql',
-  },
-  postgres_sink: {
-    label: 'postgres',
-  },
-  doris_sink: {
-    label: 'doris',
-  },
-  clickhouse_sink: {
-    label: 'clickhouse',
-  },
-  elasticsearch_sink: {
-    label: 'elasticsearch',
-  },
-  victorialogs_sink: {
-    label: 'victorialogs',
-  },
-  victoriametrics_sink: {
-    label: 'victoriametrics',
-  },
-  prometheus_sink: {
-    label: 'prometheus',
-  },
-  http_sink: {
-    label: 'http',
-  },
-  dmdb_connect_string_sink: {
-    label: 'dmdb',
-  },
-});
-
-const SINK_CONNECTOR_FALLBACK_META = [
-  { pattern: /syslog[_-]?udp/i, label: 'syslog-udp' },
-  { pattern: /syslog[_-]?tcp/i, label: 'syslog-tcp' },
-  { pattern: /tcp/i, label: 'tcp' },
-  { pattern: /udp/i, label: 'udp' },
-  { pattern: /mysql/i, label: 'mysql' },
-  { pattern: /postgres/i, label: 'postgres' },
-  { pattern: /doris/i, label: 'doris' },
-  { pattern: /clickhouse/i, label: 'clickhouse' },
-  { pattern: /elasticsearch/i, label: 'elasticsearch' },
-  { pattern: /prometheus/i, label: 'prometheus' },
-  { pattern: /victorialogs/i, label: 'victorialogs' },
-  { pattern: /victoriametrics/i, label: 'victoriametrics' },
-  { pattern: /http/i, label: 'http' },
-  { pattern: /dmdb[_-]?connect[_-]?string/i, label: 'dmdb' },
-  { pattern: /dmdb/i, label: 'dmdb' },
-  { pattern: /kafka/i, label: 'kafka' },
-  { pattern: /file/i, label: 'file' },
-];
-
-const CONNECTOR_TYPE_DISPLAY_NAMES = Object.freeze({
-  file: '文件',
-  kafka: 'Kafka',
-  dmdb: '达梦数据库',
-  mysql: 'MySQL',
-  postgres: 'PostgreSQL',
-  doris: 'Doris',
-  clickhouse: 'ClickHouse',
-  elasticsearch: 'Elasticsearch',
-  victorialogs: 'VictoriaLogs',
-  victoriametrics: 'VictoriaMetrics',
-  prometheus: 'Prometheus',
-  http: 'HTTP',
-  'syslog-udp': 'Syslog UDP',
-  'syslog-tcp': 'Syslog TCP',
-  tcp: 'TCP',
-  udp: 'UDP',
-});
-
-const normalizeWplEntry = (value) => {
+const normalizeWplEntry = (value, parseFileName) => {
   if (value === undefined || value === null) {
     return '';
   }
@@ -206,21 +20,21 @@ const normalizeWplEntry = (value) => {
     return '';
   }
   if (!trimmed.includes('/')) {
-    return `${trimmed}/${WPL_PARSE_FILE}`;
+    return `${trimmed}/${parseFileName}`;
   }
   const [rulePart, ...restParts] = trimmed.split('/');
   const rule = (rulePart || '').trim();
-  const sub = (restParts.join('/') || '').trim() || WPL_PARSE_FILE;
+  const sub = (restParts.join('/') || '').trim() || parseFileName;
   if (!rule) {
     return sub;
   }
   return `${rule}/${sub}`;
 };
 
-const normalizeWplList = (items) => {
+const normalizeWplList = (items, parseFileName) => {
   const deduped = new Set();
   (Array.isArray(items) ? items : []).forEach((item) => {
-    const entry = normalizeWplEntry(item);
+    const entry = normalizeWplEntry(item, parseFileName);
     if (entry) {
       deduped.add(entry);
     }
@@ -228,8 +42,8 @@ const normalizeWplList = (items) => {
   return Array.from(deduped);
 };
 
-const getWplEntryParts = (entry) => {
-  const normalized = normalizeWplEntry(entry);
+const getWplEntryParts = (entry, parseFileName) => {
+  const normalized = normalizeWplEntry(entry, parseFileName);
   if (!normalized) {
     return { rule: '', sub: '' };
   }
@@ -240,7 +54,8 @@ const getWplEntryParts = (entry) => {
   };
 };
 
-const isWplSampleEntry = (entry) => normalizeWplEntry(entry).endsWith(`/${WPL_SAMPLE_FILE}`);
+const isWplSampleEntry = (entry, parseFileName, sampleFileName) =>
+  normalizeWplEntry(entry, parseFileName).endsWith(`/${sampleFileName}`);
 const isIgnoredWplIdentifier = (value) =>
   String(value || '').trim().toLowerCase().startsWith('ignore');
 
@@ -462,35 +277,24 @@ const parseTomlBlocks = (content = '', blockHeader = '', paramsHeader = '') => {
   return blocks;
 };
 
-const resolveConnectorMeta = (connect = '', scope = 'source') => {
+const resolveConnectorMeta = (metaMap = {}, connect = '') => {
   const normalized = String(connect || '').trim();
   if (!normalized) {
     return {
-      label: '-',
+      typeKey: '-',
+      typeLabel: '-',
       defaultParams: {},
     };
   }
 
-  const exactMeta =
-    scope === 'sink'
-      ? SINK_CONNECTOR_EXACT_META[normalized]
-      : SOURCE_CONNECTOR_EXACT_META[normalized];
-  if (exactMeta) {
-    return exactMeta;
-  }
-
-  const fallbackMapping =
-    scope === 'sink' ? SINK_CONNECTOR_FALLBACK_META : SOURCE_CONNECTOR_FALLBACK_META;
-  const matched = fallbackMapping.find((item) => item.pattern.test(normalized));
+  const matched = metaMap[normalized];
   if (matched) {
-    return {
-      ...matched,
-      defaultParams: {},
-    };
+    return matched;
   }
 
   return {
-    label: normalized.replace(/_(src|sink)$/i, '').replace(/_/g, '-'),
+    typeKey: normalized.replace(/_(src|sink)$/i, '').replace(/_/g, '-'),
+    typeLabel: normalized.replace(/_(src|sink)$/i, '').replace(/_/g, '-'),
     defaultParams: {},
   };
 };
@@ -547,8 +351,8 @@ const parseConnectionString = (value = '') =>
       return accumulator;
     }, {});
 
-const buildEffectiveParams = (connect = '', params = {}, scope = 'source') => {
-  const meta = resolveConnectorMeta(connect, scope);
+const buildEffectiveParams = (connectorMetaMap, connect = '', params = {}) => {
+  const meta = resolveConnectorMeta(connectorMetaMap, connect);
   const merged = {
     ...(meta.defaultParams || {}),
     ...(params || {}),
@@ -561,11 +365,11 @@ const buildEffectiveParams = (connect = '', params = {}, scope = 'source') => {
   return merged;
 };
 
-const buildConnectorDetail = (connect = '', params = {}, scope = 'source') => {
-  const meta = resolveConnectorMeta(connect, scope);
-  const typeKey = meta.label;
-  const effectiveParams = buildEffectiveParams(connect, params, scope);
-  const typeLabel = CONNECTOR_TYPE_DISPLAY_NAMES[typeKey] || typeKey;
+const buildConnectorDetail = (connectorMetaMap, connect = '', params = {}) => {
+  const meta = resolveConnectorMeta(connectorMetaMap, connect);
+  const typeKey = meta.typeKey;
+  const effectiveParams = buildEffectiveParams(connectorMetaMap, connect, params);
+  const typeLabel = meta.typeLabel || typeKey;
 
   if (['syslog-udp', 'syslog-tcp', 'tcp', 'udp'].includes(typeKey)) {
     const addr = getPreferredValue(effectiveParams, ['addr', 'host']);
@@ -726,6 +530,58 @@ const extractWplOverviewFromContent = (content = '', fallbackPackage = '') => {
   };
 };
 
+const parseTemplateDefaultValue = (value) => {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  if (raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) {
+    return raw.slice(1, -1);
+  }
+
+  if (raw.startsWith('[') && raw.endsWith(']')) {
+    return raw
+      .slice(1, -1)
+      .split(',')
+      .map((item) => item.trim().replace(/^"|"$/g, ''))
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  return raw;
+};
+
+const buildConnectorMetaMap = (items = []) =>
+  (Array.isArray(items) ? items : []).reduce((accumulator, item) => {
+    const connect = String(item?.connect || '').trim();
+    if (!connect) {
+      return accumulator;
+    }
+
+    const defaultParams = (Array.isArray(item?.fields) ? item.fields : []).reduce(
+      (params, field) => {
+        if (field?.advanced || !field?.name || field?.defaultValue === undefined || field?.defaultValue === null) {
+          return params;
+        }
+
+        params[field.name] = parseTemplateDefaultValue(field.defaultValue);
+        return params;
+      },
+      {},
+    );
+
+    accumulator[connect] = {
+      typeKey: String(item?.connectorType || '').trim() || connect,
+      typeLabel:
+        String(item?.connectorTypeDisplayName || '').trim() ||
+        String(item?.connectorType || '').trim() ||
+        connect,
+      defaultParams,
+    };
+    return accumulator;
+  }, {});
+
 function IntegrationOverviewPage() {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
@@ -740,6 +596,8 @@ function IntegrationOverviewPage() {
     const collected = [];
     const seen = new Set();
     let currentPage = 1;
+    let parseFileName = '';
+    let sampleFileName = '';
 
     while (true) {
       const result = await fetchRuleFiles({
@@ -747,8 +605,10 @@ function IntegrationOverviewPage() {
         page: currentPage,
         pageSize: WPL_FETCH_PAGE_SIZE,
       });
+      parseFileName = result?.meta?.wplParseFile || parseFileName;
+      sampleFileName = result?.meta?.wplSampleFile || sampleFileName;
       const rawItems = Array.isArray(result?.items) ? result.items : [];
-      const items = normalizeWplList(rawItems);
+      const items = normalizeWplList(rawItems, parseFileName);
       const pageSize =
         typeof result?.pageSize === 'number' && result.pageSize > 0
           ? result.pageSize
@@ -769,24 +629,41 @@ function IntegrationOverviewPage() {
       currentPage += 1;
     }
 
-    return collected;
+    return {
+      items: collected,
+      parseFileName,
+      sampleFileName,
+    };
   }, []);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
     try {
-      const [files, sourceConfig, sinkFilesResponse, connectionFiles] = await Promise.all([
+      const [wplResult, sourceFilesResponse, sinkFilesResponse, connectionFiles, sourceTemplates, sinkTemplates] = await Promise.all([
         fetchAllWplFiles(),
-        fetchRuleConfig({ type: RuleType.SOURCE, file: WPSRC_FILE }),
+        fetchRuleFiles({ type: RuleType.SOURCE }),
         fetchRuleFiles({ type: RuleType.SINK }),
         fetchConnectionFiles(),
+        fetchConfigTemplates(RuleType.SOURCE),
+        fetchConfigTemplates(RuleType.SINK),
       ]);
+      const files = Array.isArray(wplResult?.items) ? wplResult.items : [];
+      const parseFileName = wplResult?.parseFileName || '';
+      const sampleFileName = wplResult?.sampleFileName || '';
+      const nextSourceConfigFile = sourceFilesResponse?.meta?.defaultFile || '';
+
+      const [sourceConfig] = await Promise.all([
+        fetchRuleConfig({ type: RuleType.SOURCE, file: nextSourceConfigFile }),
+      ]);
+
+      const sourceConnectorMetaMap = buildConnectorMetaMap(sourceTemplates?.items);
+      const sinkConnectorMetaMap = buildConnectorMetaMap(sinkTemplates?.items);
 
       const packageKeys = Array.from(
         new Set(
           files
-            .filter((entry) => !isWplSampleEntry(entry))
-            .map((entry) => getWplEntryParts(entry).rule)
+            .filter((entry) => !isWplSampleEntry(entry, parseFileName, sampleFileName))
+            .map((entry) => getWplEntryParts(entry, parseFileName).rule)
             .filter(Boolean),
         ),
       );
@@ -795,7 +672,7 @@ function IntegrationOverviewPage() {
         packageKeys.map(async (packageKey) => {
           const response = await fetchRuleConfig({
             type: RuleType.WPL,
-            file: `${packageKey}/${WPL_PARSE_FILE}`,
+            file: `${packageKey}/${parseFileName}`,
           });
           return extractWplOverviewFromContent(response?.content || '', packageKey);
         }),
@@ -832,7 +709,7 @@ function IntegrationOverviewPage() {
       )
         .filter((item) => item.enable === true)
         .map((item) => {
-          const summary = buildConnectorDetail(item.connect, item.params || {}, 'source');
+          const summary = buildConnectorDetail(sourceConnectorMetaMap, item.connect, item.params || {});
           return {
             key: item.key || item.connect,
             connect: item.connect || '',
@@ -864,7 +741,11 @@ function IntegrationOverviewPage() {
             );
 
             return sinks.map((sink, index) => {
-              const summary = buildConnectorDetail(sink.connect, sink.params || {}, 'sink');
+              const summary = buildConnectorDetail(
+                sinkConnectorMetaMap,
+                sink.connect,
+                sink.params || {},
+              );
               const fileLabel = formatSinkFileLabel(file);
               return {
                 key: `${file}-${sink.name || sink.connect || index}`,

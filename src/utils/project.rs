@@ -10,10 +10,14 @@ use std::{
     time::SystemTime,
 };
 
+use crate::constants::project::{
+    DIR_CONF, DIR_CONNECTORS, DIR_KNOWLEDGE, DIR_MODELS, DIR_OML, DIR_SINK_D, DIR_SINKS,
+    DIR_SOURCE_D, DIR_SOURCES, DIR_TOPOLOGY, DIR_WPL, FILE_KNOWDB, FILE_OML_ADM, FILE_WPARSE,
+    FILE_WPGEN, FILE_WPL_PARSE, FILE_WPL_SAMPLE,
+};
 use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::{ProjectLayout, Setting};
-use crate::utils::common::{WPL_PARSE_FILENAME, WPL_SAMPLE_FILENAME};
 
 #[derive(Debug, Clone)]
 pub struct ProjectRuleFile {
@@ -113,10 +117,10 @@ pub fn compose_project_layout_into(
     layout: &ProjectLayout,
     target_dir: &Path,
 ) -> Result<(), AppError> {
-    copy_named_entry(&layout.models_root, target_dir, "models")?;
-    copy_named_entry(&layout.infra_root, target_dir, "conf")?;
-    copy_named_entry(&layout.infra_root, target_dir, "topology")?;
-    copy_named_entry(&layout.infra_root, target_dir, "connectors")?;
+    copy_named_entry(&layout.models_root, target_dir, DIR_MODELS)?;
+    copy_named_entry(&layout.infra_root, target_dir, DIR_CONF)?;
+    copy_named_entry(&layout.infra_root, target_dir, DIR_TOPOLOGY)?;
+    copy_named_entry(&layout.infra_root, target_dir, DIR_CONNECTORS)?;
     Ok(())
 }
 
@@ -175,10 +179,7 @@ pub fn write_rule_content(
     content: &str,
 ) -> Result<String, AppError> {
     let project_dir = resolve_dir_for_rule(layout, rule_type);
-    let path = rule_target_path(&project_dir, rule_type, file_name)?;
-    ensure_parent_dir(&path)?;
-    fs::write(&path, content).map_err(AppError::internal)?;
-    Ok(path.to_string_lossy().to_string())
+    write_rule_content_in_project_dir(&project_dir, rule_type, file_name, content)
 }
 
 /// 直接写入 WPL 的 sample.dat，返回实际写入路径。
@@ -192,6 +193,19 @@ pub fn write_wpl_sample_content(
     ensure_parent_dir(&sample_path)?;
     fs::write(&sample_path, content).map_err(AppError::internal)?;
     Ok(sample_path.to_string_lossy().to_string())
+}
+
+/// 直接写入合成后的单目录项目，用于编辑态校验前覆盖当前文件内容。
+pub fn write_rule_content_in_project_dir(
+    project_dir: &Path,
+    rule_type: RuleType,
+    file_name: &str,
+    content: &str,
+) -> Result<String, AppError> {
+    let path = validation_target_path(project_dir, rule_type, file_name)?;
+    ensure_parent_dir(&path)?;
+    fs::write(&path, content).map_err(AppError::internal)?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 /// 在项目目录中创建一个空的规则文件，返回实际写入路径。
@@ -220,7 +234,10 @@ pub fn touch_knowledge_in_project(
     file_name: &str,
 ) -> Result<String, AppError> {
     let project_dir = layout.models_root.clone();
-    let table_dir = project_dir.join("models").join("knowledge").join(file_name);
+    let table_dir = project_dir
+        .join(DIR_MODELS)
+        .join(DIR_KNOWLEDGE)
+        .join(file_name);
     ensure_dir(&table_dir)?;
     write_empty_if_missing(&table_dir.join("create.sql"))?;
     write_empty_if_missing(&table_dir.join("insert.sql"))?;
@@ -237,7 +254,7 @@ pub fn delete_rule_from_project(
     let project_dir = resolve_dir_for_rule(layout, rule_type);
 
     if matches!(rule_type, RuleType::Wpl) {
-        let dir = project_dir.join("models").join("wpl").join(file_name);
+        let dir = project_dir.join(DIR_MODELS).join(DIR_WPL).join(file_name);
         if dir.exists() {
             fs::remove_dir_all(&dir).map_err(AppError::internal)?;
         }
@@ -263,7 +280,10 @@ pub fn delete_knowledge_from_project(
     file_name: &str,
 ) -> Result<String, AppError> {
     let project_dir = layout.models_root.clone();
-    let table_dir = project_dir.join("models").join("knowledge").join(file_name);
+    let table_dir = project_dir
+        .join(DIR_MODELS)
+        .join(DIR_KNOWLEDGE)
+        .join(file_name);
 
     if table_dir.exists() {
         fs::remove_dir_all(&table_dir).map_err(AppError::internal)?;
@@ -275,7 +295,7 @@ pub fn delete_knowledge_from_project(
 /// 扫描 models/knowledge/ 下的知识库表目录。
 pub fn list_knowledge_dirs(layout: &ProjectLayout) -> Result<Vec<String>, AppError> {
     let project_dir = layout.models_root.clone();
-    let knowledge_root = project_dir.join("models").join("knowledge");
+    let knowledge_root = project_dir.join(DIR_MODELS).join(DIR_KNOWLEDGE);
     list_knowledge_dirs_in_dir(&knowledge_root)
 }
 
@@ -310,7 +330,10 @@ pub fn write_knowledge_files(
     data_content: Option<String>,
 ) -> Result<String, AppError> {
     let project_dir = layout.models_root.clone();
-    let table_dir = project_dir.join("models").join("knowledge").join(file_name);
+    let table_dir = project_dir
+        .join(DIR_MODELS)
+        .join(DIR_KNOWLEDGE)
+        .join(file_name);
     ensure_dir(&table_dir)?;
 
     write_if_some(table_dir.join("create.sql"), create_sql)?;
@@ -326,20 +349,20 @@ pub fn read_knowledge_files(
     file_name: &str,
 ) -> Result<Option<KnowledgeFiles>, AppError> {
     let project_dir = layout.models_root.clone();
-    let knowledge_root = project_dir.join("models").join("knowledge");
+    let knowledge_root = project_dir.join(DIR_MODELS).join(DIR_KNOWLEDGE);
     let table_dir = knowledge_root.join(file_name);
 
     if !table_dir.is_dir() {
         return Ok(None);
     }
 
-    let config_content = read_file_if_exists(&knowledge_root.join("knowdb.toml"))?;
+    let config_content = read_file_if_exists(&knowledge_root.join(FILE_KNOWDB))?;
     let create_path = table_dir.join("create.sql");
     let insert_path = table_dir.join("insert.sql");
     let data_path = table_dir.join("data.csv");
 
     let mut last_modified = None;
-    update_last_modified(&mut last_modified, &knowledge_root.join("knowdb.toml"))?;
+    update_last_modified(&mut last_modified, &knowledge_root.join(FILE_KNOWDB))?;
     update_last_modified(&mut last_modified, &create_path)?;
     update_last_modified(&mut last_modified, &insert_path)?;
     update_last_modified(&mut last_modified, &data_path)?;
@@ -360,9 +383,9 @@ pub fn read_knowdb_config(
 ) -> Result<Option<(String, SystemTime)>, AppError> {
     let project_dir = layout.models_root.clone();
     let path = project_dir
-        .join("models")
-        .join("knowledge")
-        .join("knowdb.toml");
+        .join(DIR_MODELS)
+        .join(DIR_KNOWLEDGE)
+        .join(FILE_KNOWDB);
     read_file_with_mtime(&path)
 }
 
@@ -370,9 +393,9 @@ pub fn read_knowdb_config(
 pub fn write_knowdb_config(layout: &ProjectLayout, content: &str) -> Result<String, AppError> {
     let project_dir = layout.models_root.clone();
     let path = project_dir
-        .join("models")
-        .join("knowledge")
-        .join("knowdb.toml");
+        .join(DIR_MODELS)
+        .join(DIR_KNOWLEDGE)
+        .join(FILE_KNOWDB);
     ensure_parent_dir(&path)?;
     fs::write(&path, content).map_err(AppError::internal)?;
     Ok(path.to_string_lossy().to_string())
@@ -385,24 +408,55 @@ fn rule_target_path(
     file_name: &str,
 ) -> Result<PathBuf, AppError> {
     match rule_type {
-        RuleType::Parse => Ok(project_dir.join("conf").join("wparse.toml")),
-        RuleType::Wpgen => Ok(project_dir.join("conf").join("wpgen.toml")),
-        RuleType::SourceConnect => connector_rule_path(project_dir, "source.d", file_name),
-        RuleType::SinkConnect => connector_rule_path(project_dir, "sink.d", file_name),
-        RuleType::Source => Ok(project_dir.join("topology").join("sources").join(file_name)),
-        RuleType::Sink => Ok(project_dir.join("topology").join("sinks").join(file_name)),
+        RuleType::Parse => Ok(project_dir.join(DIR_CONF).join(FILE_WPARSE)),
+        RuleType::Wpgen => Ok(project_dir.join(DIR_CONF).join(FILE_WPGEN)),
+        RuleType::SourceConnect => connector_rule_path(project_dir, DIR_SOURCE_D, file_name),
+        RuleType::SinkConnect => connector_rule_path(project_dir, DIR_SINK_D, file_name),
+        RuleType::Source => Ok(project_dir
+            .join(DIR_TOPOLOGY)
+            .join(DIR_SOURCES)
+            .join(file_name)),
+        RuleType::Sink => Ok(project_dir
+            .join(DIR_TOPOLOGY)
+            .join(DIR_SINKS)
+            .join(file_name)),
         RuleType::Wpl => {
             let (parse_path, _) = wpl_rule_paths(project_dir, file_name);
             Ok(parse_path)
         }
         RuleType::Oml => Ok(project_dir
-            .join("models")
-            .join("oml")
+            .join(DIR_MODELS)
+            .join(DIR_OML)
             .join(file_name)
-            .join("adm.oml")),
+            .join(FILE_OML_ADM)),
         RuleType::Knowledge => Err(AppError::validation("知识库配置请使用 knowledge 文件接口")),
         RuleType::All => Err(AppError::validation("all 类型不能映射到单个规则文件")),
     }
+}
+
+fn validation_target_path(
+    project_dir: &Path,
+    rule_type: RuleType,
+    file_name: &str,
+) -> Result<PathBuf, AppError> {
+    if matches!(rule_type, RuleType::Wpl) {
+        let trimmed = file_name.trim().trim_matches('/');
+        if trimmed.is_empty() {
+            return Err(AppError::validation("wpl 文件名不能为空"));
+        }
+
+        if let Some(base) = trimmed.strip_suffix(&format!("/{}", FILE_WPL_SAMPLE)) {
+            let (_, sample_path) = wpl_rule_paths(project_dir, base.trim_matches('/'));
+            return Ok(sample_path);
+        }
+
+        if let Some(base) = trimmed.strip_suffix(&format!("/{}", FILE_WPL_PARSE)) {
+            let (parse_path, _) = wpl_rule_paths(project_dir, base.trim_matches('/'));
+            return Ok(parse_path);
+        }
+    }
+
+    rule_target_path(project_dir, rule_type, file_name)
 }
 
 /// 计算 connectors/<folder>/<file_name>.toml 形式的路径。
@@ -412,14 +466,14 @@ fn connector_rule_path(
     file_name: &str,
 ) -> Result<PathBuf, AppError> {
     Ok(project_dir
-        .join("connectors")
+        .join(DIR_CONNECTORS)
         .join(folder)
         .join(with_extension(file_name, ".toml")))
 }
 
 fn wpl_rule_paths(project_dir: &Path, name: &str) -> (PathBuf, PathBuf) {
-    let dir = project_dir.join("models").join("wpl").join(name);
-    (dir.join(WPL_PARSE_FILENAME), dir.join(WPL_SAMPLE_FILENAME))
+    let dir = project_dir.join(DIR_MODELS).join(DIR_WPL).join(name);
+    (dir.join(FILE_WPL_PARSE), dir.join(FILE_WPL_SAMPLE))
 }
 
 /// 若文件名未包含指定扩展名则自动追加扩展名。
@@ -540,24 +594,24 @@ fn load_parse_and_wpgen(
     project_root: &Path,
     snapshot: &mut ProjectSnapshot,
 ) -> Result<(), AppError> {
-    let conf_dir = project_root.join("conf");
+    let conf_dir = project_root.join(DIR_CONF);
 
-    let wparse_path = conf_dir.join("wparse.toml");
+    let wparse_path = conf_dir.join(FILE_WPARSE);
     if let Some(content) = read_file_if_exists(&wparse_path)? {
         snapshot.add_rule(
             RuleType::Parse,
-            "wparse.toml".to_string(),
+            FILE_WPARSE.to_string(),
             Some(content),
             None,
             None,
         );
     }
 
-    let wpgen_path = conf_dir.join("wpgen.toml");
+    let wpgen_path = conf_dir.join(FILE_WPGEN);
     if let Some(content) = read_file_if_exists(&wpgen_path)? {
         snapshot.add_rule(
             RuleType::Wpgen,
-            "wpgen.toml".to_string(),
+            FILE_WPGEN.to_string(),
             Some(content),
             None,
             None,
@@ -571,7 +625,7 @@ fn load_connector_rules(
     project_root: &Path,
     snapshot: &mut ProjectSnapshot,
 ) -> Result<(), AppError> {
-    let source_dir = project_root.join("connectors").join("source.d");
+    let source_dir = project_root.join(DIR_CONNECTORS).join(DIR_SOURCE_D);
     if source_dir.exists() {
         for entry in fs::read_dir(&source_dir).map_err(AppError::internal)? {
             let entry = entry.map_err(AppError::internal)?;
@@ -592,7 +646,7 @@ fn load_connector_rules(
         }
     }
 
-    let sink_dir = project_root.join("connectors").join("sink.d");
+    let sink_dir = project_root.join(DIR_CONNECTORS).join(DIR_SINK_D);
     if sink_dir.exists() {
         for entry in fs::read_dir(&sink_dir).map_err(AppError::internal)? {
             let entry = entry.map_err(AppError::internal)?;
@@ -614,14 +668,14 @@ fn load_topology_rules(
     project_root: &Path,
     snapshot: &mut ProjectSnapshot,
 ) -> Result<(), AppError> {
-    let sources_dir = project_root.join("topology").join("sources");
+    let sources_dir = project_root.join(DIR_TOPOLOGY).join(DIR_SOURCES);
     for (relative, file_path) in collect_relative_files(&sources_dir)? {
         let content = fs::read_to_string(&file_path)
             .map_err(|e| AppError::internal(format!("读取 {} 失败: {}", file_path.display(), e)))?;
         snapshot.add_rule(RuleType::Source, relative, Some(content), None, None);
     }
 
-    let sinks_dir = project_root.join("topology").join("sinks");
+    let sinks_dir = project_root.join(DIR_TOPOLOGY).join(DIR_SINKS);
     for (relative, file_path) in collect_relative_files(&sinks_dir)? {
         let content = fs::read_to_string(&file_path)
             .map_err(|e| AppError::internal(format!("读取 {} 失败: {}", file_path.display(), e)))?;
@@ -632,7 +686,7 @@ fn load_topology_rules(
 }
 
 fn load_wpl_rules(project_root: &Path, snapshot: &mut ProjectSnapshot) -> Result<(), AppError> {
-    let wpl_dir = project_root.join("models").join("wpl");
+    let wpl_dir = project_root.join(DIR_MODELS).join(DIR_WPL);
     if !wpl_dir.exists() {
         return Ok(());
     }
@@ -653,20 +707,19 @@ fn load_wpl_rules(project_root: &Path, snapshot: &mut ProjectSnapshot) -> Result
         }
 
         let rule_name = entry.file_name().to_string_lossy().to_string();
-        let parse_path = path.join(WPL_PARSE_FILENAME);
+        let parse_path = path.join(FILE_WPL_PARSE);
         if !parse_path.exists() {
             snapshot.failed_files += 1;
-            snapshot.warnings.push(format!(
-                "WPL 规则 {} 缺少 {}",
-                rule_name, WPL_PARSE_FILENAME
-            ));
+            snapshot
+                .warnings
+                .push(format!("WPL 规则 {} 缺少 {}", rule_name, FILE_WPL_PARSE));
             continue;
         }
 
         let parse_content = fs::read_to_string(&parse_path).map_err(|e| {
             AppError::internal(format!("读取 {} 失败: {}", parse_path.display(), e))
         })?;
-        let sample_path = path.join(WPL_SAMPLE_FILENAME);
+        let sample_path = path.join(FILE_WPL_SAMPLE);
         let sample_content = read_file_if_exists(&sample_path)?;
 
         snapshot.add_rule(
@@ -682,7 +735,7 @@ fn load_wpl_rules(project_root: &Path, snapshot: &mut ProjectSnapshot) -> Result
 }
 
 fn load_oml_rules(project_root: &Path, snapshot: &mut ProjectSnapshot) -> Result<(), AppError> {
-    let oml_dir = project_root.join("models").join("oml");
+    let oml_dir = project_root.join(DIR_MODELS).join(DIR_OML);
     if !oml_dir.exists() {
         return Ok(());
     }
@@ -709,7 +762,7 @@ fn load_oml_rules(project_root: &Path, snapshot: &mut ProjectSnapshot) -> Result
             snapshot.failed_files += 1;
             snapshot
                 .warnings
-                .push(format!("OML 规则 {} 缺少 adm.oml", rule_name));
+                .push(format!("OML 规则 {} 缺少 {}", rule_name, FILE_OML_ADM));
         }
     }
 
@@ -722,7 +775,7 @@ fn load_oml_rule_dir(
     snapshot: &mut ProjectSnapshot,
 ) -> Result<bool, AppError> {
     let mut found_rule = false;
-    let adm_path = current_dir.join("adm.oml");
+    let adm_path = current_dir.join(FILE_OML_ADM);
     if adm_path.exists() {
         let content = fs::read_to_string(&adm_path)
             .map_err(|e| AppError::internal(format!("读取 {} 失败: {}", adm_path.display(), e)))?;
@@ -766,7 +819,7 @@ fn load_knowledge_tables(
     project_root: &Path,
     snapshot: &mut ProjectSnapshot,
 ) -> Result<(), AppError> {
-    let knowledge_root = project_root.join("models").join("knowledge");
+    let knowledge_root = project_root.join(DIR_MODELS).join(DIR_KNOWLEDGE);
     for table_name in list_knowledge_dirs_in_dir(&knowledge_root)? {
         let Some(config) = read_knowledge_files_in_dir(project_root, &table_name)? else {
             continue;
@@ -794,20 +847,20 @@ fn read_knowledge_files_in_dir(
     project_dir: &Path,
     file_name: &str,
 ) -> Result<Option<KnowledgeFiles>, AppError> {
-    let knowledge_root = project_dir.join("models").join("knowledge");
+    let knowledge_root = project_dir.join(DIR_MODELS).join(DIR_KNOWLEDGE);
     let table_dir = knowledge_root.join(file_name);
 
     if !table_dir.is_dir() {
         return Ok(None);
     }
 
-    let config_content = read_file_if_exists(&knowledge_root.join("knowdb.toml"))?;
+    let config_content = read_file_if_exists(&knowledge_root.join(FILE_KNOWDB))?;
     let create_path = table_dir.join("create.sql");
     let insert_path = table_dir.join("insert.sql");
     let data_path = table_dir.join("data.csv");
 
     let mut last_modified = None;
-    update_last_modified(&mut last_modified, &knowledge_root.join("knowdb.toml"))?;
+    update_last_modified(&mut last_modified, &knowledge_root.join(FILE_KNOWDB))?;
     update_last_modified(&mut last_modified, &create_path)?;
     update_last_modified(&mut last_modified, &insert_path)?;
     update_last_modified(&mut last_modified, &data_path)?;

@@ -194,7 +194,7 @@ impl Default for FeaturesConf {
     }
 }
 
-fn default_data_collect_url() -> String {
+pub(crate) fn default_data_collect_url() -> String {
     "http://localhost:18080/wp-monitor".to_string()
 }
 

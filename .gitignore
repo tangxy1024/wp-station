@@ -49,3 +49,4 @@ project_models/
 tmp/
 clean.py
 *.tls
+/docs

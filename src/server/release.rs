@@ -1,5 +1,8 @@
 // 发布管理业务逻辑层
 
+use crate::constants::release::{
+    GROUP_ALL, GROUP_DRAFT, GROUP_INFRA, GROUP_MODELS, group_title, publish_label,
+};
 use crate::db::{
     NewRelease, NewReleaseTarget, Release, ReleaseGroup, ReleaseStatus, ReleaseTarget,
     ReleaseTargetStatus, ReleaseTargetUpdate, RuleType, archive_extra_draft_releases,
@@ -255,7 +258,7 @@ fn parse_semver(raw: &str) -> Option<(u32, u32, u32)> {
 }
 
 fn draft_release_group() -> String {
-    "draft".to_string()
+    GROUP_DRAFT.to_string()
 }
 
 async fn next_draft_release_version() -> Result<String, AppError> {
@@ -266,7 +269,7 @@ async fn next_draft_release_version() -> Result<String, AppError> {
     let (releases, _) = find_all_releases(1, 1000, None, None, None, None).await?;
     if let Some((major, minor, patch)) = releases
         .iter()
-        .filter(|release| release.release_group != "draft")
+        .filter(|release| release.release_group != GROUP_DRAFT)
         .filter_map(|release| parse_semver(&release.version))
         .max()
     {
@@ -277,31 +280,25 @@ async fn next_draft_release_version() -> Result<String, AppError> {
 }
 
 fn release_group_title(release_group: &str) -> String {
-    match release_group {
-        "models" => "规则配置".to_string(),
-        "infra" => "设施配置".to_string(),
-        "all" => "全量配置".to_string(),
-        "draft" => "草稿".to_string(),
-        other => other.to_string(),
-    }
+    group_title(release_group).to_string()
 }
 
 fn aggregated_release_group(parts: &[ReleaseGroup]) -> String {
     let has_models = parts.contains(&ReleaseGroup::Models);
     let has_infra = parts.contains(&ReleaseGroup::Infra);
     match (has_models, has_infra) {
-        (true, true) => "all".to_string(),
+        (true, true) => GROUP_ALL.to_string(),
         (true, false) => ReleaseGroup::Models.as_ref().to_string(),
         (false, true) => ReleaseGroup::Infra.as_ref().to_string(),
-        (false, false) => "draft".to_string(),
+        (false, false) => GROUP_DRAFT.to_string(),
     }
 }
 
 fn release_contains_group(release_group: &str, target_group: ReleaseGroup) -> bool {
     match release_group {
-        "all" => true,
-        "models" => target_group == ReleaseGroup::Models,
-        "infra" => target_group == ReleaseGroup::Infra,
+        GROUP_ALL => true,
+        GROUP_MODELS => target_group == ReleaseGroup::Models,
+        GROUP_INFRA => target_group == ReleaseGroup::Infra,
         _ => false,
     }
 }
@@ -321,7 +318,7 @@ async fn find_latest_non_init_release() -> Result<Option<Release>, AppError> {
 }
 
 fn release_has_any_published_scope(release: &Release) -> bool {
-    release.release_group != "draft"
+    release.release_group != GROUP_DRAFT
 }
 
 fn summarize_published_groups(groups: &[ReleaseGroup]) -> String {
@@ -373,12 +370,7 @@ fn can_publish_release(release: &Release, release_status: &ReleaseStatus) -> boo
 
 fn resolve_publish_label(release_group: &str, release_status: &ReleaseStatus) -> String {
     let _ = release_status;
-    match release_group {
-        "models" => "发布规则".to_string(),
-        "infra" => "发布设施".to_string(),
-        "all" => "发布".to_string(),
-        _ => "发布".to_string(),
-    }
+    publish_label(release_group).to_string()
 }
 
 pub fn stage_summary_for_release(
@@ -591,9 +583,9 @@ pub async fn create_release_logic(
         OperationLogBiz::Release,
         OperationLogAction::Create,
         OperationLogParams::new()
-            .with_target_name("draft")
+            .with_target_name(GROUP_DRAFT)
             .with_field("version", "auto")
-            .with_field("release_group", "draft")
+            .with_field("release_group", GROUP_DRAFT)
             .with_field(
                 "pipeline",
                 final_pipeline.clone().unwrap_or_else(|| "-".to_string()),
@@ -768,10 +760,10 @@ pub async fn publish_release_logic(
     create_release_targets(new_targets).await?;
 
     let mut published_parts = Vec::new();
-    if release.release_group == "models" || release.release_group == "all" {
+    if release.release_group == GROUP_MODELS || release.release_group == GROUP_ALL {
         published_parts.push(ReleaseGroup::Models);
     }
-    if release.release_group == "infra" || release.release_group == "all" {
+    if release.release_group == GROUP_INFRA || release.release_group == GROUP_ALL {
         published_parts.push(ReleaseGroup::Infra);
     }
     if !published_parts.contains(&release_group) {
@@ -1098,11 +1090,8 @@ async fn collect_release_diff_for_group(
 
     Ok(ReleaseDiffGroup {
         release_group: release_group.to_string(),
-        title: match parsed_group {
-            ReleaseGroup::Models => "规则配置".to_string(),
-            ReleaseGroup::Infra => "设施配置".to_string(),
-        },
-        current_version: version.unwrap_or("draft").to_string(),
+        title: group_title(parsed_group.as_ref()).to_string(),
+        current_version: version.unwrap_or(GROUP_DRAFT).to_string(),
         previous_version,
         stats,
         files,

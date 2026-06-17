@@ -2,6 +2,7 @@
 //!
 //! 负责知识库的加载、卸载、重载以及 SQL 查询等操作，支持配置数据源和本地 authority 两种模式。
 
+use crate::constants::project::{DIR_KNOWLEDGE, DIR_MODELS, FILE_KNOWDB};
 use crate::error::AppError;
 use crate::server::ProjectLayout;
 use lazy_static::lazy_static;
@@ -234,7 +235,7 @@ fn build_knowledge_context(layout: &ProjectLayout) -> Result<Option<KnowledgeCon
         return Ok(None);
     };
 
-    let knowledge_root = root.join("models").join("knowledge");
+    let knowledge_root = root.join(DIR_MODELS).join(DIR_KNOWLEDGE);
     if !knowledge_root.exists() {
         warn!(
             "项目中未找到知识库目录，跳过初始化: {}",
@@ -243,7 +244,7 @@ fn build_knowledge_context(layout: &ProjectLayout) -> Result<Option<KnowledgeCon
         return Ok(None);
     }
 
-    let knowdb_path = knowledge_root.join("knowdb.toml");
+    let knowdb_path = knowledge_root.join(FILE_KNOWDB);
     if !knowdb_path.exists() {
         warn!(
             "未检测到知识库配置文件，跳过加载: {}",

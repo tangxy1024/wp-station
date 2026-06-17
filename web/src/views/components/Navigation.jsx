@@ -11,7 +11,6 @@ import {
 } from '@ant-design/icons';
 import { getSessionUser, logout } from '@/services/auth';
 import {
-  DEFAULT_DATA_COLLECT_URL,
   fetchDataCollectConfig,
 } from '@/services/features';
 import httpRequest from '@/services/request';
@@ -35,7 +34,7 @@ function Navigation({ children, onLocaleChange }) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
   const [versionInfo, setVersionInfo] = useState({ warpStation: '', warpParse: '' });
-  const [runtimeMonitorUrl, setRuntimeMonitorUrl] = useState(DEFAULT_DATA_COLLECT_URL);
+  const [runtimeMonitorUrl, setRuntimeMonitorUrl] = useState('');
   const [wechatModalOpen, setWechatModalOpen] = useState(false);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
 
@@ -64,11 +63,13 @@ function Navigation({ children, onLocaleChange }) {
     const fetchRuntimeMonitorUrl = async () => {
       try {
         const response = await fetchDataCollectConfig();
-        if (response?.data_collect_url) {
-          setRuntimeMonitorUrl(response.data_collect_url);
+        if (response?.data_collect_url || response?.default_data_collect_url) {
+          setRuntimeMonitorUrl(
+            response.data_collect_url || response.default_data_collect_url || '',
+          );
         }
       } catch (_error) {
-        // 忽略运行监控地址获取失败，保留默认地址
+        // 忽略运行监控地址获取失败
       }
     };
 
@@ -118,7 +119,9 @@ function Navigation({ children, onLocaleChange }) {
 
   const handleMenuNavigate = (menuItem) => {
     if (menuItem.external) {
-      window.open(runtimeMonitorUrl || DEFAULT_DATA_COLLECT_URL, '_blank', 'noopener,noreferrer');
+      if (runtimeMonitorUrl) {
+        window.open(runtimeMonitorUrl, '_blank', 'noopener,noreferrer');
+      }
       return;
     }
 

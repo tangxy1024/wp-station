@@ -1,5 +1,8 @@
 // 配置同步辅助模块 - 统一处理双仓库 Gitea 同步与发布 tag
 
+use crate::constants::gitea::REPO_BASELINE_TAG;
+use crate::constants::project::{REPO_INFRA, REPO_MODELS};
+use crate::constants::release::GROUP_DRAFT;
 use crate::db::{ReleaseGroup, RuleType};
 use crate::error::AppError;
 use crate::server::{ProjectLayout, RepoStartupStrategy, Setting};
@@ -27,8 +30,8 @@ fn project_path_for_group(layout: &ProjectLayout, group: ReleaseGroup) -> PathBu
 
 fn repo_name_for_group(group: ReleaseGroup) -> &'static str {
     match group {
-        ReleaseGroup::Models => "project_models",
-        ReleaseGroup::Infra => "project_infra",
+        ReleaseGroup::Models => REPO_MODELS,
+        ReleaseGroup::Infra => REPO_INFRA,
     }
 }
 
@@ -77,8 +80,6 @@ pub async fn sync_delete_to_gitea(rule_type: RuleType, file_name: &str) {
     let commit_message = format!("删除 {} 文件: {}", rule_type.as_ref(), file_name);
     sync_to_gitea(&commit_message, ReleaseGroup::from_rule_type(rule_type)).await;
 }
-
-const REPO_BASELINE_TAG: &str = "baseline";
 
 /// 初始化双仓库 Gitea 仓库和基线 tag（系统首次启动且本地 .git 不存在时调用）
 pub async fn init_gitea_repo() -> Result<(), AppError> {
@@ -414,7 +415,7 @@ pub async fn get_next_version() -> Result<String, AppError> {
 
     if let Some((major, minor, patch)) = releases
         .iter()
-        .filter(|r| r.release_group != "draft")
+        .filter(|r| r.release_group != GROUP_DRAFT)
         .filter_map(|r| parse_semver(&r.version))
         .max()
     {

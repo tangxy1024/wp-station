@@ -17,14 +17,15 @@ use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
 
+use crate::constants::project::{DIR_INFRA_D, DIR_SINKS, DIR_TOPOLOGY};
+use crate::constants::sandbox::{
+    BUSINESS_SINK_OVERRIDE, OUTPUT_PATHS, RUNTIME_HEADER_MODE, RUNTIME_OUTPUT_ADDR,
+    RUNTIME_OUTPUT_CONNECTOR, RUNTIME_PROTOCOL, RUNTIME_SOURCE_ADDR, RUNTIME_SOURCE_CONNECTOR,
+    RUNTIME_SOURCE_KEY, RUNTIME_UDP_PORT,
+};
 use crate::db::default_rules_loader::runtime_default_configs_dir;
 use crate::error::AppError;
 use crate::server::{FileOverride, Setting, sandbox::OutputFileStatus};
-use crate::utils::common::{
-    BUSINESS_SINK_OVERRIDE, OUTPUT_PATHS, SANDBOX_RUNTIME_HEADER_MODE, SANDBOX_RUNTIME_OUTPUT_ADDR,
-    SANDBOX_RUNTIME_OUTPUT_CONNECTOR, SANDBOX_RUNTIME_PROTOCOL, SANDBOX_RUNTIME_SOURCE_ADDR,
-    SANDBOX_RUNTIME_SOURCE_CONNECTOR, SANDBOX_RUNTIME_SOURCE_KEY, SANDBOX_RUNTIME_UDP_PORT,
-};
 use crate::utils::compose_project_layout_into;
 
 // ============ 命令解析 ============
@@ -235,17 +236,15 @@ impl SandboxOverrideSpec {
             SandboxOverrideKind::PatchWparseAdminApi => "admin_api.enabled=false".to_string(),
             SandboxOverrideKind::PatchWpsrcRuntime => format!(
                 "仅保留沙盒 UDP 输入: connect={}, addr={}, port={}, protocol={}, header_mode={}, 其他 source 全部 disable",
-                SANDBOX_RUNTIME_SOURCE_CONNECTOR,
-                SANDBOX_RUNTIME_SOURCE_ADDR,
-                SANDBOX_RUNTIME_UDP_PORT,
-                SANDBOX_RUNTIME_PROTOCOL,
-                SANDBOX_RUNTIME_HEADER_MODE
+                RUNTIME_SOURCE_CONNECTOR,
+                RUNTIME_SOURCE_ADDR,
+                RUNTIME_UDP_PORT,
+                RUNTIME_PROTOCOL,
+                RUNTIME_HEADER_MODE
             ),
             SandboxOverrideKind::PatchWpgenRuntime => format!(
                 "connect={}, addr={}, port={}",
-                SANDBOX_RUNTIME_OUTPUT_CONNECTOR,
-                SANDBOX_RUNTIME_OUTPUT_ADDR,
-                SANDBOX_RUNTIME_UDP_PORT
+                RUNTIME_OUTPUT_CONNECTOR, RUNTIME_OUTPUT_ADDR, RUNTIME_UDP_PORT
             ),
             SandboxOverrideKind::RewriteBusinessSink => "已固定复写为沙盒输出 sink".to_string(),
         }
@@ -287,7 +286,10 @@ fn apply_sandbox_default_infra_sink_overrides(project_dir: &Path) -> Result<(), 
         ));
     };
 
-    let source_dir = default_root.join("topology").join("sinks").join("infra.d");
+    let source_dir = default_root
+        .join(DIR_TOPOLOGY)
+        .join(DIR_SINKS)
+        .join(DIR_INFRA_D);
     if !source_dir.is_dir() {
         return Err(AppError::internal(format!(
             "沙盒覆盖 infra sink 失败: 默认目录不存在 {}",
@@ -295,7 +297,10 @@ fn apply_sandbox_default_infra_sink_overrides(project_dir: &Path) -> Result<(), 
         )));
     }
 
-    let target_dir = project_dir.join("topology").join("sinks").join("infra.d");
+    let target_dir = project_dir
+        .join(DIR_TOPOLOGY)
+        .join(DIR_SINKS)
+        .join(DIR_INFRA_D);
     if target_dir.exists() {
         fs::remove_dir_all(&target_dir).map_err(AppError::internal)?;
     }
@@ -368,20 +373,16 @@ fn patch_wparse_admin_api_runtime(content: &str) -> Result<String, AppError> {
 
 /// 将 wpsrc.toml 中 gen_udp source 切到沙盒运行时值，并关闭其他所有输入源。
 fn patch_wpsrc_runtime(content: &str) -> Result<String, AppError> {
-    patch_wpsrc_source_runtime(
-        content,
-        SANDBOX_RUNTIME_SOURCE_CONNECTOR,
-        SANDBOX_RUNTIME_UDP_PORT,
-    )
+    patch_wpsrc_source_runtime(content, RUNTIME_SOURCE_CONNECTOR, RUNTIME_UDP_PORT)
 }
 
 /// 将 wpgen.toml 的输出 connector、addr 与端口切到沙盒运行时值。
 fn patch_wpgen_runtime(content: &str) -> Result<String, AppError> {
     patch_wpgen_output_runtime(
         content,
-        SANDBOX_RUNTIME_OUTPUT_CONNECTOR,
-        SANDBOX_RUNTIME_OUTPUT_ADDR,
-        SANDBOX_RUNTIME_UDP_PORT,
+        RUNTIME_OUTPUT_CONNECTOR,
+        RUNTIME_OUTPUT_ADDR,
+        RUNTIME_UDP_PORT,
     )
 }
 
@@ -482,22 +483,22 @@ fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result
                               found_target: &mut bool,
                               patched_connect: &mut bool,
                               patched_port: &mut bool| {
-        let is_target = block_key_value.as_deref() == Some(SANDBOX_RUNTIME_SOURCE_KEY);
+        let is_target = block_key_value.as_deref() == Some(RUNTIME_SOURCE_KEY);
 
         if is_target {
             *found_target = true;
             block_lines.clear();
             block_lines.push("[[sources]]".to_string());
-            block_lines.push(format!("key = \"{}\"", SANDBOX_RUNTIME_SOURCE_KEY));
+            block_lines.push(format!("key = \"{}\"", RUNTIME_SOURCE_KEY));
             block_lines.push("enable = true".to_string());
             block_lines.push(format!("connect = \"{connect}\""));
             block_lines.push("tags = []".to_string());
             block_lines.push(String::new());
             block_lines.push("[sources.params]".to_string());
-            block_lines.push(format!("addr = \"{}\"", SANDBOX_RUNTIME_SOURCE_ADDR));
+            block_lines.push(format!("addr = \"{}\"", RUNTIME_SOURCE_ADDR));
             block_lines.push(format!("port = {port}"));
-            block_lines.push(format!("protocol = \"{}\"", SANDBOX_RUNTIME_PROTOCOL));
-            block_lines.push(format!("header_mode = \"{}\"", SANDBOX_RUNTIME_HEADER_MODE));
+            block_lines.push(format!("protocol = \"{}\"", RUNTIME_PROTOCOL));
+            block_lines.push(format!("header_mode = \"{}\"", RUNTIME_HEADER_MODE));
             *patched_connect = true;
             *patched_port = true;
         } else {
@@ -603,16 +604,16 @@ fn patch_wpsrc_source_runtime(content: &str, connect: &str, port: u16) -> Result
             lines.push(String::new());
         }
         lines.push("[[sources]]".to_string());
-        lines.push(format!("key = \"{}\"", SANDBOX_RUNTIME_SOURCE_KEY));
+        lines.push(format!("key = \"{}\"", RUNTIME_SOURCE_KEY));
         lines.push("enable = true".to_string());
         lines.push(format!("connect = \"{connect}\""));
         lines.push("tags = []".to_string());
         lines.push(String::new());
         lines.push("[sources.params]".to_string());
-        lines.push(format!("addr = \"{}\"", SANDBOX_RUNTIME_SOURCE_ADDR));
+        lines.push(format!("addr = \"{}\"", RUNTIME_SOURCE_ADDR));
         lines.push(format!("port = {port}"));
-        lines.push(format!("protocol = \"{}\"", SANDBOX_RUNTIME_PROTOCOL));
-        lines.push(format!("header_mode = \"{}\"", SANDBOX_RUNTIME_HEADER_MODE));
+        lines.push(format!("protocol = \"{}\"", RUNTIME_PROTOCOL));
+        lines.push(format!("header_mode = \"{}\"", RUNTIME_HEADER_MODE));
         patched_connect = true;
         patched_port = true;
     }

@@ -323,6 +323,33 @@ function PrepublishPage() {
   };
 
   useEffect(() => {
+    if (!selectedStageInfo || !runData?.task_id) {
+      return;
+    }
+    if (!selectedStageInfo.log_path) {
+      return;
+    }
+
+    const logPathChanged = stageLogMeta?.logPath !== selectedStageInfo.log_path;
+    const stageFinished =
+      selectedStageInfo.status === 'success' ||
+      selectedStageInfo.status === 'failed' ||
+      selectedStageInfo.status === 'stopped';
+
+    if (logPathChanged || (stageFinished && !stageLog)) {
+      fetchStageLog(selectedStageInfo.stage, { silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    runData?.task_id,
+    selectedStageInfo?.stage,
+    selectedStageInfo?.status,
+    selectedStageInfo?.log_path,
+    stageLog,
+    stageLogMeta?.logPath,
+  ]);
+
+  useEffect(() => {
     const stageInfo = stages.find((item) => item.stage === selectedStage);
     const shouldAutoRefresh =
       stageInfo &&

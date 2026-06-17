@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 use tempfile::tempdir;
 use zip::ZipArchive;
 
+use crate::constants::project::{
+    ARCHIVE_IMPORT_STAGING_DIR, DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_PROJECT_INFRA_WRAPPER,
+    DIR_PROJECT_MODELS_WRAPPER, DIR_TOPOLOGY, IMPORTABLE_ROOT_DIRS,
+};
 use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::sync::sync_to_gitea_all;
@@ -25,9 +29,6 @@ use crate::utils::{
     ProjectSnapshot, compose_project_layout_into, load_project_snapshot,
     load_project_snapshot_from_layout,
 };
-
-const IMPORTABLE_ROOT_DIRS: [&str; 4] = ["conf", "connectors", "topology", "models"];
-const ARCHIVE_IMPORT_STAGING_DIR: &str = "project-archive-imports";
 
 #[derive(Debug, Clone)]
 struct ImportScope {
@@ -273,8 +274,10 @@ pub async fn export_project_archive_logic() -> Result<ProjectArchiveExport, AppE
     let export_root = temp.path().join("wp-station-project");
     fs::create_dir_all(&export_root).map_err(AppError::internal)?;
 
-    copy_dir_recursive(&layout.models_root, &export_root.join("project_models"))?;
-    copy_dir_recursive(&layout.infra_root, &export_root.join("project_infra"))?;
+    copy_named_entry(&layout.models_root, &export_root, DIR_MODELS)?;
+    copy_named_entry(&layout.infra_root, &export_root, DIR_CONF)?;
+    copy_named_entry(&layout.infra_root, &export_root, DIR_CONNECTORS)?;
+    copy_named_entry(&layout.infra_root, &export_root, DIR_TOPOLOGY)?;
 
     let archive_path = temp.path().join("wp-station-project.tar.gz");
     let archive_file = File::create(&archive_path).map_err(AppError::internal)?;
@@ -616,10 +619,18 @@ fn has_flat_import_dirs(dir: &Path) -> bool {
 }
 
 fn has_split_import_dirs(dir: &Path) -> bool {
-    dir.join("project_models").join("models").is_dir()
-        || dir.join("project_infra").join("conf").is_dir()
-        || dir.join("project_infra").join("connectors").is_dir()
-        || dir.join("project_infra").join("topology").is_dir()
+    dir.join(DIR_PROJECT_MODELS_WRAPPER)
+        .join(DIR_MODELS)
+        .is_dir()
+        || dir.join(DIR_PROJECT_INFRA_WRAPPER).join(DIR_CONF).is_dir()
+        || dir
+            .join(DIR_PROJECT_INFRA_WRAPPER)
+            .join(DIR_CONNECTORS)
+            .is_dir()
+        || dir
+            .join(DIR_PROJECT_INFRA_WRAPPER)
+            .join(DIR_TOPOLOGY)
+            .is_dir()
 }
 
 fn normalize_import_root(dir: &Path) -> Result<PathBuf, AppError> {
@@ -629,12 +640,20 @@ fn normalize_import_root(dir: &Path) -> Result<PathBuf, AppError> {
 
     let normalized = dir.join("__normalized_default_configs");
     fs::create_dir_all(&normalized).map_err(AppError::internal)?;
-    if dir.join("project_models").join("models").is_dir() {
-        copy_named_entry(&dir.join("project_models"), &normalized, "models")?;
+    if dir
+        .join(DIR_PROJECT_MODELS_WRAPPER)
+        .join(DIR_MODELS)
+        .is_dir()
+    {
+        copy_named_entry(
+            &dir.join(DIR_PROJECT_MODELS_WRAPPER),
+            &normalized,
+            DIR_MODELS,
+        )?;
     }
-    for name in ["conf", "connectors", "topology"] {
-        if dir.join("project_infra").join(name).is_dir() {
-            copy_named_entry(&dir.join("project_infra"), &normalized, name)?;
+    for name in [DIR_CONF, DIR_CONNECTORS, DIR_TOPOLOGY] {
+        if dir.join(DIR_PROJECT_INFRA_WRAPPER).join(name).is_dir() {
+            copy_named_entry(&dir.join(DIR_PROJECT_INFRA_WRAPPER), &normalized, name)?;
         }
     }
     Ok(normalized)
@@ -677,10 +696,10 @@ fn overwrite_project_layout_from_legacy_dir(
     recreate_dir_preserving_git(&layout.models_root)?;
     recreate_dir_preserving_git(&layout.infra_root)?;
 
-    copy_named_entry(source_dir, &layout.infra_root, "conf")?;
-    copy_named_entry(source_dir, &layout.infra_root, "connectors")?;
-    copy_named_entry(source_dir, &layout.infra_root, "topology")?;
-    copy_named_entry(source_dir, &layout.models_root, "models")?;
+    copy_named_entry(source_dir, &layout.infra_root, DIR_CONF)?;
+    copy_named_entry(source_dir, &layout.infra_root, DIR_CONNECTORS)?;
+    copy_named_entry(source_dir, &layout.infra_root, DIR_TOPOLOGY)?;
+    copy_named_entry(source_dir, &layout.models_root, DIR_MODELS)?;
 
     info!(
         "旧目录拆分覆盖完成: source_dir={}, models_dir={}, infra_dir={}",
@@ -704,8 +723,8 @@ fn overwrite_project_layout_from_partial_dir(
 
     for name in &scope.imported_dirs {
         match *name {
-            "models" => copy_named_entry(source_dir, &layout.models_root, name)?,
-            "conf" | "connectors" | "topology" => {
+            DIR_MODELS => copy_named_entry(source_dir, &layout.models_root, name)?,
+            DIR_CONF | DIR_CONNECTORS | DIR_TOPOLOGY => {
                 copy_named_entry(source_dir, &layout.infra_root, name)?
             }
             _ => {}

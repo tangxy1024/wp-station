@@ -1,5 +1,6 @@
 // 设备管理业务逻辑层
 
+use crate::constants::device::CREATE_DEVICE_CONNECT_TIMEOUT_SECONDS;
 use crate::db::device::{Device, NewDevice};
 use crate::db::{
     DeviceStatus, create_device as db_create_device, delete_device as db_delete_device,
@@ -65,8 +66,6 @@ pub struct DeviceUpdateResult {
     pub is_online: bool,
     pub message: Option<String>,
 }
-
-const CREATE_DEVICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 // ============ 业务逻辑函数 ============
 
@@ -153,8 +152,9 @@ async fn validate_device_reachable_after_create(
     device_id: i32,
     req: &CreateDeviceRequest,
 ) -> Result<(), AppError> {
-    let service = WarpParseService::with_timeout(CREATE_DEVICE_CONNECT_TIMEOUT)
-        .map_err(AppError::internal)?;
+    let service =
+        WarpParseService::with_timeout(Duration::from_secs(CREATE_DEVICE_CONNECT_TIMEOUT_SECONDS))
+            .map_err(AppError::internal)?;
     let now = Utc::now();
     let device = Device {
         id: 0,

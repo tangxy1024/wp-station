@@ -2,98 +2,12 @@
 //!
 //! 存放不归属任何业务子模块的常量定义、展示格式化函数及其他零散工具函数。
 
+use crate::constants::config::{
+    CONNECTION_FILE_ORDER, CONNECTOR_DISPLAY_FALLBACKS, CONNECTOR_TYPE_DISPLAY_NAMES,
+    SINK_FILE_ORDER,
+};
+use crate::constants::project::SINK_DISPLAY_FALLBACKS;
 use chrono::{DateTime, FixedOffset, Utc};
-
-// ============ WPL 规则文件 ============
-
-/// WPL 规则目录下的解析文件名
-pub const WPL_PARSE_FILENAME: &str = "parse.wpl";
-/// WPL 规则目录下的样本文件名
-pub const WPL_SAMPLE_FILENAME: &str = "sample.dat";
-
-/// sink 配置文件在没有自定义展示名称时的兜底标签
-pub const SINK_DISPLAY_FALLBACKS: &[(&str, &str)] = &[
-    ("business.d/sink.toml", "输出配置"),
-    ("infra.d/monitor.toml", "监控数据"),
-    ("infra.d/miss.toml", "未命中WPL数据"),
-    ("infra.d/default.toml", "未命中OML数据"),
-    ("infra.d/error.toml", "异常数据"),
-    ("infra.d/residue.toml", "残留数据"),
-    ("infra.d/intercept.toml", "拦截数据"),
-    ("privacy.toml", "隐私数据"),
-];
-
-// ============ Sandbox 数据相关 ============
-
-/// 沙盒历史记录默认保留条数
-pub const DEFAULT_HISTORY_LIMIT: u64 = 20;
-
-/// 沙盒输出文件及其含义
-pub const OUTPUT_PATHS: [(&str, &str); 4] = [
-    ("data/out_dat/default.dat", "数据命中兜底路由"),
-    ("data/out_dat/miss.dat", "样本未命中任何规则"),
-    ("data/out_dat/residue.dat", "存在残余未处理数据"),
-    ("data/out_dat/error.dat", "处理过程中出现错误"),
-];
-
-/// 沙盒运行时强制覆盖的 business sink 配置，确保输出到本地文件供分析读取。
-pub const BUSINESS_SINK_OVERRIDE: &str = r#"version = "1.0"
-
-[sink_group]
-name = "kafka_sink"
-oml = ["*"]
-parallel = 1
-
-[[sink_group.sinks]]
-name = "all_sink"
-connect = "file_json_sink"
-tags = []
-
-[sink_group.sinks.params]
-base = "./data/out_dat/"
-file = "all.json"
-"#;
-
-/// 沙盒运行时强制使用的 UDP 监听端口。
-pub const SANDBOX_RUNTIME_UDP_PORT: u16 = 31601;
-/// 沙盒运行时使用的 source key。
-pub const SANDBOX_RUNTIME_SOURCE_KEY: &str = "gen_udp";
-/// 沙盒运行时要求存在的 source connector。
-pub const SANDBOX_RUNTIME_SOURCE_CONNECTOR: &str = "syslog_udp_src";
-/// 沙盒运行时 wpgen 输出 connector。
-pub const SANDBOX_RUNTIME_OUTPUT_CONNECTOR: &str = "udp_out_sink";
-/// 沙盒 UDP source 的默认监听地址。
-pub const SANDBOX_RUNTIME_SOURCE_ADDR: &str = "0.0.0.0";
-/// 沙盒 UDP 输出的默认目标地址。
-pub const SANDBOX_RUNTIME_OUTPUT_ADDR: &str = "0.0.0.0";
-/// 沙盒运行时统一使用 UDP 协议。
-pub const SANDBOX_RUNTIME_PROTOCOL: &str = "udp";
-/// 沙盒 syslog source 的头处理模式。
-pub const SANDBOX_RUNTIME_HEADER_MODE: &str = "keep";
-
-/// Sandbox 日志截断最大行数
-pub const MAX_LINES: usize = 500;
-
-// ============ 发布任务调度 ============
-
-/// 单次轮询处理的最大发布目标数，防止单轮阻塞过久。
-pub const MAX_BATCH_SIZE: u64 = 50;
-/// 每轮发布轮询之间的空闲等待秒数。
-pub const LOOP_IDLE_SECONDS: u64 = 1;
-/// 新建发布目标后首次探活的延迟秒数，给设备端留出响应时间。
-pub const FIRST_POLL_DELAY_SECONDS: i64 = 1;
-
-/// 发布阶段标签：调用客户端接口
-pub const STAGE_CALL_CLIENT: &str = "调用客户端";
-/// 发布阶段标签：运行状态检查
-pub const STAGE_RUNTIME: &str = "运行状态";
-
-// ============ WarpParse 调用 ============
-
-/// WarpParse 发布接口路径。
-pub const WARPARSE_DEPLOY_PATH: &str = "/admin/v1/reloads/model";
-/// WarpParse 状态接口路径。
-pub const WARPARSE_STATUS_PATH: &str = "/admin/v1/runtime/status";
 
 // ============ 工具函数 ============
 
@@ -147,6 +61,45 @@ pub fn fallback_sink_display(file_name: &str) -> Option<&'static str> {
     }
 
     if conflict { None } else { candidate }
+}
+
+/// 根据 connector 文件名推导展示名称。
+pub fn fallback_connector_display(file_name: &str) -> Option<&'static str> {
+    let normalized = normalize_sink_key(file_name);
+    if normalized.is_empty() {
+        return None;
+    }
+
+    CONNECTOR_DISPLAY_FALLBACKS
+        .iter()
+        .find(|(pattern, _)| normalize_sink_key(pattern) == normalized)
+        .map(|(_, label)| *label)
+}
+
+pub fn connector_type_display_name(connector_type: &str) -> Option<&'static str> {
+    let normalized = normalize_sink_key(connector_type);
+    if normalized.is_empty() {
+        return None;
+    }
+
+    CONNECTOR_TYPE_DISPLAY_NAMES
+        .iter()
+        .find(|(pattern, _)| normalize_sink_key(pattern) == normalized)
+        .map(|(_, label)| *label)
+}
+
+pub fn connector_file_sort_order(file_name: &str) -> Option<usize> {
+    let normalized = normalize_sink_key(file_name);
+    CONNECTION_FILE_ORDER
+        .iter()
+        .position(|candidate| normalize_sink_key(candidate) == normalized)
+}
+
+pub fn sink_file_sort_order(file_name: &str) -> Option<usize> {
+    let normalized = normalize_sink_key(file_name);
+    SINK_FILE_ORDER
+        .iter()
+        .position(|candidate| normalize_sink_key(candidate) == normalized)
 }
 
 /// 将 UTC 时间格式化为北京时间字符串（`YYYY-MM-DD HH:MM:SS`），用于前端展示。

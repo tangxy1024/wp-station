@@ -5,19 +5,16 @@
 
 import httpRequest from './request';
 
-const DEFAULT_DATA_COLLECT_URL = 'http://localhost:18080/wp-monitor';
-
 /**
  * 获取数据采集页面配置
- * @returns {Promise<{data_collect_url: string}>}
+ * @returns {Promise<{data_collect_url: string, default_data_collect_url: string}>}
  */
 export async function fetchDataCollectConfig() {
   const response = await httpRequest.get('/features/config');
   const payload = response?.data_collect_url ? response : response?.data || response || {};
 
   return {
-    data_collect_url: payload.data_collect_url || DEFAULT_DATA_COLLECT_URL,
+    data_collect_url: payload.data_collect_url || payload.default_data_collect_url || '',
+    default_data_collect_url: payload.default_data_collect_url || payload.data_collect_url || '',
   };
 }
-
-export { DEFAULT_DATA_COLLECT_URL };

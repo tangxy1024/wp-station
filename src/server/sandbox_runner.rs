@@ -7,20 +7,16 @@ use chrono::{DateTime, Utc};
 use tokio::time::sleep;
 use tracing::{error, info};
 
+use crate::constants::sandbox::{DAEMON_READY_BEFORE_WPGEN_WAIT_MS, RUNTIME_UDP_PORT};
 use crate::error::AppError;
 use crate::server::sandbox_analyzer::{self, RuntimeMetrics, StageError};
 use crate::server::sandbox_diagnostics;
-use crate::utils::{
-    common::SANDBOX_RUNTIME_UDP_PORT,
-    sandbox::{self, DaemonProcess, SandboxWorkspace},
-};
+use crate::utils::sandbox::{self, DaemonProcess, SandboxWorkspace};
 
 use super::sandbox::{
     Conclusion, DiagnosticHit, FileOverride, OutputFileStatus, RunOptions, SandboxStage,
     SandboxState, SandboxTaskHandle, StageStatus, TaskStatus,
 };
-
-const DAEMON_READY_BEFORE_WPGEN_WAIT_MS: u64 = 1_000;
 
 /// 在独立 Tokio 任务中执行沙盒运行，结束后回调队列。
 pub fn spawn_sandbox_execution(state: SandboxState, task: Arc<SandboxTaskHandle>) {
@@ -233,20 +229,14 @@ async fn stage_preflight_check(
         }
     }
 
-    log_lines.push(format!("\n检查 UDP 端口 {}", SANDBOX_RUNTIME_UDP_PORT));
-    match sandbox::ensure_udp_port_available(SANDBOX_RUNTIME_UDP_PORT) {
+    log_lines.push(format!("\n检查 UDP 端口 {}", RUNTIME_UDP_PORT));
+    match sandbox::ensure_udp_port_available(RUNTIME_UDP_PORT) {
         Ok(_) => {
-            log_lines.push(format!("UDP 端口 {} 可用", SANDBOX_RUNTIME_UDP_PORT));
+            log_lines.push(format!("UDP 端口 {} 可用", RUNTIME_UDP_PORT));
         }
         Err(err) => {
-            log_lines.push(format!(
-                "UDP 端口 {} 不可用: {}",
-                SANDBOX_RUNTIME_UDP_PORT, err
-            ));
-            let summary = format!(
-                "UDP 端口 {} 已被占用，请点击查看详情",
-                SANDBOX_RUNTIME_UDP_PORT
-            );
+            log_lines.push(format!("UDP 端口 {} 不可用: {}", RUNTIME_UDP_PORT, err));
+            let summary = format!("UDP 端口 {} 已被占用，请点击查看详情", RUNTIME_UDP_PORT);
             return fail_preflight_check(
                 task,
                 &workspace,
@@ -361,10 +351,10 @@ async fn stage_start_daemon(
 ) -> Result<String, StageError> {
     let workspace = resources.workspace()?.clone();
     let log_path = workspace.log_path("wparse.log");
-    if let Err(err) = sandbox::ensure_udp_port_available(SANDBOX_RUNTIME_UDP_PORT) {
+    if let Err(err) = sandbox::ensure_udp_port_available(RUNTIME_UDP_PORT) {
         let log_text = format!(
             "启动 wparse 前检查 UDP 端口失败\nUDP 端口 {} 不可用: {}\n",
-            SANDBOX_RUNTIME_UDP_PORT, err
+            RUNTIME_UDP_PORT, err
         );
         let written_log = workspace
             .write_text_log("wparse.log", &log_text)
@@ -377,10 +367,7 @@ async fn stage_start_daemon(
         )
         .await;
         return Err(StageError::with_code(
-            format!(
-                "UDP 端口 {} 已被占用，请点击查看详情",
-                SANDBOX_RUNTIME_UDP_PORT
-            ),
+            format!("UDP 端口 {} 已被占用，请点击查看详情", RUNTIME_UDP_PORT),
             "SANDBOX_UDP_PORT_UNAVAILABLE",
         ));
     }

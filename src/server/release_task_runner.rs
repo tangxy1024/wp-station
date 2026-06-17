@@ -1,5 +1,9 @@
 // 发布任务调度器：周期轮询 release_targets 并驱动 WarpParse 客户端
 
+use crate::constants::release::{
+    FIRST_POLL_DELAY_SECONDS, GROUP_ALL, GROUP_INFRA, GROUP_MODELS, LOOP_IDLE_SECONDS,
+    MAX_BATCH_SIZE, STAGE_CALL_CLIENT, STAGE_RUNTIME,
+};
 use crate::db::{
     Device, ReleaseStatus, ReleaseTarget, ReleaseTargetStatus, ReleaseTargetUpdate,
     find_devices_by_ids, find_due_release_targets, find_release_by_id,
@@ -15,9 +19,6 @@ use crate::server::{
     write_operation_log,
 };
 use crate::utils::WarpParseService;
-use crate::utils::common::{
-    FIRST_POLL_DELAY_SECONDS, LOOP_IDLE_SECONDS, MAX_BATCH_SIZE, STAGE_CALL_CLIENT, STAGE_RUNTIME,
-};
 use anyhow::Result;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use std::collections::{HashMap, HashSet};
@@ -516,12 +517,14 @@ impl ReleaseTaskRunner {
         let aggregated_group = match (
             targets
                 .iter()
-                .any(|target| target.release_group == "models"),
-            targets.iter().any(|target| target.release_group == "infra"),
+                .any(|target| target.release_group == GROUP_MODELS),
+            targets
+                .iter()
+                .any(|target| target.release_group == GROUP_INFRA),
         ) {
-            (true, true) => "all".to_string(),
-            (true, false) => "models".to_string(),
-            (false, true) => "infra".to_string(),
+            (true, true) => GROUP_ALL.to_string(),
+            (true, false) => GROUP_MODELS.to_string(),
+            (false, true) => GROUP_INFRA.to_string(),
             (false, false) => release.release_group.clone(),
         };
 

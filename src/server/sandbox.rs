@@ -10,6 +10,7 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
+use crate::constants::sandbox::MAX_LOG_LINES;
 use crate::db::{
     count_sandbox_runs_by_release, delete_sandbox_run_record, find_release_by_id,
     find_sandbox_run_by_task_id, insert_sandbox_run_record, list_sandbox_runs_by_release,
@@ -20,7 +21,6 @@ use crate::server::{
     OperationLogAction, OperationLogBiz, OperationLogParams, OperationLogStatus, Setting,
     write_operation_log, write_operation_log_for_result,
 };
-use crate::utils::common::MAX_LINES;
 
 use super::sandbox_runner;
 
@@ -1068,12 +1068,12 @@ fn read_log_content(path: &str) -> Result<String, AppError> {
     if lines.is_empty() {
         return Ok("日志为空（命令未产生任何输出）".to_string());
     }
-    if lines.len() > MAX_LINES {
-        let start = lines.len() - MAX_LINES;
+    if lines.len() > MAX_LOG_LINES {
+        let start = lines.len() - MAX_LOG_LINES;
         let mut truncated = lines[start..].join("\n");
         truncated.push_str(&format!(
             "\n...（日志超出 {} 行，已截断，仅展示最新内容）",
-            MAX_LINES
+            MAX_LOG_LINES
         ));
         Ok(truncated)
     } else {

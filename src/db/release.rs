@@ -1,5 +1,6 @@
 // 发布记录数据库操作 - 纯函数式
 
+use crate::constants::release::{GROUP_ALL, GROUP_DRAFT, GROUP_INFRA, GROUP_MODELS};
 use crate::db::{ReleaseGroup, get_pool};
 use crate::error::{DbError, DbResult};
 use chrono::Utc;
@@ -208,7 +209,7 @@ pub async fn update_release_status(
     let should_set_published_at = matches!(
         status,
         ReleaseStatus::PASS | ReleaseStatus::FAIL | ReleaseStatus::PARTIAL_FAIL
-    ) && model.release_group != "draft";
+    ) && model.release_group != GROUP_DRAFT;
 
     let mut active_model: ActiveModel = model.into();
     active_model.status = Set(status.as_ref().to_string());
@@ -322,12 +323,12 @@ pub async fn find_latest_passed_release_by_group(
     let db = pool.inner();
 
     let group_condition = match group {
-        "models" => Condition::any()
-            .add(Column::ReleaseGroup.eq("models"))
-            .add(Column::ReleaseGroup.eq("all")),
-        "infra" => Condition::any()
-            .add(Column::ReleaseGroup.eq("infra"))
-            .add(Column::ReleaseGroup.eq("all")),
+        GROUP_MODELS => Condition::any()
+            .add(Column::ReleaseGroup.eq(GROUP_MODELS))
+            .add(Column::ReleaseGroup.eq(GROUP_ALL)),
+        GROUP_INFRA => Condition::any()
+            .add(Column::ReleaseGroup.eq(GROUP_INFRA))
+            .add(Column::ReleaseGroup.eq(GROUP_ALL)),
         other => Condition::all().add(Column::ReleaseGroup.eq(other)),
     };
 

@@ -9,8 +9,12 @@ use crate::server::{
     refresh_draft_release_logic, write_operation_log_for_result,
 };
 use crate::utils::{
-    common::fallback_sink_display, delete_rule_from_project, list_rule_files, read_rule_content,
-    touch_rule_in_project, write_rule_content,
+    common::{
+        connector_file_sort_order, fallback_connector_display, fallback_sink_display,
+        sink_file_sort_order,
+    },
+    delete_rule_from_project, list_rule_files, read_rule_content, touch_rule_in_project,
+    write_rule_content,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -56,6 +60,7 @@ pub struct DeleteConfigFileQuery {
 pub struct ConfigFileItem {
     pub file: String,
     pub display_name: Option<String>,
+    pub sort_order: Option<usize>,
     pub file_size: Option<i32>,
     pub last_modified: Option<String>,
 }
@@ -63,6 +68,7 @@ pub struct ConfigFileItem {
 #[derive(Serialize)]
 pub struct ConfigFilesResponse {
     pub items: Vec<ConfigFileItem>,
+    pub default_file: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -87,10 +93,28 @@ fn project_layout() -> ProjectLayout {
 }
 
 fn fallback_display_name(rule_type: RuleType, file_name: &str) -> Option<String> {
-    if matches!(rule_type, RuleType::Sink) {
-        return fallback_sink_display(file_name).map(|label| label.to_string());
+    match rule_type {
+        RuleType::Sink => fallback_sink_display(file_name).map(|label| label.to_string()),
+        RuleType::SourceConnect | RuleType::SinkConnect => {
+            fallback_connector_display(file_name).map(|label| label.to_string())
+        }
+        _ => None,
     }
-    None
+}
+
+fn file_sort_order(rule_type: RuleType, file_name: &str) -> Option<usize> {
+    match rule_type {
+        RuleType::Sink => sink_file_sort_order(file_name),
+        RuleType::SourceConnect | RuleType::SinkConnect => connector_file_sort_order(file_name),
+        _ => None,
+    }
+}
+
+fn default_file_for_rule_type(rule_type: RuleType, items: &[ConfigFileItem]) -> Option<String> {
+    match rule_type {
+        RuleType::Parse | RuleType::Source => items.first().map(|item| item.file.clone()),
+        _ => None,
+    }
 }
 
 fn system_time_to_rfc3339(time: SystemTime) -> String {
@@ -138,15 +162,30 @@ pub async fn get_config_files_logic(
                 (None, None)
             };
 
+        let sort_order = file_sort_order(rule_type, &file);
         items.push(ConfigFileItem {
             file,
             display_name,
+            sort_order,
             file_size,
             last_modified,
         });
     }
 
-    Ok(ConfigFilesResponse { items })
+    items.sort_by(|a, b| {
+        let a_order = a.sort_order.unwrap_or(usize::MAX);
+        let b_order = b.sort_order.unwrap_or(usize::MAX);
+        a_order
+            .cmp(&b_order)
+            .then_with(|| a.file.cmp(&b.file))
+            .then_with(|| a.display_name.cmp(&b.display_name))
+    });
+
+    let default_file = default_file_for_rule_type(rule_type, &items);
+    Ok(ConfigFilesResponse {
+        items,
+        default_file,
+    })
 }
 
 /// 获取单个或多个配置文件内容

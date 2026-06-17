@@ -5,13 +5,14 @@ use crate::common::{
     rand_suffix, setup_db, test_base_root, test_infra_root, test_models_root, test_project_layout,
 };
 use flate2::Compression;
+use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use wp_station::db::{
     ReleaseStatus, find_all_releases, find_latest_draft_release, update_release_status,
 };
 use wp_station::server::project::{
-    ProjectImportRequest, confirm_project_archive_import_logic, import_project_from_files_logic,
-    preview_project_archive_logic,
+    ProjectImportRequest, confirm_project_archive_import_logic, export_project_archive_logic,
+    import_project_from_files_logic, preview_project_archive_logic,
 };
 use wp_station::utils::compose_project_layout_into;
 
@@ -52,6 +53,25 @@ fn build_archive_with_dirs(source_dir: &PathBuf, dirs: &[&str]) -> Vec<u8> {
     }
     let encoder = builder.into_inner().expect("finish tar builder");
     encoder.finish().expect("finish gzip encoder")
+}
+
+fn archive_entry_names(bytes: &[u8]) -> Vec<String> {
+    let decoder = GzDecoder::new(bytes);
+    let mut archive = tar::Archive::new(decoder);
+    let mut entries = archive
+        .entries()
+        .expect("read archive entries")
+        .map(|entry| {
+            entry
+                .expect("read archive entry")
+                .path()
+                .expect("resolve archive entry path")
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    entries.sort();
+    entries
 }
 
 #[tokio::test]
@@ -285,4 +305,53 @@ async fn test_import_project_archive_supports_conf_only_directory() {
     );
 
     let _ = fs::remove_dir_all(source_dir);
+}
+
+#[tokio::test]
+async fn test_export_project_archive_uses_flat_root_directories() {
+    setup_db().await;
+
+    let archive = export_project_archive_logic()
+        .await
+        .expect("export project archive");
+    let entries = archive_entry_names(&archive.bytes);
+
+    assert!(
+        entries.iter().any(|item| item == "wp-station-project/conf"
+            || item.starts_with("wp-station-project/conf/")),
+        "archive should contain conf root: {entries:?}"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|item| item == "wp-station-project/connectors"
+                || item.starts_with("wp-station-project/connectors/")),
+        "archive should contain connectors root: {entries:?}"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|item| item == "wp-station-project/topology"
+                || item.starts_with("wp-station-project/topology/")),
+        "archive should contain topology root: {entries:?}"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|item| item == "wp-station-project/models"
+                || item.starts_with("wp-station-project/models/")),
+        "archive should contain models root: {entries:?}"
+    );
+    assert!(
+        !entries
+            .iter()
+            .any(|item| item.starts_with("wp-station-project/project_models")),
+        "archive should not contain project_models wrapper: {entries:?}"
+    );
+    assert!(
+        !entries
+            .iter()
+            .any(|item| item.starts_with("wp-station-project/project_infra")),
+        "archive should not contain project_infra wrapper: {entries:?}"
+    );
 }

@@ -5,8 +5,8 @@ use crate::error::AppError;
 use crate::server::ProjectLayout;
 use crate::server::Setting;
 use crate::utils::{
-    display_name_from_file, list_config_templates_from_layout, render_config_template,
-    template_id_from_file,
+    common::connector_type_display_name, display_name_from_file, list_config_templates_from_layout,
+    render_config_template, template_id_from_file,
 };
 use serde::{Deserialize, Serialize};
 
@@ -41,6 +41,8 @@ pub struct ConfigTemplateItem {
     pub template_id: String,
     pub display_name: String,
     pub connect: String,
+    pub connector_type: String,
+    pub connector_type_display_name: Option<String>,
     pub required_fields: Vec<String>,
     pub inserted_fields: Vec<String>,
     pub omitted_fields: Vec<String>,
@@ -59,6 +61,8 @@ pub struct RenderConfigTemplateResponse {
     pub template_id: String,
     pub display_name: String,
     pub connect: String,
+    pub connector_type: String,
+    pub connector_type_display_name: Option<String>,
     pub instance_name: String,
     pub required_fields: Vec<String>,
     pub inserted_fields: Vec<String>,
@@ -115,6 +119,9 @@ pub async fn get_config_templates_logic(
                 template_id: template_id_from_file(&template.template_file),
                 display_name: display_name_from_file(&template.template_file),
                 connect: template.connect,
+                connector_type_display_name: connector_type_display_name(&template.connector_type)
+                    .map(|value| value.to_string()),
+                connector_type: template.connector_type,
                 required_fields,
                 inserted_fields,
                 omitted_fields,
@@ -141,6 +148,9 @@ pub async fn render_config_template_logic(
         template_id: rendered.template_id,
         display_name: rendered.display_name,
         connect: rendered.connect,
+        connector_type_display_name: connector_type_display_name(&rendered.connector_type)
+            .map(|value| value.to_string()),
+        connector_type: rendered.connector_type,
         instance_name: rendered.instance_name,
         required_fields: rendered.required_fields,
         inserted_fields: rendered.inserted_fields,
