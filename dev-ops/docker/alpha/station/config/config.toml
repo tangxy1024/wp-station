@@ -1,3 +1,6 @@
+project_models = "/app/project_models"
+project_infra = "/app/project_infra"
+
 [log]
 level = "debug"
 output = "Console"
@@ -8,23 +11,16 @@ host = "0.0.0.0"
 port = 8081
 
 [database]
-host = "postgres"
-port = 5432
-name = "wp-station"
-username = "postgres"
-password = "123456"
+url = "sqlite:///data/wp-station/station.db"
 max_connections = 10
 min_connections = 2
 connect_timeout = 30
 idle_timeout = 600
-ssl_mode = "prefer"
 
 [gitea]
 base_url = "http://gitea:3000"
 username = "gitea"
 password = "123456"
-
-project_root = "project_root"
 
 [warparse]
 enabled = true
@@ -32,4 +28,4 @@ ca_file = "/app/tls/CA.crt"
 
 
 [features]
-data_collect_url = "http://localho231232st:18081/wp-monitor"
+data_collect_url = "https://monitor.alpha.warpparse.ai"
