@@ -645,6 +645,39 @@ const parseRuntimeDetailRows = (detail = '') =>
     })
     .filter((item) => item.label && item.value);
 
+const mergeLogTypesByName = (logTypes = []) => {
+  const grouped = new Map();
+
+  (Array.isArray(logTypes) ? logTypes : []).forEach((logType) => {
+    const logTypeName = String(logType?.logTypeName || '').trim();
+    const ruleKey = String(logType?.ruleKey || '').trim();
+    const groupKey = logTypeName || ruleKey;
+    if (!groupKey) {
+      return;
+    }
+
+    const current = grouped.get(groupKey) || {
+      key: groupKey,
+      logTypeName: logTypeName || ruleKey,
+      ruleKeys: new Set(),
+    };
+
+    if (ruleKey) {
+      current.ruleKeys.add(ruleKey);
+    }
+
+    grouped.set(groupKey, current);
+  });
+
+  return Array.from(grouped.values())
+    .map((item) => ({
+      key: `${item.key}-${Array.from(item.ruleKeys).sort().join('|')}`,
+      logTypeName: item.logTypeName,
+      ruleKeys: Array.from(item.ruleKeys).sort((a, b) => a.localeCompare(b, 'en')),
+    }))
+    .sort((a, b) => a.logTypeName.localeCompare(b.logTypeName, 'zh-Hans-CN'));
+};
+
 const renderSummaryIcon = (key) => {
   switch (key) {
     case 'device':
@@ -762,23 +795,10 @@ function IntegrationOverviewPage() {
         .filter(Boolean)
         .sort((a, b) => a.deviceType.localeCompare(b.deviceType, 'zh-Hans-CN'));
 
-      const logNameCount = nextRows.reduce((accumulator, item) => {
-        item.logTypes.forEach((logType) => {
-          const current = accumulator.get(logType.logTypeName) || 0;
-          accumulator.set(logType.logTypeName, current + 1);
-        });
-        return accumulator;
-      }, new Map());
-
       setRows(
         nextRows.map((item) => ({
           ...item,
-          logTypes: item.logTypes.map((logType) => ({
-            ...logType,
-            showRuleKey:
-              (logNameCount.get(logType.logTypeName) || 0) > 1 &&
-              logType.logTypeName !== logType.ruleKey,
-          })),
+          logTypes: mergeLogTypesByName(item.logTypes),
         })),
       );
       setSourceItems(Array.isArray(runtimeOverview?.sources) ? runtimeOverview.sources : []);
@@ -838,11 +858,12 @@ function IntegrationOverviewPage() {
         <div className="integration-overview-log-list">
           {logTypes.length > 0 ? (
             logTypes.map((logType) => (
-              <div key={logType.ruleKey} className="integration-overview-log-item">
+              <div
+                key={logType.key}
+                className="integration-overview-log-item"
+                title={logType.ruleKeys.join(', ')}
+              >
                 <span className="integration-overview-log-primary">{logType.logTypeName}</span>
-                {logType.showRuleKey ? (
-                  <span className="integration-overview-log-secondary">{logType.ruleKey}</span>
-                ) : null}
               </div>
             ))
           ) : (

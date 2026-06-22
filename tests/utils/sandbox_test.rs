@@ -51,6 +51,48 @@ fn temp_script(prefix: &str, contents: &str, ext: &str) -> PathBuf {
     path
 }
 
+fn create_sandbox_workspace_fixture(task_id: &str) -> SandboxWorkspace {
+    let root = Setting::workspace_root()
+        .join("tmp")
+        .join("sandbox")
+        .join(task_id);
+    let project_dir = root.join("project");
+    let logs_dir = root.join("logs");
+
+    for relative in [
+        "conf/wparse.toml",
+        "connectors/source.d/00-file-default.toml",
+        "models/wpl/demo/parse.wpl",
+        "topology/sources/wpsrc.toml",
+        "data/out_dat/miss.dat",
+    ] {
+        let path = project_dir.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, "fixture\n").unwrap();
+    }
+
+    fs::create_dir_all(&logs_dir).unwrap();
+    fs::write(logs_dir.join("analysis.log"), "fixture\n").unwrap();
+
+    SandboxWorkspace {
+        root: root.clone(),
+        project_dir,
+        logs_dir,
+        source_models_root: root.join("source-models"),
+        source_infra_root: root.join("source-infra"),
+    }
+}
+
+fn cleanup_sandbox_workspace_fixture(task_id: &str) {
+    let root = Setting::workspace_root()
+        .join("tmp")
+        .join("sandbox")
+        .join(task_id);
+    let _ = fs::remove_dir_all(root);
+}
+
 // ============ 工作区测试 ============
 
 #[test]
@@ -277,4 +319,70 @@ port = 9999
     );
 
     let _ = fs::remove_dir_all(workspace.root);
+}
+
+#[test]
+fn cleanup_after_run_keeps_recent_workspace_outputs() {
+    let task_id = "sandbox-9000000000100-keep";
+    cleanup_sandbox_workspace_fixture(task_id);
+    let workspace = create_sandbox_workspace_fixture(task_id);
+
+    workspace
+        .cleanup_after_run(false)
+        .expect("cleanup recent sandbox workspace");
+
+    assert!(workspace.project_dir.join("conf").is_dir());
+    assert!(workspace.project_dir.join("connectors").is_dir());
+    assert!(workspace.project_dir.join("models").is_dir());
+    assert!(workspace.project_dir.join("topology").is_dir());
+    assert!(
+        workspace
+            .project_dir
+            .join("data/out_dat/miss.dat")
+            .is_file()
+    );
+    assert!(workspace.logs_dir.join("analysis.log").is_file());
+
+    cleanup_sandbox_workspace_fixture(task_id);
+}
+
+#[test]
+fn cleanup_after_run_prunes_old_runtime_artifacts_but_keeps_merged_config() {
+    let task_ids = [
+        "sandbox-9000000000201-oldest",
+        "sandbox-9000000000202-middle-a",
+        "sandbox-9000000000203-middle-b",
+        "sandbox-9000000000204-latest",
+    ];
+
+    for task_id in task_ids {
+        cleanup_sandbox_workspace_fixture(task_id);
+    }
+
+    let oldest = create_sandbox_workspace_fixture(task_ids[0]);
+    let middle_a = create_sandbox_workspace_fixture(task_ids[1]);
+    let middle_b = create_sandbox_workspace_fixture(task_ids[2]);
+    let latest = create_sandbox_workspace_fixture(task_ids[3]);
+
+    latest
+        .cleanup_after_run(false)
+        .expect("cleanup sandbox history");
+
+    assert!(oldest.project_dir.join("conf").is_dir());
+    assert!(oldest.project_dir.join("connectors").is_dir());
+    assert!(oldest.project_dir.join("models").is_dir());
+    assert!(oldest.project_dir.join("topology").is_dir());
+    assert!(!oldest.project_dir.join("data").exists());
+    assert!(!oldest.logs_dir.exists());
+
+    assert!(middle_a.project_dir.join("data/out_dat/miss.dat").is_file());
+    assert!(middle_a.logs_dir.join("analysis.log").is_file());
+    assert!(middle_b.project_dir.join("data/out_dat/miss.dat").is_file());
+    assert!(middle_b.logs_dir.join("analysis.log").is_file());
+    assert!(latest.project_dir.join("data/out_dat/miss.dat").is_file());
+    assert!(latest.logs_dir.join("analysis.log").is_file());
+
+    for task_id in task_ids {
+        cleanup_sandbox_workspace_fixture(task_id);
+    }
 }

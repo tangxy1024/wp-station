@@ -11,17 +11,20 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::UdpSocket;
 use std::path::{Component, Path, PathBuf};
+use std::time::UNIX_EPOCH;
 use std::time::{Duration, Instant};
 
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 use tokio::time::sleep;
 
-use crate::constants::project::{DIR_INFRA_D, DIR_SINKS, DIR_TOPOLOGY};
+use crate::constants::project::{
+    DIR_CONF, DIR_CONNECTORS, DIR_INFRA_D, DIR_MODELS, DIR_SINKS, DIR_TOPOLOGY,
+};
 use crate::constants::sandbox::{
-    BUSINESS_SINK_OVERRIDE, OUTPUT_PATHS, RUNTIME_HEADER_MODE, RUNTIME_OUTPUT_ADDR,
-    RUNTIME_OUTPUT_CONNECTOR, RUNTIME_PROTOCOL, RUNTIME_SOURCE_ADDR, RUNTIME_SOURCE_CONNECTOR,
-    RUNTIME_SOURCE_KEY, RUNTIME_UDP_PORT,
+    BUSINESS_SINK_OVERRIDE, OUTPUT_PATHS, RUNTIME_ARTIFACT_RETENTION_RUNS, RUNTIME_HEADER_MODE,
+    RUNTIME_OUTPUT_ADDR, RUNTIME_OUTPUT_CONNECTOR, RUNTIME_PROTOCOL, RUNTIME_SOURCE_ADDR,
+    RUNTIME_SOURCE_CONNECTOR, RUNTIME_SOURCE_KEY, RUNTIME_UDP_PORT,
 };
 use crate::db::default_rules_loader::runtime_default_configs_dir;
 use crate::error::AppError;
@@ -32,6 +35,8 @@ use crate::utils::compose_project_layout_into;
 
 /// 命令查找的优先搜索路径，沙盒环境中的 toolchain 安装目录。
 const TOOLCHAIN_SEARCH_PATHS: [&str; 2] = ["/app", "/app/toolchain"];
+const SANDBOX_PROJECT_PERSISTED_DIRS: [&str; 4] =
+    [DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_TOPOLOGY];
 
 /// 在预设搜索路径中定位命令二进制，若找不到则回退到 PATH 查找。
 fn resolve_toolchain_command(cmd: &str) -> PathBuf {
@@ -108,13 +113,10 @@ impl SandboxWorkspace {
     }
 
     /// 任务完成后清理由工具生成的 project 目录。
-    /// 若 `keep_workspace` 为 `true` 则保留现场以便人工排查。
-    pub fn cleanup_after_run(&self, keep_workspace: bool) -> Result<(), AppError> {
-        if keep_workspace {
-            return Ok(());
-        }
-        if self.project_dir.exists() {
-            fs::remove_dir_all(&self.project_dir).map_err(AppError::internal)?;
+    /// 当前会保留合并后的配置目录，并仅对历史运行裁剪 `data/logs` 等执行产物。
+    pub fn cleanup_after_run(&self, _keep_workspace: bool) -> Result<(), AppError> {
+        if let Some(sandbox_root) = self.root.parent() {
+            prune_sandbox_runtime_artifacts(sandbox_root)?;
         }
         Ok(())
     }
@@ -777,6 +779,116 @@ fn relative_to_workspace_root(path: &Path) -> Option<PathBuf> {
     path.strip_prefix(Setting::workspace_root())
         .map(|p| p.to_path_buf())
         .ok()
+}
+
+/// 历史沙盒仅保留最近 3 次的运行产物，旧任务只保留合并后的配置目录。
+fn prune_sandbox_runtime_artifacts(sandbox_root: &Path) -> Result<(), AppError> {
+    if !sandbox_root.exists() {
+        return Ok(());
+    }
+
+    let mut workspaces = list_sandbox_workspaces(sandbox_root)?;
+    if workspaces.len() <= RUNTIME_ARTIFACT_RETENTION_RUNS {
+        return Ok(());
+    }
+
+    workspaces.sort_by(|left, right| right.cmp(left));
+    for workspace in workspaces.into_iter().skip(RUNTIME_ARTIFACT_RETENTION_RUNS) {
+        prune_workspace_runtime_artifacts(&workspace.path)?;
+    }
+    Ok(())
+}
+
+fn list_sandbox_workspaces(sandbox_root: &Path) -> Result<Vec<SandboxWorkspaceEntry>, AppError> {
+    let mut workspaces = Vec::new();
+    for entry in fs::read_dir(sandbox_root).map_err(AppError::internal)? {
+        let entry = entry.map_err(AppError::internal)?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let name = entry.file_name().to_string_lossy().to_string();
+        workspaces.push(SandboxWorkspaceEntry {
+            sort_key: sandbox_workspace_sort_key(&name, &path)?,
+            path,
+        });
+    }
+    Ok(workspaces)
+}
+
+fn sandbox_workspace_sort_key(
+    task_id: &str,
+    workspace_dir: &Path,
+) -> Result<SandboxWorkspaceSortKey, AppError> {
+    let modified_ms = fs::metadata(workspace_dir)
+        .map_err(AppError::internal)?
+        .modified()
+        .map_err(AppError::internal)?
+        .duration_since(UNIX_EPOCH)
+        .map_err(AppError::internal)?
+        .as_millis();
+
+    Ok(SandboxWorkspaceSortKey {
+        task_timestamp_ms: parse_sandbox_task_timestamp(task_id).unwrap_or_default(),
+        modified_ms,
+        task_id: task_id.to_string(),
+    })
+}
+
+fn parse_sandbox_task_timestamp(task_id: &str) -> Option<i64> {
+    let mut segments = task_id.split('-');
+    if segments.next()? != "sandbox" {
+        return None;
+    }
+    segments.next()?.parse::<i64>().ok()
+}
+
+fn prune_workspace_runtime_artifacts(workspace_dir: &Path) -> Result<(), AppError> {
+    let project_dir = workspace_dir.join("project");
+    if project_dir.is_dir() {
+        for entry in fs::read_dir(&project_dir).map_err(AppError::internal)? {
+            let entry = entry.map_err(AppError::internal)?;
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if SANDBOX_PROJECT_PERSISTED_DIRS
+                .iter()
+                .any(|dir| *dir == name)
+            {
+                continue;
+            }
+            remove_path(&path)?;
+        }
+    }
+
+    let logs_dir = workspace_dir.join("logs");
+    if logs_dir.exists() {
+        fs::remove_dir_all(&logs_dir).map_err(AppError::internal)?;
+    }
+
+    Ok(())
+}
+
+fn remove_path(path: &Path) -> Result<(), AppError> {
+    if path.is_dir() {
+        fs::remove_dir_all(path).map_err(AppError::internal)?;
+    } else if path.exists() {
+        fs::remove_file(path).map_err(AppError::internal)?;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+struct SandboxWorkspaceSortKey {
+    task_timestamp_ms: i64,
+    modified_ms: u128,
+    task_id: String,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+struct SandboxWorkspaceEntry {
+    sort_key: SandboxWorkspaceSortKey,
+    path: PathBuf,
 }
 
 /// 渲染目录树结构文本，深度和条目数有上限防止输出过大。

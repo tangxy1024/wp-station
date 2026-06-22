@@ -199,6 +199,8 @@ function SystemReleasePage() {
       const details = Array.isArray(result.details) ? result.details : [];
       setValidateResult({
         filename: result.filename || `版本 ${releaseRecord.version}`,
+        subjectLabel: t('systemRelease.versionNumber'),
+        subjectValue: releaseRecord.version || '—',
         valid: result.valid !== false,
         message: result.message || (details.length > 0 ? details.join('\n') : ''),
         details,
@@ -208,6 +210,8 @@ function SystemReleasePage() {
     } catch (error) {
       setValidateResult({
         filename: `版本 ${releaseRecord.version}`,
+        subjectLabel: t('systemRelease.versionNumber'),
+        subjectValue: releaseRecord.version || '—',
         valid: false,
         message: error.message || t('systemRelease.validateFailedMessage'),
         details: [],

@@ -1016,7 +1016,13 @@ function ConfigManagePage() {
           />
         </div>
         <div className="repo-folder">
-          <div className="repo-folder-header">{t('configManage.source')}</div>
+          <div className="repo-folder-header">
+            <span className="repo-folder-title">
+              <span aria-hidden="true">📁</span>
+              {t('configManage.source')}
+            </span>
+            <span className="repo-folder-count">{sourceConnectionItems.length}</span>
+          </div>
           <div className="repo-folder-content">
             {sourceConnectionItems.map((item) => (
               <div
@@ -1089,7 +1095,13 @@ function ConfigManagePage() {
           </div>
         </div>
         <div className="repo-folder">
-          <div className="repo-folder-header">{t('configManage.sink')}</div>
+          <div className="repo-folder-header">
+            <span className="repo-folder-title">
+              <span aria-hidden="true">📁</span>
+              {t('configManage.sink')}
+            </span>
+            <span className="repo-folder-count">{sinkConnectionItems.length}</span>
+          </div>
           <div className="repo-folder-content">
             {sinkConnectionItems.map((item) => (
               <div

@@ -34,8 +34,8 @@ pub use integration_overview::{
 };
 pub use knowledge::{
     configured_provider_name, is_knowledge_loaded, load_knowledge, load_sqlite_knowledge,
-    reload_knowledge, reload_sqlite_knowledge, sql_knowdb_list, sql_query, sql_query_rows,
-    unload_knowledge,
+    reload_knowledge, reload_sqlite_knowledge, should_reload_knowledge_source, sql_knowdb_list,
+    sql_query, sql_query_rows, unload_knowledge,
 };
 pub use oml::OmlFormatter;
 pub use pagination::{MemoryPaginate, PageQuery, PageResponse};

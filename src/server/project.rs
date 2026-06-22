@@ -13,8 +13,8 @@ use tempfile::tempdir;
 use zip::ZipArchive;
 
 use crate::constants::project::{
-    ARCHIVE_IMPORT_STAGING_DIR, DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_PROJECT_INFRA_WRAPPER,
-    DIR_PROJECT_MODELS_WRAPPER, DIR_TOPOLOGY, IMPORTABLE_ROOT_DIRS,
+    ARCHIVE_IMPORT_STAGING_DIR, DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_TOPOLOGY,
+    IMPORTABLE_ROOT_DIRS, REPO_INFRA, REPO_MODELS,
 };
 use crate::db::RuleType;
 use crate::error::AppError;
@@ -619,18 +619,10 @@ fn has_flat_import_dirs(dir: &Path) -> bool {
 }
 
 fn has_split_import_dirs(dir: &Path) -> bool {
-    dir.join(DIR_PROJECT_MODELS_WRAPPER)
-        .join(DIR_MODELS)
-        .is_dir()
-        || dir.join(DIR_PROJECT_INFRA_WRAPPER).join(DIR_CONF).is_dir()
-        || dir
-            .join(DIR_PROJECT_INFRA_WRAPPER)
-            .join(DIR_CONNECTORS)
-            .is_dir()
-        || dir
-            .join(DIR_PROJECT_INFRA_WRAPPER)
-            .join(DIR_TOPOLOGY)
-            .is_dir()
+    dir.join(REPO_MODELS).join(DIR_MODELS).is_dir()
+        || dir.join(REPO_INFRA).join(DIR_CONF).is_dir()
+        || dir.join(REPO_INFRA).join(DIR_CONNECTORS).is_dir()
+        || dir.join(REPO_INFRA).join(DIR_TOPOLOGY).is_dir()
 }
 
 fn normalize_import_root(dir: &Path) -> Result<PathBuf, AppError> {
@@ -640,20 +632,12 @@ fn normalize_import_root(dir: &Path) -> Result<PathBuf, AppError> {
 
     let normalized = dir.join("__normalized_default_configs");
     fs::create_dir_all(&normalized).map_err(AppError::internal)?;
-    if dir
-        .join(DIR_PROJECT_MODELS_WRAPPER)
-        .join(DIR_MODELS)
-        .is_dir()
-    {
-        copy_named_entry(
-            &dir.join(DIR_PROJECT_MODELS_WRAPPER),
-            &normalized,
-            DIR_MODELS,
-        )?;
+    if dir.join(REPO_MODELS).join(DIR_MODELS).is_dir() {
+        copy_named_entry(&dir.join(REPO_MODELS), &normalized, DIR_MODELS)?;
     }
     for name in [DIR_CONF, DIR_CONNECTORS, DIR_TOPOLOGY] {
-        if dir.join(DIR_PROJECT_INFRA_WRAPPER).join(name).is_dir() {
-            copy_named_entry(&dir.join(DIR_PROJECT_INFRA_WRAPPER), &normalized, name)?;
+        if dir.join(REPO_INFRA).join(name).is_dir() {
+            copy_named_entry(&dir.join(REPO_INFRA), &normalized, name)?;
         }
     }
     Ok(normalized)

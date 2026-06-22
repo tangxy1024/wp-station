@@ -120,7 +120,6 @@ pub struct ReleaseDetailResponse {
     pub latest_sandbox_task_id: Option<String>,
     pub previous_version: Option<String>,
     pub baseline_version: Option<String>,
-    pub diff_groups: Vec<ReleaseDiffGroup>,
 }
 
 #[derive(Serialize)]
@@ -149,23 +148,28 @@ pub struct ReleasePublishResponse {
 
 #[derive(Serialize)]
 pub struct ReleaseDiffResponse {
-    pub groups: Vec<ReleaseDiffGroup>,
-    pub files: Vec<FileDiffInfo>,
+    pub groups: Vec<ReleaseDiffGroupSummary>,
+    pub files: Vec<ReleaseDiffFileInfo>,
     pub stats: DiffStats,
+    pub total_files: usize,
+    pub offset: usize,
+    pub limit: usize,
+    pub has_more: bool,
 }
 
 #[derive(Serialize, Clone)]
-pub struct ReleaseDiffGroup {
+pub struct ReleaseDiffGroupSummary {
     pub release_group: String,
     pub title: String,
     pub current_version: String,
     pub previous_version: Option<String>,
     pub stats: DiffStats,
-    pub files: Vec<FileDiffInfo>,
+    pub total_files: usize,
 }
 
 #[derive(Serialize, Clone)]
-pub struct FileDiffInfo {
+pub struct ReleaseDiffFileInfo {
+    pub release_group: String,
     pub file_path: String,
     pub old_path: Option<String>,
     pub change_type: String,
@@ -177,6 +181,12 @@ pub struct DiffStats {
     pub files_changed: usize,
     pub insertions: usize,
     pub deletions: usize,
+}
+
+#[derive(Clone)]
+struct ReleaseDiffGroupData {
+    summary: ReleaseDiffGroupSummary,
+    files: Vec<ReleaseDiffFileInfo>,
 }
 
 fn sandbox_run_passed(run: &SandboxRun) -> bool {
@@ -399,6 +409,19 @@ pub fn stage_summary_for_release(
     ]
 }
 
+fn normalize_release_diff_window(offset: usize, limit: usize) -> (usize, usize) {
+    const DEFAULT_RELEASE_DIFF_LIMIT: usize = 10;
+    const MAX_RELEASE_DIFF_LIMIT: usize = 50;
+
+    let normalized_limit = if limit == 0 {
+        DEFAULT_RELEASE_DIFF_LIMIT
+    } else {
+        limit.min(MAX_RELEASE_DIFF_LIMIT)
+    };
+
+    (offset, normalized_limit)
+}
+
 fn build_release_summary_stages(
     sandbox_ready: bool,
     release_status: &ReleaseStatus,
@@ -498,39 +521,23 @@ pub async fn get_release_detail_logic(id: i32) -> Result<ReleaseDetailResponse, 
     let latest_sandbox_task_id = latest_run.as_ref().map(|run| run.task_id.clone());
 
     let release_status = parse_release_status(&release)?;
-    let (previous_version, baseline_version, diff_groups) = if release_status == ReleaseStatus::WAIT
-    {
-        (None, None, collect_draft_diff_groups().await?)
+    let (previous_version, baseline_version) = if release_status == ReleaseStatus::WAIT {
+        (None, None)
     } else {
-        let group_list = all_release_groups();
-        let mut groups = Vec::new();
         let mut previous_versions = Vec::new();
-        for group in group_list {
-            let group_was_published = release_contains_group(&release.release_group, group);
+        for group in all_release_groups() {
+            if !release_contains_group(&release.release_group, group) {
+                continue;
+            }
             let previous_release =
                 find_latest_passed_release_by_group(group.as_ref(), Some(id)).await?;
-            if group_was_published
-                && let Some(prev) = previous_release.as_ref().map(|rel| rel.version.clone())
-            {
+            if let Some(prev) = previous_release.as_ref().map(|rel| rel.version.clone()) {
                 previous_versions.push(prev);
             }
-            groups.push(
-                collect_release_diff_for_group(
-                    group.as_ref(),
-                    if group_was_published {
-                        Some(&release.version)
-                    } else {
-                        None
-                    },
-                    Some(release.id),
-                )
-                .await?,
-            );
         }
         (
             previous_versions.first().cloned(),
             previous_versions.first().cloned(),
-            groups,
         )
     };
 
@@ -556,7 +563,6 @@ pub async fn get_release_detail_logic(id: i32) -> Result<ReleaseDetailResponse, 
         latest_sandbox_task_id,
         previous_version,
         baseline_version,
-        diff_groups,
     };
 
     Ok(resp)
@@ -954,38 +960,22 @@ pub async fn rollback_release_logic(
     result
 }
 
-/// 获取版本差异（与上一个版本的 git diff）
-pub async fn get_release_diff_logic(id: i32) -> Result<ReleaseDiffResponse, AppError> {
+/// 获取版本差异（与上一个版本的 git diff），按文件分批返回。
+pub async fn get_release_diff_logic(
+    id: i32,
+    offset: usize,
+    limit: usize,
+) -> Result<ReleaseDiffResponse, AppError> {
     let release = match find_release_by_id(id).await? {
         Some(rel) => rel,
         None => return Err(AppError::NotFound("发布记录不存在".to_string())),
     };
 
-    let release_status = parse_release_status(&release)?;
-    let diff_groups = if release_status == ReleaseStatus::WAIT {
-        collect_draft_diff_groups().await?
-    } else {
-        let mut groups = Vec::new();
-        for group in all_release_groups() {
-            groups.push(
-                collect_release_diff_for_group(
-                    group.as_ref(),
-                    if release_contains_group(&release.release_group, group) {
-                        Some(&release.version)
-                    } else {
-                        None
-                    },
-                    Some(release.id),
-                )
-                .await?,
-            );
-        }
-        groups
-    };
-
+    let (offset, limit) = normalize_release_diff_window(offset, limit);
+    let diff_groups = collect_release_diff_groups_for_release(&release).await?;
     let merged_files = diff_groups
         .iter()
-        .flat_map(|group| group.files.clone())
+        .flat_map(|group| group.files.iter().cloned())
         .collect::<Vec<_>>();
     let merged_stats = diff_groups.iter().fold(
         DiffStats {
@@ -994,21 +984,58 @@ pub async fn get_release_diff_logic(id: i32) -> Result<ReleaseDiffResponse, AppE
             deletions: 0,
         },
         |mut acc, item| {
-            acc.files_changed += item.stats.files_changed;
-            acc.insertions += item.stats.insertions;
-            acc.deletions += item.stats.deletions;
+            acc.files_changed += item.summary.stats.files_changed;
+            acc.insertions += item.summary.stats.insertions;
+            acc.deletions += item.summary.stats.deletions;
             acc
         },
     );
+    let total_files = merged_files.len();
+    let files = merged_files
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .collect::<Vec<_>>();
+    let loaded_count = offset.saturating_add(files.len());
 
     Ok(ReleaseDiffResponse {
-        groups: diff_groups,
-        files: merged_files,
+        groups: diff_groups.into_iter().map(|group| group.summary).collect(),
+        files,
         stats: merged_stats,
+        total_files,
+        offset,
+        limit,
+        has_more: loaded_count < total_files,
     })
 }
 
-async fn collect_draft_diff_groups() -> Result<Vec<ReleaseDiffGroup>, AppError> {
+async fn collect_release_diff_groups_for_release(
+    release: &Release,
+) -> Result<Vec<ReleaseDiffGroupData>, AppError> {
+    let release_status = parse_release_status(release)?;
+    if release_status == ReleaseStatus::WAIT {
+        return collect_draft_diff_groups().await;
+    }
+
+    let mut groups = Vec::new();
+    for group in all_release_groups() {
+        groups.push(
+            collect_release_diff_for_group(
+                group.as_ref(),
+                if release_contains_group(&release.release_group, group) {
+                    Some(&release.version)
+                } else {
+                    None
+                },
+                Some(release.id),
+            )
+            .await?,
+        );
+    }
+    Ok(groups)
+}
+
+async fn collect_draft_diff_groups() -> Result<Vec<ReleaseDiffGroupData>, AppError> {
     let models_diff =
         collect_release_diff_for_group(ReleaseGroup::Models.as_ref(), None, None).await?;
     let infra_diff =
@@ -1020,7 +1047,7 @@ async fn collect_release_diff_for_group(
     release_group: &str,
     version: Option<&str>,
     exclude_release_id: Option<i32>,
-) -> Result<ReleaseDiffGroup, AppError> {
+) -> Result<ReleaseDiffGroupData, AppError> {
     use gitea::{DiffResultWithFiles, GiteaClient, GiteaConfig};
 
     let parsed_group = ReleaseGroup::parse(release_group)?;
@@ -1079,7 +1106,8 @@ async fn collect_release_diff_for_group(
 
     let files = filter_release_diff_files(diff_result.files)
         .into_iter()
-        .map(|f| FileDiffInfo {
+        .map(|f| ReleaseDiffFileInfo {
+            release_group: release_group.to_string(),
             file_path: f.file_path,
             old_path: f.old_path,
             change_type: f.change_type,
@@ -1088,12 +1116,15 @@ async fn collect_release_diff_for_group(
         .collect::<Vec<_>>();
     let stats = diff_stats_from_files(&files);
 
-    Ok(ReleaseDiffGroup {
-        release_group: release_group.to_string(),
-        title: group_title(parsed_group.as_ref()).to_string(),
-        current_version: version.unwrap_or(GROUP_DRAFT).to_string(),
-        previous_version,
-        stats,
+    Ok(ReleaseDiffGroupData {
+        summary: ReleaseDiffGroupSummary {
+            release_group: release_group.to_string(),
+            title: group_title(parsed_group.as_ref()).to_string(),
+            current_version: version.unwrap_or(GROUP_DRAFT).to_string(),
+            previous_version,
+            stats,
+            total_files: files.len(),
+        },
         files,
     })
 }
@@ -1132,7 +1163,7 @@ fn filter_release_diff_files(files: Vec<gitea::FileDiffInfo>) -> Vec<gitea::File
         .collect()
 }
 
-fn diff_stats_from_files(files: &[FileDiffInfo]) -> DiffStats {
+fn diff_stats_from_files(files: &[ReleaseDiffFileInfo]) -> DiffStats {
     let mut stats = DiffStats {
         files_changed: files.len(),
         insertions: 0,

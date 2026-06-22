@@ -19,6 +19,14 @@ pub struct ReleaseActionPath {
     pub id: i32,
 }
 
+#[derive(serde::Deserialize)]
+pub struct ReleaseDiffQuery {
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(default)]
+    pub limit: usize,
+}
+
 /// 发布管理：获取发布版本列表
 #[get("/api/releases")]
 pub async fn list_releases(query: web::Query<ReleaseListQuery>) -> Result<HttpResponse, AppError> {
@@ -79,8 +87,10 @@ pub async fn publish_release(
 #[get("/api/releases/{id}/diff")]
 pub async fn get_release_diff(
     path: web::Path<ReleaseDetailPath>,
+    query: web::Query<ReleaseDiffQuery>,
 ) -> Result<HttpResponse, AppError> {
-    let resp = get_release_diff_logic(path.id).await?;
+    let query = query.into_inner();
+    let resp = get_release_diff_logic(path.id, query.offset, query.limit).await?;
 
     Ok(HttpResponse::Ok().json(resp))
 }

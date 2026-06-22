@@ -12,6 +12,7 @@ import 'react-diff-view/style/index.css';
 import './DiffViewer.css';
 import { splitHunkIntoSegments } from './diffUtils';
 
+// 超过阈值的文件默认收起，避免详情页一次渲染超长 diff 影响可读性。
 const DEFAULT_COLLAPSED_LINE_THRESHOLD = 30;
 
 const countDiffLines = (file) =>
