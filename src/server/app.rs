@@ -209,6 +209,7 @@ pub async fn start() -> std::io::Result<()> {
             .service(api::hello)
             .service(api::get_version)
             .service(api::get_features_config)
+            .service(api::get_integration_rule_overview)
             .service(api::get_integration_runtime_overview)
             .service(api::import_project_from_files)
             .service(api::import_project_archive)

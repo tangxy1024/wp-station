@@ -12,13 +12,9 @@ import {
   NumberOutlined,
 } from '@ant-design/icons';
 import {
-  fetchRuleConfig,
-  fetchRuleFiles,
-  RuleType,
-} from '@/services/config';
-import { fetchIntegrationRuntimeOverview } from '@/services/features';
-
-const WPL_FETCH_PAGE_SIZE = 50;
+  fetchIntegrationRuleOverview,
+  fetchIntegrationRuntimeOverview,
+} from '@/services/features';
 
 const normalizeWplEntry = (value, parseFileName) => {
   if (value === undefined || value === null) {
@@ -717,82 +713,14 @@ function IntegrationOverviewPage() {
   const [supportedSourceTypeCount, setSupportedSourceTypeCount] = useState(0);
   const [supportedSinkTypeCount, setSupportedSinkTypeCount] = useState(0);
 
-  const fetchAllWplFiles = useCallback(async () => {
-    const collected = [];
-    const seen = new Set();
-    let currentPage = 1;
-    let parseFileName = '';
-    let sampleFileName = '';
-
-    while (true) {
-      const result = await fetchRuleFiles({
-        type: RuleType.WPL,
-        page: currentPage,
-        pageSize: WPL_FETCH_PAGE_SIZE,
-      });
-      parseFileName = result?.meta?.wplParseFile || parseFileName;
-      sampleFileName = result?.meta?.wplSampleFile || sampleFileName;
-      const rawItems = Array.isArray(result?.items) ? result.items : [];
-      const items = normalizeWplList(rawItems, parseFileName);
-      const pageSize =
-        typeof result?.pageSize === 'number' && result.pageSize > 0
-          ? result.pageSize
-          : WPL_FETCH_PAGE_SIZE;
-      const total = typeof result?.total === 'number' ? result.total : 0;
-      const totalPages = total > 0 ? Math.ceil(total / pageSize) : 0;
-
-      items.forEach((item) => {
-        if (!seen.has(item)) {
-          seen.add(item);
-          collected.push(item);
-        }
-      });
-
-      if (totalPages ? currentPage >= totalPages : !rawItems.length || rawItems.length < pageSize) {
-        break;
-      }
-      currentPage += 1;
-    }
-
-    return {
-      items: collected,
-      parseFileName,
-      sampleFileName,
-    };
-  }, []);
-
   const loadOverview = useCallback(async () => {
     setLoading(true);
     try {
-      const [wplResult, runtimeOverview] = await Promise.all([
-        fetchAllWplFiles(),
+      const [ruleOverview, runtimeOverview] = await Promise.all([
+        fetchIntegrationRuleOverview(),
         fetchIntegrationRuntimeOverview(),
       ]);
-      const files = Array.isArray(wplResult?.items) ? wplResult.items : [];
-      const parseFileName = wplResult?.parseFileName || '';
-      const sampleFileName = wplResult?.sampleFileName || '';
-
-      const packageKeys = Array.from(
-        new Set(
-          files
-            .filter((entry) => !isWplSampleEntry(entry, parseFileName, sampleFileName))
-            .map((entry) => getWplEntryParts(entry, parseFileName).rule)
-            .filter(Boolean),
-        ),
-      );
-
-      const overviewResults = await Promise.all(
-        packageKeys.map(async (packageKey) => {
-          const response = await fetchRuleConfig({
-            type: RuleType.WPL,
-            file: `${packageKey}/${parseFileName}`,
-          });
-          return extractWplOverviewFromContent(response?.content || '', packageKey);
-        }),
-      );
-
-      const nextRows = overviewResults
-        .filter(Boolean)
+      const nextRows = (Array.isArray(ruleOverview?.items) ? ruleOverview.items : [])
         .sort((a, b) => a.deviceType.localeCompare(b.deviceType, 'zh-Hans-CN'));
 
       setRows(
@@ -810,7 +738,7 @@ function IntegrationOverviewPage() {
     } finally {
       setLoading(false);
     }
-  }, [fetchAllWplFiles, t]);
+  }, [t]);
 
   useEffect(() => {
     loadOverview();

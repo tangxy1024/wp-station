@@ -1,12 +1,13 @@
 # AGENTS.md
 
-`wp-station` 的 AI 开发导航。接需求前先读 `README.md` 了解项目全貌，再用本文件定位改哪些文件、注意哪些联动、遵守哪些规范。
+`wp-station` 的 AI 开发导航。接需求前先读 `README.md` 了解项目全貌，再看 `CHANGELOG.md` 把握近期版本脉络，最后用本文件定位改哪些文件、注意哪些联动、遵守哪些规范。
 
 ## 阅读顺序
 
 1. `README.md`：项目是什么、怎么跑
-2. 本文件：改什么文件、联动什么、遵守什么规范
-3. 对应源码：确定改动范围后再进目录
+2. `CHANGELOG.md`：近期版本变化、依赖升级、功能落地时间点
+3. 本文件：改什么文件、联动什么、遵守什么规范
+4. 对应源码：确定改动范围后再进目录
 
 ---
 
@@ -20,9 +21,11 @@
 | 规则管理 | `views/pages/rule-manage/index.jsx` | `services/config.js` | `src/api/rules.rs` | `src/server/rules.rs` | `project_models` / `project_infra` 文件 + `src/utils/project.rs` |
 | 配置管理 | `views/pages/config-manage/index.jsx` | `services/config.js` | `src/api/config.rs` | `src/server/config.rs` `config_templates.rs` | `project_infra` 文件 + `src/utils/project.rs` `src/utils/config_templates.rs` |
 | 调试页 | `views/pages/simulate-debug/index.jsx` | `services/debug.js` | `src/api/debug.rs` | `src/server/debug.rs` | — |
+| 接入概览 | `views/pages/integration-overview/index.jsx` | `services/features.js` `services/config.js` | `src/api/integration_overview.rs` | `src/utils/integration_overview.rs` | `project_models` / `project_infra` 文件 |
 | 用户/登录 | `views/pages/login/index.jsx` `system-manage/index.jsx` | `services/auth.js` `services/user.js` | `src/api/user.rs` | `src/server/user.rs` | `src/db/user.rs` |
 | 操作日志 | `views/pages/system-manage/index.jsx` | `services/operation_log.js` | `src/api/operation_log.rs` | `src/server/operation_log.rs` | `src/db/operation_log.rs` |
 | AI 辅助任务 | `components/AssistTaskCenter/index.jsx` | `services/assist_task.js` | `src/api/assist_task.rs` | `src/server/assist_task.rs` | `src/db/assist_task.rs` |
+| 项目导入/导出 | `views/pages/system-manage/index.jsx` `views/components/ProjectImportResult.jsx` | `services/project.js` | `src/api/project.rs` | `src/server/project.rs` | `src/utils/project.rs` |
 | 导航/路由/国际化 | `components/Navigation.jsx` `App.jsx` | `i18n/locales/*.json` | — | — | — |
 
 ---
@@ -180,6 +183,20 @@
 - 后端已实现的调试接口：`/api/debug/parse`、`/api/debug/knowledge/status`、`/api/debug/knowledge/query`、`/api/debug/performance/run`、`/api/debug/performance/{taskId}`、`/api/debug/wpl/format`、`/api/debug/oml/format`、`/api/debug/examples`。
 - `services/debug.js` 里的 `/debug/transform`、`/debug/decode/base64` 后端尚未实现，不要默认已有。
 - `index-old.jsx` 和 `index-backup.jsx` 是遗留文件，不要动。
+
+### 接入概览
+
+改动注意：
+- 页面数据来自两路：规则侧解析 `wpl` 文件、运行时侧读取 `/api/integration-overview/runtime`。
+- `ignore` 类型规则不展示、不计数；改 WPL 解析或展示口径时要同步核对这个约束。
+- `设备类型` / `日志类型` 展示名称带有回退链路，修改 tag 或字段名时要同步核对页面兼容逻辑。
+
+### 项目导入 / 导出
+
+改动注意：
+- 压缩包导入是 `preview` + `confirm` 两阶段，不要把预检和正式覆盖逻辑混在一起。
+- 导入导出会直接影响 `project_models` / `project_infra`，同时会碰到 Git/Gitea 仓库状态与冲突处理。
+- 前端入口目前在 `system-manage/index.jsx`，不是独立页面。
 
 ### 用户 / 登录 / 密码 / 操作日志
 

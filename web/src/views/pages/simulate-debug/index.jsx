@@ -1322,7 +1322,7 @@ output_path = "./logs/"`);
                   </div>
                 <CodeEditor
                   key={`log-${workspaceMode}-${activeLogInstance?.id || activeLogIndex}`}
-                  className="code-area"
+                  className="code-area code-area--log-input"
                   language="json"
                   theme="vscodeDark"
                   value={inputValue}
@@ -1484,30 +1484,31 @@ output_path = "./logs/"`);
                         {parseError ? (
                           renderParseError()
                         ) : result ? (
-                          <SyntaxHighlighter
-                            className="code-block"
-                            language="json"
-                            style={oneDark}
-                            customStyle={{ 
-                              margin: 0, 
-                              background: '#0f172a',
-                              maxWidth: '100%',
-                              width: '100%',
-                              overflowX: 'hidden'
-                            }}
-                            codeTagProps={{ style: { background: 'transparent' } }}
-                            wrapLines
-                            lineProps={{ style: { background: 'transparent' } }}
-                            wrapLongLines
-                          >
-                            {formatJsonForDisplay(result.formatJson, {
-                              ...result,
-                              fields: filterFieldsByShowEmpty(
-                                processFieldsForDisplay(result.fields, result.formatJson),
-                                showEmpty
-                              ),
-                            })}
-                          </SyntaxHighlighter>
+                          <div className="json-result-scroll">
+                            <SyntaxHighlighter
+                              className="code-block"
+                              language="json"
+                              style={oneDark}
+                              customStyle={{
+                                margin: 0,
+                                background: '#0f172a',
+                                width: '100%',
+                                minWidth: 0,
+                              }}
+                              codeTagProps={{ style: { background: 'transparent' } }}
+                              wrapLines
+                              lineProps={{ style: { background: 'transparent' } }}
+                              wrapLongLines
+                            >
+                              {formatJsonForDisplay(result.formatJson, {
+                                ...result,
+                                fields: filterFieldsByShowEmpty(
+                                  processFieldsForDisplay(result.fields, result.formatJson),
+                                  showEmpty
+                                ),
+                              })}
+                            </SyntaxHighlighter>
+                          </div>
                         ) : (
                           <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
                             {t('simulateDebug.parseResult.clickToParse')}
@@ -1660,30 +1661,31 @@ output_path = "./logs/"`);
                       }`}
                     >
                       {transformParseResult ? (
-                        <SyntaxHighlighter
-                          className="code-block"
-                          language="json"
-                          style={oneDark}
-                          customStyle={{ 
-                            margin: 0, 
-                            background: '#0f172a',
-                            maxWidth: '100%',
-                            width: '100%',
-                            overflowX: 'hidden'
-                          }}
-                          codeTagProps={{ style: { background: 'transparent' } }}
-                          wrapLines
-                          lineProps={{ style: { background: 'transparent' } }}
-                          wrapLongLines
-                        >
-                          {formatJsonForDisplay(transformParseResult.formatJson, {
-                            ...transformParseResult,
-                            fields: filterFieldsByShowEmpty(
-                              processFieldsForDisplay(transformParseResult.fields, transformParseResult.formatJson),
-                              transformParseShowEmpty
-                            ),
-                          })}
-                        </SyntaxHighlighter>
+                        <div className="json-result-scroll">
+                          <SyntaxHighlighter
+                            className="code-block"
+                            language="json"
+                            style={oneDark}
+                            customStyle={{
+                              margin: 0,
+                              background: '#0f172a',
+                              width: '100%',
+                              minWidth: 0,
+                            }}
+                            codeTagProps={{ style: { background: 'transparent' } }}
+                            wrapLines
+                            lineProps={{ style: { background: 'transparent' } }}
+                            wrapLongLines
+                          >
+                            {formatJsonForDisplay(transformParseResult.formatJson, {
+                              ...transformParseResult,
+                              fields: filterFieldsByShowEmpty(
+                                processFieldsForDisplay(transformParseResult.fields, transformParseResult.formatJson),
+                                transformParseShowEmpty
+                              ),
+                            })}
+                          </SyntaxHighlighter>
+                        </div>
                       ) : (
                         <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
                           {t('simulateDebug.parseResult.willShowHere')}
@@ -1765,35 +1767,36 @@ output_path = "./logs/"`);
                       {transformError ? (
                         renderTransformError()
                       ) : transformResult ? (
-                        <SyntaxHighlighter
-                          className="code-block"
-                          language="json"
-                          style={oneDark}
-                          customStyle={{ 
-                            margin: 0, 
-                            background: '#0f172a',
-                            maxWidth: '100%',
-                            width: '100%',
-                            overflowX: 'hidden'
-                          }}
-                          codeTagProps={{ style: { background: 'transparent' } }}
-                          wrapLines
-                          lineProps={{ style: { background: 'transparent' } }}
-                          wrapLongLines
-                        >
-                          {formatJsonForDisplay(
-                            transformResult.formatJson,
-                            {
-                              ...transformResult,
-                              fields: filterFieldsByShowEmpty(
-                                transformResult.fields,
-                                transformResultShowEmpty
-                              ),
-                            },
-                            parsed =>
-                              transformResultShowEmpty ? parsed : filterEmptyFields(parsed)
-                          )}
-                        </SyntaxHighlighter>
+                        <div className="json-result-scroll">
+                          <SyntaxHighlighter
+                            className="code-block"
+                            language="json"
+                            style={oneDark}
+                            customStyle={{
+                              margin: 0,
+                              background: '#0f172a',
+                              width: '100%',
+                              minWidth: 0,
+                            }}
+                            codeTagProps={{ style: { background: 'transparent' } }}
+                            wrapLines
+                            lineProps={{ style: { background: 'transparent' } }}
+                            wrapLongLines
+                          >
+                            {formatJsonForDisplay(
+                              transformResult.formatJson,
+                              {
+                                ...transformResult,
+                                fields: filterFieldsByShowEmpty(
+                                  transformResult.fields,
+                                  transformResultShowEmpty
+                                ),
+                              },
+                              parsed =>
+                                transformResultShowEmpty ? parsed : filterEmptyFields(parsed)
+                            )}
+                          </SyntaxHighlighter>
+                        </div>
                       ) : (
                         <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
                           {t('simulateDebug.convertResult.willShowHere')}

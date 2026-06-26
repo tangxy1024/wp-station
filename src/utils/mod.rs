@@ -29,7 +29,8 @@ pub use config_templates::{
 };
 pub use health_check::check_device_health;
 pub use integration_overview::{
-    IntegrationRuntimeItem, IntegrationRuntimeOverview,
+    IntegrationRuleItem, IntegrationRuleLogType, IntegrationRuleOverview, IntegrationRuntimeItem,
+    IntegrationRuntimeOverview, load_integration_rule_overview_from_layout,
     load_integration_runtime_overview_from_layout,
 };
 pub use knowledge::{

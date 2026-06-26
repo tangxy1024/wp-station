@@ -1815,6 +1815,11 @@ body:not(.login-page) .connection-page-wrapper {
   padding: 0 !important;
 }
 
+.integration-overview-page {
+  background: var(--panel-bg);
+  border-radius: 22px;
+}
+
 .integration-overview-panel {
   overflow: visible;
 }
@@ -3120,6 +3125,8 @@ mark.diff-highlight {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  width: 100%;
+  min-width: 0;
 }
 
 .panel-block--stretch {
@@ -3131,11 +3138,15 @@ mark.diff-highlight {
 .panel-block--fill {
   flex: 1 1 auto;
   min-height: 0;
+  width: 100%;
+  min-width: 0;
 }
 
 .panel-block--fill .code-area {
   flex: 1 1 auto;
   min-height: 200px;
+  width: 100%;
+  min-width: 0;
   /* 移除固定 height，让它自适应 */
 }
 
@@ -3170,12 +3181,15 @@ mark.diff-highlight {
   display: flex;
   gap: 20px;
   flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
 }
 
 .split-col {
   flex: 1 1 320px;
   /* 允许列在有长内容时正常收缩，避免卡片被内容撑宽 */
   min-width: 0;
+  width: 0;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -3284,6 +3298,13 @@ mark.diff-highlight {
   background: #0f172a;
   resize: vertical;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.code-area--log-input {
+  height: 320px;
+  min-height: 320px;
+  max-height: 320px;
+  overflow: hidden;
 }
 
 .code-area:focus {
@@ -4509,6 +4530,8 @@ mark.diff-highlight {
   /* 占满所在列高度，由列本身控制整体高度 */
   flex: 1 1 auto;
   min-height: 0;
+  width: 100%;
+  min-width: 0;
 }
 
 /* 标题固定不滚动 */
@@ -4524,9 +4547,11 @@ mark.diff-highlight {
 /* 内容区域占据剩余空间 - 只对激活的模式生效 */
 .panel-block--scrollable .mode-content.is-active {
   flex: 1 1 auto;
-  overflow: visible;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
   min-height: 200px;
   max-height: 500px;
 }
@@ -4549,8 +4574,19 @@ mark.diff-highlight {
   flex: 1 1 auto;
   overflow-y: auto;
   overflow-x: auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 0;
   max-height: 500px;
+}
+
+.json-result-scroll {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
 }
 
 /* 分页样式 */

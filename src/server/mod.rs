@@ -85,9 +85,11 @@ pub use setting::{
 };
 pub use sync::push_and_tag_release;
 pub use system::{
-    FeaturesConfigResponse, IntegrationRuntimeItemResponse, IntegrationRuntimeOverviewResponse,
-    VersionResponse, get_features_config_logic, get_integration_runtime_overview_logic,
-    get_version_logic, hello_logic,
+    FeaturesConfigResponse, IntegrationRuleItemResponse, IntegrationRuleLogTypeResponse,
+    IntegrationRuleOverviewResponse, IntegrationRuntimeItemResponse,
+    IntegrationRuntimeOverviewResponse, VersionResponse, get_features_config_logic,
+    get_integration_rule_overview_logic, get_integration_runtime_overview_logic, get_version_logic,
+    hello_logic,
 };
 pub use user::{
     ChangePasswordRequest, CreateUserRequest, LoginRequest, LoginResponse, ResetPasswordRequest,

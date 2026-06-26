@@ -20,6 +20,29 @@ export async function fetchDataCollectConfig() {
 }
 
 /**
+ * 获取接入概览页的规则侧设备类型 / 日志类型摘要
+ */
+export async function fetchIntegrationRuleOverview() {
+  const response = await httpRequest.get('/integration-overview/rules');
+  const payload = response?.items ? response : response?.data || response || {};
+
+  const normalizeLogTypes = (items = []) =>
+    (Array.isArray(items) ? items : []).map((item) => ({
+      key: item?.key || '',
+      logTypeName: item?.log_type_name || '',
+      ruleKeys: Array.isArray(item?.rule_keys) ? item.rule_keys : [],
+    }));
+
+  return {
+    items: (Array.isArray(payload.items) ? payload.items : []).map((item) => ({
+      key: item?.key || '',
+      deviceType: item?.device_type || '',
+      logTypes: normalizeLogTypes(item?.log_types),
+    })),
+  };
+}
+
+/**
  * 获取接入概览页的输入源 / 输出源运行时摘要
  */
 export async function fetchIntegrationRuntimeOverview() {

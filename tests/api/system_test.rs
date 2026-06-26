@@ -37,6 +37,50 @@ async fn test_system_version_endpoint() {
 }
 
 #[actix_web::test]
+async fn test_integration_rule_overview_endpoint() {
+    setup_db().await;
+    let models_root = crate::common::test_models_root();
+    write_file(
+        &models_root.join("models/wpl/nginx/parse.wpl"),
+        r#"
+#[tag(dev_type: "Nginx设备")]
+package nginx {
+  #[tag(log_desc: "访问日志")]
+  rule access {
+  }
+
+  #[tag(log_desc: "错误日志")]
+  rule error {
+  }
+}
+"#,
+    );
+
+    let app =
+        test::init_service(App::new().service(wp_station::api::get_integration_rule_overview))
+            .await;
+
+    let req = test::TestRequest::get()
+        .uri("/api/integration-overview/rules")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let payload: serde_json::Value = test::read_body_json(resp).await;
+    assert_eq!(
+        payload["items"].as_array().map(|items| items.len()),
+        Some(1)
+    );
+    assert_eq!(payload["items"][0]["device_type"], "Nginx设备");
+    assert_eq!(
+        payload["items"][0]["log_types"]
+            .as_array()
+            .map(|items| items.len()),
+        Some(2)
+    );
+}
+
+#[actix_web::test]
 async fn test_integration_runtime_overview_endpoint() {
     setup_db().await;
     let infra_root = test_infra_root();
