@@ -6138,6 +6138,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
 
 [[package]]
+name = "tree-sitter-oml"
+version = "0.2.0"
+source = "git+https://github.com/wp-labs/tree-sitter-oml.git?branch=main#6105fa6360df78e2d477e9e496551875e5e93ea2"
+dependencies = [
+ "cc",
+ "tree-sitter",
+]
+
+[[package]]
+name = "tree-sitter-wfl"
+version = "0.0.1"
+source = "git+https://github.com/wp-labs/tree-sitter-wfl.git?branch=main#413002066fce33af8afc663c89143f2d2c73d6e4"
+dependencies = [
+ "cc",
+ "tree-sitter",
+]
+
+[[package]]
+name = "tree-sitter-wfs"
+version = "0.0.1"
+source = "git+https://github.com/wp-labs/tree-sitter-wfs.git?branch=main#39e5fb246b7412fb43660dbb162bdb3bf9ec2404"
+dependencies = [
+ "cc",
+ "tree-sitter",
+]
+
+[[package]]
 name = "tree-sitter-wpl"
 version = "0.0.1"
 source = "git+https://github.com/wp-labs/tree-sitter-wpl.git?branch=main#44689663cd7e5d8a783baa2d405080cc47331cb0"
@@ -7431,6 +7458,9 @@ dependencies = [
  "toml",
  "tracing",
  "tree-sitter",
+ "tree-sitter-oml",
+ "tree-sitter-wfl",
+ "tree-sitter-wfs",
  "tree-sitter-wpl",
  "urlencoding",
  "wp-data-fmt",

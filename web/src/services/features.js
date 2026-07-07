@@ -4,6 +4,7 @@
  */
 
 import httpRequest from './request';
+import { resolveSystem } from './system';
 
 /**
  * 获取数据采集页面配置
@@ -22,8 +23,10 @@ export async function fetchDataCollectConfig() {
 /**
  * 获取接入概览页的规则侧设备类型 / 日志类型摘要
  */
-export async function fetchIntegrationRuleOverview() {
-  const response = await httpRequest.get('/integration-overview/rules');
+export async function fetchIntegrationRuleOverview(system) {
+  const response = await httpRequest.get('/integration-overview/rules', {
+    params: { system: resolveSystem(system) },
+  });
   const payload = response?.items ? response : response?.data || response || {};
 
   const normalizeLogTypes = (items = []) =>
@@ -45,8 +48,10 @@ export async function fetchIntegrationRuleOverview() {
 /**
  * 获取接入概览页的输入源 / 输出源运行时摘要
  */
-export async function fetchIntegrationRuntimeOverview() {
-  const response = await httpRequest.get('/integration-overview/runtime');
+export async function fetchIntegrationRuntimeOverview(system) {
+  const response = await httpRequest.get('/integration-overview/runtime', {
+    params: { system: resolveSystem(system) },
+  });
   const payload = response?.sources ? response : response?.data || response || {};
 
   const normalizeItems = (items = []) =>

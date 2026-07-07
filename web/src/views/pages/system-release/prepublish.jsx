@@ -54,6 +54,7 @@ const STATUS_COLOR = {
   queued: 'default',
   running: 'blue',
   success: 'green',
+  success_not_passed: 'orange',
   failed: 'red',
   stopped: 'default',
   not_started: 'default',
@@ -108,6 +109,10 @@ function PrepublishPage() {
   const failureStageInfo = stages.find((stage) => stage.status === 'failed');
   const failureSummary = failureStageInfo?.summary;
   const status = runData?.status || 'queued';
+  const displayStatus =
+    runData?.status === 'success' && conclusion?.passed !== true
+      ? 'success_not_passed'
+      : status;
   const baselineVersion =
     releaseInfo?.previous_version ||
     releaseInfo?.baseline_version ||
@@ -115,8 +120,8 @@ function PrepublishPage() {
     t('sandbox.baselineFallback');
   const currentVersion = releaseInfo?.version || '-';
   const statusTag = (
-    <Tag color={STATUS_COLOR[status] || 'default'}>
-      {t(`sandbox.statusLabel.${status}`, { defaultValue: status })}
+    <Tag color={STATUS_COLOR[displayStatus] || 'default'}>
+      {t(`sandbox.statusLabel.${displayStatus}`, { defaultValue: displayStatus })}
     </Tag>
   );
   const queueAlertNeeded = (queuePosition ?? 0) > 0;

@@ -1,4 +1,4 @@
-// 操作日志数据库操作 - 纯函数式
+//! 操作日志数据访问层。
 
 use crate::db::get_pool;
 use crate::error::DbResult;

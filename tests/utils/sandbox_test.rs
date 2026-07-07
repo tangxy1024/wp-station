@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use crate::common::{setup_db, test_infra_root};
 use wp_station::constants::sandbox::OUTPUT_PATHS;
 use wp_station::server::Setting;
+use wp_station::server::sandbox::analyze::{RuntimeMetrics, finalize_conclusion};
+use wp_station::utils::SystemKind;
 use wp_station::utils::sandbox::{SandboxWorkspace, collect_output_checks, command_version_output};
 
 // ============ 测试辅助函数 ============
@@ -82,6 +84,7 @@ fn create_sandbox_workspace_fixture(task_id: &str) -> SandboxWorkspace {
         logs_dir,
         source_models_root: root.join("source-models"),
         source_infra_root: root.join("source-infra"),
+        source_connectors_root: root.join("source-connectors"),
     }
 }
 
@@ -131,6 +134,7 @@ fn display_relative_prefers_workspace_root() {
         logs_dir,
         source_models_root: workspace_root.clone(),
         source_infra_root: workspace_root.clone(),
+        source_connectors_root: workspace_root.clone(),
     };
 
     let nested = workspace_root.join("foo/bar/example.txt");
@@ -156,6 +160,7 @@ fn render_tree_listing_displays_structure() {
         logs_dir,
         source_models_root: base.join("source-models"),
         source_infra_root: base.join("source-infra"),
+        source_connectors_root: base.join("source-connectors"),
     };
 
     let listing = workspace
@@ -234,7 +239,7 @@ endpoint = "ps://127.0.0.1:6650"
     let source_file = test_infra_root().join("topology/sources/wpsrc.toml");
     fs::write(&source_file, input).expect("write custom source config");
 
-    let workspace = SandboxWorkspace::prepare("sandbox-source-runtime", &[])
+    let workspace = SandboxWorkspace::prepare("sandbox-source-runtime", SystemKind::Wparse, &[])
         .expect("prepare sandbox workspace");
     let output = fs::read_to_string(workspace.project_dir.join("topology/sources/wpsrc.toml"))
         .expect("read patched source config");
@@ -268,7 +273,7 @@ fn sandbox_prepare_overrides_infra_sinks_with_defaults() {
     )
     .expect("write custom infra sink");
 
-    let workspace = SandboxWorkspace::prepare("sandbox-infra-defaults", &[])
+    let workspace = SandboxWorkspace::prepare("sandbox-infra-defaults", SystemKind::Wparse, &[])
         .expect("prepare sandbox workspace");
 
     let sandbox_file = workspace
@@ -306,8 +311,8 @@ port = 9999
     )
     .expect("write custom wpgen config");
 
-    let workspace =
-        SandboxWorkspace::prepare("sandbox-wpgen-runtime", &[]).expect("prepare sandbox workspace");
+    let workspace = SandboxWorkspace::prepare("sandbox-wpgen-runtime", SystemKind::Wparse, &[])
+        .expect("prepare sandbox workspace");
     let content = fs::read_to_string(workspace.project_dir.join("conf/wpgen.toml"))
         .expect("read patched wpgen config");
 
@@ -385,4 +390,19 @@ fn cleanup_after_run_prunes_old_runtime_artifacts_but_keeps_merged_config() {
     for task_id in task_ids {
         cleanup_sandbox_workspace_fixture(task_id);
     }
+}
+
+#[test]
+fn finalize_conclusion_respects_runtime_analysis_result() {
+    let metrics = RuntimeMetrics {
+        input_count: 50,
+        output_count: 5,
+        passed: true,
+        ..Default::default()
+    };
+
+    let conclusion = finalize_conclusion(&[], &metrics);
+    assert!(conclusion.passed);
+    assert_eq!(conclusion.input_count, 50);
+    assert_eq!(conclusion.runtime_output_count, 5);
 }

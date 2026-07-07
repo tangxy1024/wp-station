@@ -9,6 +9,7 @@ import {
   WechatOutlined,
   QuestionCircleOutlined,
 } from '@ant-design/icons';
+import { useSystem } from '@/contexts/SystemContext';
 import { getSessionUser, logout } from '@/services/auth';
 import {
   fetchDataCollectConfig,
@@ -37,6 +38,8 @@ function Navigation({ children, onLocaleChange }) {
   const [runtimeMonitorUrl, setRuntimeMonitorUrl] = useState('');
   const [wechatModalOpen, setWechatModalOpen] = useState(false);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
+  const { currentSystem, isSwitchingSystem, switchSystem, availableSystems, decoratePath } =
+    useSystem();
 
   // 获取当前登录用户名
   const sessionUser = getSessionUser();
@@ -125,7 +128,7 @@ function Navigation({ children, onLocaleChange }) {
       return;
     }
 
-    navigate(menuItem.path);
+    navigate(decoratePath(menuItem.path));
   };
 
   /**
@@ -164,28 +167,145 @@ function Navigation({ children, onLocaleChange }) {
     // 应用整体布局：头部固定在上方，下面内容区域单独滚动
     <div className="app-shell">
       <header className="main-header">
-        <div className="brand">
-          <img src="/assets/images/index.png" alt="WarpStation" className="logo" style={{ height: '70px' }} />
-          <span className="divider">|</span>
-          <span className="subtitle">{t('navigation.controlPlatform')}</span>
-          {hasVersionInfo ? (
-            <span
-              className="version-info"
-              style={{
-                marginLeft: 8,
-                fontSize: 12,
-                color: '#ffffff',
-                display: 'inline-flex',
-                flexDirection: 'column',
-                lineHeight: 1.3,
-              }}
+        <div className={`system-switch-progress ${isSwitchingSystem ? 'is-visible' : ''}`} />
+        <div className="header-top-row">
+          <div className="brand">
+            <img src="/assets/images/index.png" alt="WarpStation" className="logo" style={{ height: '70px' }} />
+            <span className="divider">|</span>
+            <span className="subtitle">{t('navigation.controlPlatform')}</span>
+            {hasVersionInfo ? (
+              <span
+                className="version-info"
+                style={{
+                  marginLeft: 8,
+                  fontSize: 12,
+                  color: '#ffffff',
+                  display: 'inline-flex',
+                  flexDirection: 'column',
+                  lineHeight: 1.3,
+                }}
+              >
+                {versionInfo.warpStation && (
+                  <span style={{ marginRight: 8 }}>wp-station: {versionInfo.warpStation}</span>
+                )}
+                {versionInfo.warpParse && <span>warp-parse: {versionInfo.warpParse}</span>}
+              </span>
+            ) : null}
+          </div>
+          <div className="header-actions">
+            <Button
+              type="primary"
+              icon={<SlackOutlined style={{ fontSize: '18px' }} />}
+              size="large"
+              style={{ fontWeight: 600, fontSize: '15px' }}
+              onClick={() => window.open('https://app.slack.com/client/T0A53FLT4R4/C0A4Q3SC2CF', '_blank')}
             >
-              {versionInfo.warpStation && (
-                <span style={{ marginRight: 8 }}>wp-station: {versionInfo.warpStation}</span>
-              )}
-              {versionInfo.warpParse && <span>warp-parse: {versionInfo.warpParse}</span>}
-            </span>
-          ) : null}
+              {t('header.slack')}
+            </Button>
+            <Button
+              type="primary"
+              icon={<RedditOutlined style={{ fontSize: '18px' }} />}
+              size="large"
+              style={{ fontWeight: 600, fontSize: '15px' }}
+              onClick={() => window.open('https://www.reddit.com/r/warppase/', '_blank')}
+            >
+              {t('header.reddit')}
+            </Button>
+            <Button
+              type="primary"
+              icon={<GithubOutlined style={{ fontSize: '18px' }} />}
+              size="large"
+              style={{ fontWeight: 600, fontSize: '15px' }}
+              onClick={() => setGithubModalOpen(true)}
+            >
+              {t('header.github')}
+            </Button>
+            <Button
+              type="primary"
+              icon={
+                <svg
+                  viewBox="0 0 36 28"
+                  xmlns="http://www.w3.org/2000/svg"
+                  style={{ width: '18px', height: '18px', fill: 'currentColor' }}
+                >
+                  <path d="M17.5875 6.77268L21.8232 3.40505L17.5875 0.00748237L17.5837 0L13.3555 3.39757L17.5837 6.76894L17.5875 6.77268ZM17.5863 17.3955H17.59L28.5161 8.77432L25.5526 6.39453L17.59 12.6808H17.5863L17.5825 12.6845L9.61993 6.40201L6.66016 8.78181L17.5825 17.3992L17.5863 17.3955ZM17.5828 23.2891L17.5865 23.2854L32.2133 11.7456L35.1768 14.1254L28.5238 19.3752L17.5865 28L0.284376 14.3574L0 14.1291L2.95977 11.7531L17.5828 23.2891Z" />
+                </svg>
+              }
+              size="large"
+              style={{ fontWeight: 600, fontSize: '15px' }}
+              onClick={() => window.open('https://juejin.cn/user/239030525498106', '_blank')}
+            >
+              {t('header.juejin')}
+            </Button>
+            <Button
+              type="primary"
+              icon={<QuestionCircleOutlined style={{ fontSize: '18px' }} />}
+              size="large"
+              style={{ fontWeight: 600, fontSize: '15px' }}
+              onClick={() => window.open('https://wp-labs.github.io/wp-docs/', '_blank')}
+            >
+              {t('header.helpCenter')}
+            </Button>
+            <Button
+              type="primary"
+              icon={<WechatOutlined style={{ fontSize: '20px' }} />}
+              size="large"
+              shape="circle"
+              style={{ background: '#07C160', borderColor: '#07C160' }}
+              onClick={() => setWechatModalOpen(true)}
+            />
+            <LanguageSwitcher onLocaleChange={onLocaleChange} />
+            <div className={`user-menu ${userMenuOpen ? 'active' : ''}`} id="user-menu" ref={userMenuRef}>
+              <button
+                type="button"
+                className="user-trigger"
+                id="user-trigger"
+                onClick={handleUserMenuToggle}
+              >
+                <span className="user-icon">👤</span>
+                <span className="user-name" id="user-name">
+                  {usernameLabel}
+                </span>
+              </button>
+              <div className="user-dropdown">
+                <button
+                  type="button"
+                  className="user-dropdown-item"
+                  id="logout-btn"
+                  onClick={handleLogout}
+                >
+                  {t('navigation.logout')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="header-system-float">
+          <div className="header-system-context">
+            <span className="header-system-context__label">{t('navigation.switchSystem')}</span>
+            <div
+              className="system-switcher"
+              role="tablist"
+              aria-label={t('navigation.switchSystem')}
+            >
+              {availableSystems.map((systemKey) => {
+                const isActiveSystem = currentSystem === systemKey;
+                return (
+                  <button
+                    key={systemKey}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActiveSystem}
+                    className={`system-switcher__item ${isActiveSystem ? 'is-active' : ''}`}
+                    onClick={() => switchSystem(systemKey)}
+                    disabled={isSwitchingSystem}
+                  >
+                    {t(`navigation.system.${systemKey}`)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
         <div className="header-nav-row">
           <nav className="top-nav">
@@ -212,93 +332,6 @@ function Navigation({ children, onLocaleChange }) {
             </button>
           </div>
         </div>
-        <div className="header-actions">
-          <Button
-            type="primary"
-            icon={<SlackOutlined style={{ fontSize: '18px' }} />}
-            size="large"
-            style={{ fontWeight: 600, fontSize: '15px' }}
-            onClick={() => window.open('https://app.slack.com/client/T0A53FLT4R4/C0A4Q3SC2CF', '_blank')}
-          >
-            {t('header.slack')}
-          </Button>
-          <Button
-            type="primary"
-            icon={<RedditOutlined style={{ fontSize: '18px' }} />}
-            size="large"
-            style={{ fontWeight: 600, fontSize: '15px' }}
-            onClick={() => window.open('https://www.reddit.com/r/warppase/', '_blank')}
-          >
-            {t('header.reddit')}
-          </Button>
-          <Button
-            type="primary"
-            icon={<GithubOutlined style={{ fontSize: '18px' }} />}
-            size="large"
-            style={{ fontWeight: 600, fontSize: '15px' }}
-            onClick={() => setGithubModalOpen(true)}
-          >
-            {t('header.github')}
-          </Button>
-          <Button
-            type="primary"
-            icon={
-              <svg
-                viewBox="0 0 36 28"
-                xmlns="http://www.w3.org/2000/svg"
-                style={{ width: '18px', height: '18px', fill: 'currentColor' }}
-              >
-                <path d="M17.5875 6.77268L21.8232 3.40505L17.5875 0.00748237L17.5837 0L13.3555 3.39757L17.5837 6.76894L17.5875 6.77268ZM17.5863 17.3955H17.59L28.5161 8.77432L25.5526 6.39453L17.59 12.6808H17.5863L17.5825 12.6845L9.61993 6.40201L6.66016 8.78181L17.5825 17.3992L17.5863 17.3955ZM17.5828 23.2891L17.5865 23.2854L32.2133 11.7456L35.1768 14.1254L28.5238 19.3752L17.5865 28L0.284376 14.3574L0 14.1291L2.95977 11.7531L17.5828 23.2891Z" />
-              </svg>
-            }
-            size="large"
-            style={{ fontWeight: 600, fontSize: '15px' }}
-            onClick={() => window.open('https://juejin.cn/user/239030525498106', '_blank')}
-          >
-            {t('header.juejin')}
-          </Button>
-          <Button
-            type="primary"
-            icon={<QuestionCircleOutlined style={{ fontSize: '18px' }} />}
-            size="large"
-            style={{ fontWeight: 600, fontSize: '15px' }}
-            onClick={() => window.open('https://wp-labs.github.io/wp-docs/', '_blank')}
-          >
-            {t('header.helpCenter')}
-          </Button>
-          <Button
-            type="primary"
-            icon={<WechatOutlined style={{ fontSize: '20px' }} />}
-            size="large"
-            shape="circle"
-            style={{ background: '#07C160', borderColor: '#07C160' }}
-            onClick={() => setWechatModalOpen(true)}
-          />
-          <LanguageSwitcher onLocaleChange={onLocaleChange} />
-          <div className={`user-menu ${userMenuOpen ? 'active' : ''}`} id="user-menu" ref={userMenuRef}>
-            <button
-              type="button"
-              className="user-trigger"
-              id="user-trigger"
-              onClick={handleUserMenuToggle}
-            >
-              <span className="user-icon">👤</span>
-              <span className="user-name" id="user-name">
-                {usernameLabel}
-              </span>
-            </button>
-            <div className="user-dropdown">
-              <button
-                type="button"
-                className="user-dropdown-item"
-                id="logout-btn"
-                onClick={handleLogout}
-              >
-                {t('navigation.logout')}
-              </button>
-            </div>
-          </div>
-        </div>
       </header>
       <div className="app-shell-body">
         <div
@@ -310,7 +343,9 @@ function Navigation({ children, onLocaleChange }) {
               : 'main-content'
           }
         >
-          {children}
+          <React.Fragment key={`${currentSystem}:${location.pathname}`}>
+            {children}
+          </React.Fragment>
         </div>
       </div>
       

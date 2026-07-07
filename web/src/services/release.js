@@ -5,6 +5,7 @@
  */
 
 import httpRequest from './request';
+import { resolveSystem } from './system';
 
 /**
  * 获取发布列表
@@ -18,10 +19,11 @@ import httpRequest from './request';
  * @returns {Promise<Object>} 分页结果
  */
 export async function fetchReleases(options = {}) {
-  const { version, pipeline, createdBy, status, page = 1, pageSize = 10 } = options;
+  const { version, pipeline, createdBy, status, page = 1, pageSize = 10, system } = options;
 
   const response = await httpRequest.get('/releases', {
     params: {
+      system: resolveSystem(system),
       version: version || undefined,
       pipeline: pipeline || undefined,
       created_by: createdBy || undefined,
@@ -36,6 +38,7 @@ export async function fetchReleases(options = {}) {
 
   const mappedItems = items.map((item) => ({
     id: item.id,
+    system: item.system || 'wparse',
     version: item.version,
     releaseGroup: item.release_group,
     status: item.status,
@@ -62,10 +65,11 @@ export async function fetchReleases(options = {}) {
  * @param {string} [note]
  * @returns {Promise<Object>}
  */
-export async function createRelease(releaseGroup, note) {
+export async function createRelease(releaseGroup, note, system) {
   const formattedNote =
     typeof note === 'string' && note.trim().length > 0 ? note.trim() : undefined;
   const response = await httpRequest.post('/releases', {
+    system: resolveSystem(system),
     pipeline: formattedNote,
     note: formattedNote,
   });
@@ -77,8 +81,10 @@ export async function createRelease(releaseGroup, note) {
  * @param {number|string} releaseId - 发布 ID
  * @returns {Promise<Object|null>} 发布详情
  */
-export async function fetchReleaseDetail(releaseId) {
-  const response = await httpRequest.get(`/releases/${releaseId}`);
+export async function fetchReleaseDetail(releaseId, system) {
+  const response = await httpRequest.get(`/releases/${releaseId}`, {
+    params: { system: resolveSystem(system) },
+  });
   return response?.id ? response : response?.data || response || null;
 }
 
@@ -87,8 +93,9 @@ export async function fetchReleaseDetail(releaseId) {
  * @param {number|string} releaseId - 发布 ID
  * @returns {Promise<Object>} 校验结果
  */
-export async function validateRelease(releaseId) {
+export async function validateRelease(releaseId, system) {
   const response = await httpRequest.post(`/releases/${releaseId}/validate`, {
+    system: resolveSystem(system),
     rule_type: 'all',
   });
   return response?.filename ? response : response?.data || response;
@@ -101,10 +108,11 @@ export async function validateRelease(releaseId) {
  * @param {string} [note] - 发布备注
  * @returns {Promise<Object>} 发布结果
  */
-export async function publishRelease(releaseId, releaseGroup, deviceIds = [], note) {
+export async function publishRelease(releaseId, releaseGroup, deviceIds = [], note, system) {
   const formattedNote =
     typeof note === 'string' && note.trim().length > 0 ? note.trim() : undefined;
   const response = await httpRequest.post(`/releases/${releaseId}/publish`, {
+    system: resolveSystem(system),
     release_group: releaseGroup,
     device_ids: deviceIds,
     note: formattedNote,
@@ -120,10 +128,11 @@ export async function publishRelease(releaseId, releaseGroup, deviceIds = [], no
  * @param {number} [options.limit=10]
  * @returns {Promise<Object>} 差异结果
  */
-export async function fetchReleaseDiff(releaseId, options = {}) {
+export async function fetchReleaseDiff(releaseId, options = {}, system) {
   const { offset = 0, limit = 10 } = options;
   const response = await httpRequest.get(`/releases/${releaseId}/diff`, {
     params: {
+      system: resolveSystem(system),
       offset,
       limit,
     },
@@ -137,8 +146,9 @@ export async function fetchReleaseDiff(releaseId, options = {}) {
  * @param {number[]} deviceIds - 设备 ID 列表
  * @returns {Promise<Object>} 回滚结果
  */
-export async function rollbackRelease(releaseId, deviceIds = [], targetIds = []) {
+export async function rollbackRelease(releaseId, deviceIds = [], targetIds = [], system) {
   const response = await httpRequest.post(`/releases/${releaseId}/rollback`, {
+    system: resolveSystem(system),
     device_ids: deviceIds,
     target_ids: targetIds,
   });

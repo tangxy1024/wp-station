@@ -15,6 +15,7 @@ import {
   deleteConnectionConfigFile,
   renderConfigTemplate,
 } from '@/services/config';
+import { useSystem } from '@/contexts/SystemContext';
 import CodeEditor from '@/views/components/CodeEditor/CodeEditor';
 import ValidateResultModal from '@/components/ValidateResultModal';
 const TEMPLATE_PAGE_SIZE = 10;
@@ -62,6 +63,7 @@ const splitSinkFile = (file = '') => {
 
 function ConfigManagePage() {
   const { t } = useTranslation();
+  const { currentSystem, registerBeforeSystemSwitch } = useSystem();
   const [activeKey, setActiveKey] = useState(RuleType.PARSE);
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
@@ -436,21 +438,36 @@ function ConfigManagePage() {
     }
   }, [filteredTemplateList.length, pagedTemplateList, selectedTemplateId, templateModalVisible]);
 
-  const confirmBeforeSwitch = (onConfirm) => {
+  const confirmBeforeLeave = React.useCallback(() => {
     if (!hasUnsavedChanges) {
-      onConfirm();
-      return;
+      return Promise.resolve(true);
     }
 
-    Modal.confirm({
-      title: t('configManage.leaveConfirm'),
-      content: t('configManage.leaveConfirmMessage'),
-      okText: t('common.confirm'),
-      cancelText: t('common.cancel'),
-      onOk: () => {
-        setHasUnsavedChanges(false);
+    return new Promise((resolve) => {
+      Modal.confirm({
+        title: t('configManage.leaveConfirm'),
+        content: t('configManage.leaveConfirmMessage'),
+        okText: t('common.confirm'),
+        cancelText: t('common.cancel'),
+        onOk: () => {
+          setHasUnsavedChanges(false);
+          resolve(true);
+        },
+        onCancel: () => resolve(false),
+      });
+    });
+  }, [hasUnsavedChanges, t]);
+
+  useEffect(() => registerBeforeSystemSwitch(() => confirmBeforeLeave()), [
+    confirmBeforeLeave,
+    registerBeforeSystemSwitch,
+  ]);
+
+  const confirmBeforeSwitch = (onConfirm) => {
+    confirmBeforeLeave().then((confirmed) => {
+      if (confirmed) {
         onConfirm();
-      },
+      }
     });
   };
 

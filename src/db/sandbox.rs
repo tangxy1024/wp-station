@@ -1,3 +1,5 @@
+//! 沙盒运行记录数据访问层。
+
 use crate::constants::sandbox::DEFAULT_HISTORY_LIMIT;
 use crate::db::get_pool;
 use crate::error::{DbError, DbResult};

@@ -2,6 +2,7 @@ import React, { startTransition, useDeferredValue, useEffect, useMemo, useRef, u
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Modal } from 'antd';
+import { useSystem } from '@/contexts/SystemContext';
 import { fetchReleaseDetail, fetchReleaseDiff, rollbackRelease } from '@/services/release';
 import DiffViewer from '@/components/diff/DiffViewer';
 import { parseDiffText } from '@/components/diff/diffUtils';
@@ -96,6 +97,7 @@ function ReleaseDetailPage() {
   const { t } = useTranslation();
   const { id: releaseId } = useParams();
   const navigate = useNavigate();
+  const { currentSystem, decoratePath } = useSystem();
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState(null);
@@ -119,7 +121,7 @@ function ReleaseDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetchReleaseDetail(releaseId);
+      const response = await fetchReleaseDetail(releaseId, currentSystem);
       setDetail(response);
     } catch (err) {
       setError({
@@ -144,10 +146,14 @@ function ReleaseDetailPage() {
     }));
 
     try {
-      const response = await fetchReleaseDiff(releaseId, {
-        offset,
-        limit: DIFF_BATCH_SIZE,
-      });
+      const response = await fetchReleaseDiff(
+        releaseId,
+        {
+          offset,
+          limit: DIFF_BATCH_SIZE,
+        },
+        currentSystem,
+      );
       const nextFiles = adaptDiffFiles(response?.files || [], offset);
 
       startTransition(() => {
@@ -185,7 +191,12 @@ function ReleaseDetailPage() {
 
     try {
       setLoading(true);
-      const result = await rollbackRelease(releaseId, [deviceId], targetId ? [targetId] : []);
+      const result = await rollbackRelease(
+        releaseId,
+        [deviceId],
+        targetId ? [targetId] : [],
+        currentSystem,
+      );
       Modal.success({
         title: t('systemRelease.rollbackSuccess'),
         content: result.message || t('systemRelease.rollbackSuccessMessage'),
@@ -203,7 +214,7 @@ function ReleaseDetailPage() {
 
   useEffect(() => {
     loadDetail();
-  }, [releaseId]);
+  }, [currentSystem, releaseId]);
 
   useEffect(() => {
     setDiffState({
@@ -218,7 +229,7 @@ function ReleaseDetailPage() {
       error: null,
     });
     loadDiffPage({ append: false, offset: 0 });
-  }, [releaseId]);
+  }, [currentSystem, releaseId]);
 
   const getReleaseGroupTitle = (releaseGroup) => {
     if (releaseGroup === 'models') {
@@ -367,7 +378,11 @@ function ReleaseDetailPage() {
       <div className="panel is-visible">
         <div style={{ padding: '40px', textAlign: 'center' }}>
           <div>{error.message}</div>
-          <button type="button" className="btn ghost" onClick={() => navigate('/system-release')}>
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => navigate(decoratePath('/system-release'))}
+          >
             {t('systemRelease.backToList')}
           </button>
         </div>
@@ -403,13 +418,17 @@ function ReleaseDetailPage() {
       <div className="release-detail">
         <header className="release-detail-header">
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <button type="button" className="btn ghost" onClick={() => navigate('/system-release')}>
-              {t('systemRelease.backToList')}
-            </button>
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => navigate(decoratePath('/system-release'))}
+          >
+            {t('systemRelease.backToList')}
+          </button>
             <button
               type="button"
               className="btn"
-              onClick={() => navigate(`/system-release/${releaseId}/prepublish`)}
+              onClick={() => navigate(decoratePath(`/system-release/${releaseId}/prepublish`))}
             >
               {t(isPublished ? 'sandbox.prepublishDetail' : 'sandbox.startSandbox')}
             </button>
@@ -425,6 +444,12 @@ function ReleaseDetailPage() {
           <div className="summary-item">
             <span className="summary-label">{t('systemRelease.version')}</span>
             <span className="summary-value">{detail.version || '—'}</span>
+          </div>
+          <div className="summary-item">
+            <span className="summary-label">{t('systemRelease.system')}</span>
+            <span className="summary-value">
+              {t(`navigation.system.${detail.system || currentSystem}`)}
+            </span>
           </div>
           <div className="summary-item">
             <span className="summary-label">{t('systemRelease.releaseGroup')}</span>

@@ -18,6 +18,7 @@ import SimulateDebugPage from '@/views/pages/simulate-debug';
 import IntegrationOverviewPage from '@/views/pages/integration-overview';
 import SystemManagePage from '@/views/pages/system-manage';
 import { AssistTaskProvider } from '@/contexts/AssistTaskContext';
+import { SystemProvider } from '@/contexts/SystemContext';
 import AssistTaskCenter from '@/views/components/AssistTaskCenter';
 
 // 设置 dayjs 为中文语言环境
@@ -87,30 +88,32 @@ function App() {
             path="/*"
             element={
               // AssistTaskProvider 在路由层内部，可安全使用 useNavigate
-              <AssistTaskProvider>
-                <Navigation onLocaleChange={handleLocaleChange}>
-                  <RequireAuth>
-                    <Routes>
-                      <Route path="/" element={<Navigate to="/rule-manage" replace />} />
-                      <Route path="/features" element={<FeaturesPage />} />
-                      <Route path="/system-release" element={<SystemReleasePage />} />
-                      <Route path="/system-release/:id" element={<ReleaseDetailPage />} />
-                      <Route
-                        path="/system-release/:id/prepublish"
-                        element={<PrepublishPage />}
-                      />
-                      <Route path="/rule-manage" element={<RuleManagePage />} />
-                      <Route path="/config-manage" element={<ConfigManagePage />} />
-                      <Route path="/simulate-debug" element={<SimulateDebugPage />} />
-                      <Route path="/integration-overview" element={<IntegrationOverviewPage />} />
-                      <Route path="/system-manage" element={<SystemManagePage />} />
-                      <Route path="*" element={<Navigate to="/rule-manage" replace />} />
-                    </Routes>
-                    {/* 全局任务中心悬浮按钮，在所有认证页面可见 */}
-                    <AssistTaskCenter />
-                  </RequireAuth>
-                </Navigation>
-              </AssistTaskProvider>
+              <SystemProvider>
+                <AssistTaskProvider>
+                  <Navigation onLocaleChange={handleLocaleChange}>
+                    <RequireAuth>
+                      <Routes>
+                        <Route path="/" element={<Navigate to="/rule-manage" replace />} />
+                        <Route path="/features" element={<FeaturesPage />} />
+                        <Route path="/system-release" element={<SystemReleasePage />} />
+                        <Route path="/system-release/:id" element={<ReleaseDetailPage />} />
+                        <Route
+                          path="/system-release/:id/prepublish"
+                          element={<PrepublishPage />}
+                        />
+                        <Route path="/rule-manage" element={<RuleManagePage />} />
+                        <Route path="/config-manage" element={<ConfigManagePage />} />
+                        <Route path="/simulate-debug" element={<SimulateDebugPage />} />
+                        <Route path="/integration-overview" element={<IntegrationOverviewPage />} />
+                        <Route path="/system-manage" element={<SystemManagePage />} />
+                        <Route path="*" element={<Navigate to="/rule-manage" replace />} />
+                      </Routes>
+                      {/* 全局任务中心悬浮按钮，在所有认证页面可见 */}
+                      <AssistTaskCenter />
+                    </RequireAuth>
+                  </Navigation>
+                </AssistTaskProvider>
+              </SystemProvider>
             }
           />
         </Routes>

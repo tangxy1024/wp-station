@@ -1,6 +1,6 @@
 /**
  * 调试服务模块
- * 提供日志解析、记录转换、知识库状态查询和性能测试功能
+ * 提供日志解析、记录转换和知识库状态查询功能
  */
 
 import httpRequest from './request';
@@ -440,27 +440,4 @@ export async function convertRecord(options) {
       responseData,
     });
   }
-}
-
-/**
- * 运行性能测试
- * @param {Object} options - 测试选项
- * @param {string} options.testType - 测试类型
- * @param {Object} options.config - 测试配置
- * @returns {Promise<Object>} 测试任务信息
- */
-export async function runPerformanceTest(options) {
-  const { testType, config } = options;
-
-  // 调用后端性能测试接口：POST /api/debug/performance/run
-  const response = await httpRequest.post('/debug/performance/run', {
-    test_type: testType,
-    config,
-  });
-
-  // 后端返回测试任务信息
-  return response || {
-    taskId: `perf-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-001`,
-    status: 'running',
-  };
 }

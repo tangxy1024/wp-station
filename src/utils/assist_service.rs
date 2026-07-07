@@ -90,6 +90,7 @@ pub struct AssistService {
 }
 
 impl AssistService {
+    /// 创建 Assist HTTP 客户端。
     pub fn new() -> Result<Self, AssistServiceError> {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(30))

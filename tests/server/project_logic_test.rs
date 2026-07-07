@@ -14,6 +14,7 @@ use wp_station::server::project::{
     ProjectImportRequest, confirm_project_archive_import_logic, export_project_archive_logic,
     import_project_from_files_logic, preview_project_archive_logic,
 };
+use wp_station::utils::SystemKind;
 use wp_station::utils::compose_project_layout_into;
 
 fn legacy_import_dir(name: &str) -> PathBuf {
@@ -83,6 +84,7 @@ async fn test_import_project_requires_legacy_directories() {
     let result = import_project_from_files_logic(
         Some("tester".to_string()),
         ProjectImportRequest {
+            system: SystemKind::Wparse,
             source_dir: source_dir.to_string_lossy().to_string(),
         },
     )
@@ -114,6 +116,7 @@ async fn test_import_project_validates_source_dir_before_overwrite() {
     let result = import_project_from_files_logic(
         Some("tester".to_string()),
         ProjectImportRequest {
+            system: SystemKind::Wparse,
             source_dir: source_dir.to_string_lossy().to_string(),
         },
     )
@@ -157,6 +160,7 @@ async fn test_import_project_splits_legacy_directory_into_dual_repos() {
     let response = import_project_from_files_logic(
         Some("tester".to_string()),
         ProjectImportRequest {
+            system: SystemKind::Wparse,
             source_dir: source_dir.to_string_lossy().to_string(),
         },
     )
@@ -195,7 +199,7 @@ async fn test_import_project_splits_legacy_directory_into_dual_repos() {
 #[tokio::test]
 async fn test_import_project_archive_supports_models_only_directory() {
     setup_db().await;
-    if let Some(draft) = find_latest_draft_release()
+    if let Some(draft) = find_latest_draft_release(SystemKind::Wparse)
         .await
         .expect("query draft before import")
     {
@@ -212,6 +216,7 @@ async fn test_import_project_archive_supports_models_only_directory() {
     write_file(test_infra_root().join("sentinel.txt"), "keep infra");
 
     let preview = preview_project_archive_logic(
+        SystemKind::Wparse,
         Some("tester".to_string()),
         "models-only.tar.gz",
         build_archive_with_dirs(&source_dir, &["models"]),
@@ -229,10 +234,13 @@ async fn test_import_project_archive_supports_models_only_directory() {
         ]
     );
 
-    let response =
-        confirm_project_archive_import_logic(Some("tester".to_string()), &preview.import_id)
-            .await
-            .expect("confirm models-only archive");
+    let response = confirm_project_archive_import_logic(
+        Some("tester".to_string()),
+        SystemKind::Wparse,
+        &preview.import_id,
+    )
+    .await
+    .expect("confirm models-only archive");
 
     assert_eq!(response.summary.imported_dirs, vec!["models".to_string()]);
     assert_eq!(
@@ -244,14 +252,15 @@ async fn test_import_project_archive_supports_models_only_directory() {
             .expect("read imported models marker"),
         "archive models only"
     );
-    let draft = find_latest_draft_release()
+    let draft = find_latest_draft_release(SystemKind::Wparse)
         .await
         .expect("query draft after import")
         .expect("draft should be recreated after archive import");
     assert_eq!(draft.status, ReleaseStatus::WAIT.as_ref());
-    let (releases, total) = find_all_releases(1, 20, None, None, None, None)
-        .await
-        .expect("query release list after import");
+    let (releases, total) =
+        find_all_releases(Some(SystemKind::Wparse), 1, 20, None, None, None, None)
+            .await
+            .expect("query release list after import");
     assert!(
         total >= 1,
         "expected at least one visible release after import"
@@ -275,6 +284,7 @@ async fn test_import_project_archive_supports_conf_only_directory() {
     );
 
     let preview = preview_project_archive_logic(
+        SystemKind::Wparse,
         Some("tester".to_string()),
         "conf-only.tar.gz",
         build_archive_with_dirs(&source_dir, &["conf"]),
@@ -292,10 +302,13 @@ async fn test_import_project_archive_supports_conf_only_directory() {
         ]
     );
 
-    let response =
-        confirm_project_archive_import_logic(Some("tester".to_string()), &preview.import_id)
-            .await
-            .expect("confirm conf-only archive");
+    let response = confirm_project_archive_import_logic(
+        Some("tester".to_string()),
+        SystemKind::Wparse,
+        &preview.import_id,
+    )
+    .await
+    .expect("confirm conf-only archive");
 
     assert_eq!(response.summary.imported_dirs, vec!["conf".to_string()]);
     assert_eq!(
@@ -311,7 +324,7 @@ async fn test_import_project_archive_supports_conf_only_directory() {
 async fn test_export_project_archive_uses_flat_root_directories() {
     setup_db().await;
 
-    let archive = export_project_archive_logic()
+    let archive = export_project_archive_logic(SystemKind::Wparse)
         .await
         .expect("export project archive");
     let entries = archive_entry_names(&archive.bytes);

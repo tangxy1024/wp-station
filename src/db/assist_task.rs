@@ -1,4 +1,4 @@
-// AI 辅助任务数据库操作 - 纯函数式
+//! AI 辅助任务数据访问层。
 
 use crate::db::get_pool;
 use crate::error::{DbError, DbResult};
@@ -47,6 +47,7 @@ pub enum AssistTaskStatus {
     Cancelled,
 }
 
+/// 新建辅助任务的入库参数。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewAssistTask {
     pub task_id: String,

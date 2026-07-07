@@ -1,0 +1,52 @@
+window conn_events {
+    stream = "netflow"
+    time = event_time
+    over = 30m
+    fields {
+        sip: ip
+        dip: ip
+        dport: digit
+        bytes_out: digit
+        protocol: chars
+        event_time: time
+    }
+}
+
+window conn_events_tcp {
+    stream = "netflow_tcp"
+    time = event_time
+    over = 30m
+    fields {
+        sip: ip
+        dip: ip
+        dport: digit
+        bytes_out: digit
+        protocol: chars
+        event_time: time
+    }
+}
+
+window auth_events {
+    stream = "auth_events"
+    time = event_time
+    over = 30m
+    fields {
+        sip: ip
+        dip: ip
+        dport: digit
+        service: chars
+        user: chars
+        result: chars
+        event_time: time
+    }
+}
+
+window security_alerts {
+    over = 0
+    fields {
+        sip: ip
+        dip: ip
+        alert_type: chars
+        detail: chars
+    }
+}

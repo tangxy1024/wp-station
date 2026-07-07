@@ -5,6 +5,7 @@
  */
 
 import httpRequest from './request';
+import { getSharedSystem, resolveSystem } from './system';
 
 // 前端枚举：规则 / 连接类型，与后端 RuleType 枚举保持一致
 export const RuleType = Object.freeze({
@@ -15,6 +16,10 @@ export const RuleType = Object.freeze({
   SINK_CONNECT: 'sink_connect',
   WPL: 'wpl',
   OML: 'oml',
+  WINDOWS: 'windows',
+  SCHEMA: 'schema',
+  RULE: 'rule',
+  SCENARIOS: 'scenarios',
   KNOWLEDGE: 'knowledge',
 });
 
@@ -69,11 +74,13 @@ const normalizeConfigFileItems = (items = []) =>
         .filter(Boolean)
     : [];
 
-async function fetchConfigFileListResponse(ruleType, keyword) {
+async function fetchConfigFileListResponse(ruleType, keyword, system) {
+  const targetSystem = resolveSystem(system);
   const keywordParam =
     typeof keyword === 'string' && keyword.trim() ? keyword.trim() : undefined;
   const response = await httpRequest.get('/config/files', {
     params: {
+      system: targetSystem,
       rule_type: ruleType,
       keyword: keywordParam,
     },
@@ -86,7 +93,7 @@ async function fetchConfigFileListResponse(ruleType, keyword) {
       : items[0]?.file || '';
 
   if (!keywordParam) {
-    configFileMetaCache.set(ruleType, {
+    configFileMetaCache.set(`${targetSystem}:${ruleType}`, {
       defaultFile,
       items,
     });
@@ -95,13 +102,14 @@ async function fetchConfigFileListResponse(ruleType, keyword) {
   return { items, defaultFile };
 }
 
-async function resolveDefaultConfigFile(ruleType) {
-  const cached = configFileMetaCache.get(ruleType);
+async function resolveDefaultConfigFile(ruleType, system) {
+  const cacheKey = `${resolveSystem(system)}:${ruleType}`;
+  const cached = configFileMetaCache.get(cacheKey);
   if (cached?.defaultFile) {
     return cached.defaultFile;
   }
 
-  const response = await fetchConfigFileListResponse(ruleType);
+  const response = await fetchConfigFileListResponse(ruleType, undefined, system);
   return response.defaultFile;
 }
 
@@ -113,14 +121,19 @@ async function resolveDefaultConfigFile(ruleType) {
  * @returns {Promise<Object>} 配置内容
  */
 export async function fetchRuleConfig(options) {
-  const { type, file } = options;
+  const { type, file, system: rawSystem } = options;
+  const system =
+    type === RuleType.SOURCE_CONNECT || type === RuleType.SINK_CONNECT
+      ? getSharedSystem()
+      : resolveSystem(rawSystem);
 
   // Source 配置走真实后端：/api/config?rule_type=source&file=xxx.toml
   if (type === RuleType.SOURCE) {
-    const targetFile = file || (await resolveDefaultConfigFile(RuleType.SOURCE));
+    const targetFile = file || (await resolveDefaultConfigFile(RuleType.SOURCE, system));
     try {
       const response = await httpRequest.get('/config', {
         params: {
+          system,
           rule_type: RuleType.SOURCE,
           file: targetFile,
         },
@@ -160,6 +173,7 @@ export async function fetchRuleConfig(options) {
     try {
       const response = await httpRequest.get('/config', {
         params: {
+          system,
           rule_type: type,
           file: targetFile,
         },
@@ -179,10 +193,11 @@ export async function fetchRuleConfig(options) {
 
   // 解析配置（parse）复用连接配置接口，使用 rule_type=parse
   if (type === RuleType.PARSE) {
-    const targetFile = file || (await resolveDefaultConfigFile(RuleType.PARSE));
+    const targetFile = file || (await resolveDefaultConfigFile(RuleType.PARSE, system));
     try {
       const response = await httpRequest.get('/config', {
         params: {
+          system,
           rule_type: RuleType.PARSE,
           file: targetFile,
         },
@@ -221,6 +236,7 @@ export async function fetchRuleConfig(options) {
     try {
       const response = await httpRequest.get('/config', {
         params: {
+          system,
           rule_type: RuleType.SINK,
           file: targetFile,
         },
@@ -237,9 +253,16 @@ export async function fetchRuleConfig(options) {
     }
   }
 
-  // wpl / oml 规则配置走通用规则接口：/api/config/rules
-  if (type === RuleType.WPL || type === RuleType.OML) {
-    const targetFile = file;
+  // wpl / oml / schema / rule 规则配置走通用规则接口：/api/config/rules
+  if (
+    type === RuleType.WPL ||
+    type === RuleType.OML ||
+    type === RuleType.WINDOWS ||
+    type === RuleType.SCHEMA ||
+    type === RuleType.RULE ||
+    type === RuleType.SCENARIOS
+  ) {
+    const targetFile = file || (type === RuleType.WINDOWS ? 'windows.toml' : '');
     if (!targetFile) {
       throw new Error('当前未选择任何规则文件');
     }
@@ -247,6 +270,7 @@ export async function fetchRuleConfig(options) {
     try {
       const response = await httpRequest.get('/config/rules', {
         params: {
+          system,
           rule_type: type,
           file: targetFile,
         },
@@ -286,6 +310,7 @@ export async function fetchRuleConfig(options) {
     try {
       const response = await httpRequest.get('/config/rules', {
         params: {
+          system,
           rule_type: type,
           file: targetFile,
         },
@@ -332,10 +357,19 @@ export async function fetchRuleConfig(options) {
  * @returns {Promise<string[]>} 文件或数据集列表
  */
 export async function fetchRuleFiles(options) {
-  const { type, page, pageSize, keyword } = options;
+  const { type, page, pageSize, keyword, system: rawSystem } = options;
+  const system = resolveSystem(rawSystem);
 
-  // wpl / oml / knowledge 规则列表走后端：/api/config/rules/files
-  if (type === RuleType.WPL || type === RuleType.OML || type === RuleType.KNOWLEDGE) {
+  // wpl / oml / schema / rule / knowledge 规则列表走后端：/api/config/rules/files
+  if (
+    type === RuleType.WPL ||
+    type === RuleType.OML ||
+    type === RuleType.WINDOWS ||
+    type === RuleType.SCHEMA ||
+    type === RuleType.RULE ||
+    type === RuleType.SCENARIOS ||
+    type === RuleType.KNOWLEDGE
+  ) {
     const currentPage = typeof page === 'number' && page > 0 ? page : 1;
     const defaultPageSize = 15;
     const currentPageSize =
@@ -346,6 +380,7 @@ export async function fetchRuleFiles(options) {
 
     const response = await httpRequest.get('/config/rules/files', {
       params: {
+        system,
         rule_type: type,
         page: currentPage,
         page_size: currentPageSize,
@@ -371,7 +406,7 @@ export async function fetchRuleFiles(options) {
   }
 
   if (type === RuleType.SINK || type === RuleType.SOURCE || type === RuleType.PARSE) {
-    const { items, defaultFile } = await fetchConfigFileListResponse(type, keyword);
+    const { items, defaultFile } = await fetchConfigFileListResponse(type, keyword, system);
     const normalizedItems = uniqueConnectionItems(items);
 
     return {
@@ -390,13 +425,15 @@ export async function fetchRuleFiles(options) {
 
 // 创建规则文件（wpl / oml / knowledge）
 export async function createRuleFile(options) {
-  const { type, file } = options;
+  const { type, file, system: rawSystem } = options;
+  const system = resolveSystem(rawSystem);
 
   if (!type || !file) {
     throw new Error('创建规则文件时必须提供类型和文件名');
   }
 
   await httpRequest.post('/config/rules/files', {
+    system,
     rule_type: type,
     file,
   });
@@ -404,7 +441,8 @@ export async function createRuleFile(options) {
 
 // 删除规则文件（wpl / oml / knowledge）
 export async function deleteRuleFile(options) {
-  const { type, file } = options;
+  const { type, file, system: rawSystem } = options;
+  const system = resolveSystem(rawSystem);
 
   if (!type || !file) {
     throw new Error('删除规则文件时必须提供类型和文件名');
@@ -412,6 +450,7 @@ export async function deleteRuleFile(options) {
 
   await httpRequest.delete('/config/rules/files', {
     params: {
+      system,
       rule_type: type,
       file,
     },
@@ -426,6 +465,7 @@ export async function deleteRuleFile(options) {
  */
 export async function fetchConnectionFiles(options = {}) {
   const { keyword } = options;
+  const system = getSharedSystem();
 
   const keywordParam =
     typeof keyword === 'string' && keyword.trim() ? keyword.trim() : undefined;
@@ -433,12 +473,14 @@ export async function fetchConnectionFiles(options = {}) {
   const [sourceResponse, sinkResponse] = await Promise.all([
     httpRequest.get('/config/files', {
       params: {
+        system,
         rule_type: 'source_connect',
         keyword: keywordParam,
       },
     }),
     httpRequest.get('/config/files', {
       params: {
+        system,
         rule_type: 'sink_connect',
         keyword: keywordParam,
       },
@@ -481,12 +523,14 @@ export async function fetchConnectionFiles(options = {}) {
  */
 export async function createConnectionConfigFile(options) {
   const { category, file, displayName } = options;
+  const system = getSharedSystem();
 
   if (!category || !file) {
     throw new Error('创建连接配置文件时必须提供类别和文件名');
   }
 
   await httpRequest.post('/config/files', {
+    system,
     rule_type: category,
     file,
     display_name: displayName || undefined,
@@ -501,13 +545,15 @@ export async function createConnectionConfigFile(options) {
  * @param {string} [options.displayName] - 展示名
  */
 export async function createConfigFile(options) {
-  const { type, file, displayName } = options;
+  const { type, file, displayName, system: rawSystem } = options;
+  const system = resolveSystem(rawSystem);
 
   if (!type || !file) {
     throw new Error('创建配置文件时必须提供类型和文件名');
   }
 
   await httpRequest.post('/config/files', {
+    system,
     rule_type: type,
     file,
     display_name: displayName || undefined,
@@ -521,7 +567,8 @@ export async function createConfigFile(options) {
  * @param {string} options.file - 文件名
  */
 export async function deleteConfigFile(options) {
-  const { type, file } = options;
+  const { type, file, system: rawSystem } = options;
+  const system = resolveSystem(rawSystem);
 
   if (!type || !file) {
     throw new Error('删除配置文件时必须提供类型和文件名');
@@ -529,6 +576,7 @@ export async function deleteConfigFile(options) {
 
   await httpRequest.delete('/config/files', {
     params: {
+      system,
       rule_type: type,
       file,
     },
@@ -543,6 +591,7 @@ export async function deleteConfigFile(options) {
  */
 export async function deleteConnectionConfigFile(options) {
   const { category, file } = options;
+  const system = getSharedSystem();
 
   if (!category || !file) {
     throw new Error('删除连接配置文件时必须提供类别和文件名');
@@ -550,6 +599,7 @@ export async function deleteConnectionConfigFile(options) {
 
   await httpRequest.delete('/config/files', {
     params: {
+      system,
       rule_type: category,
       file,
     },
@@ -565,8 +615,10 @@ export async function fetchConfigTemplates(scope) {
     throw new Error('配置模板 scope 仅支持 source 或 sink');
   }
 
+  const system = getSharedSystem();
   const response = await httpRequest.get('/config/templates', {
     params: {
+      system,
       scope,
     },
   });
@@ -611,7 +663,9 @@ export async function renderConfigTemplate(options) {
     throw new Error('渲染配置模板时必须提供有效的 scope 和 templateId');
   }
 
+  const system = getSharedSystem();
   const response = await httpRequest.post('/config/templates/render', {
+    system,
     scope,
     template_id: templateId,
     content: content || '',
@@ -643,7 +697,11 @@ export async function renderConfigTemplate(options) {
  * @returns {Promise<Object>} 校验结果
  */
 export async function validateRuleConfig(options) {
-  const { type, file, content } = options;
+  const { type, file, content, system: rawSystem } = options;
+  const system =
+    type === RuleType.SOURCE_CONNECT || type === RuleType.SINK_CONNECT
+      ? getSharedSystem()
+      : resolveSystem(rawSystem);
 
   // 所有类型统一走真实后端校验：POST /api/config/rules/validate
 
@@ -651,9 +709,11 @@ export async function validateRuleConfig(options) {
   let targetFile = file;
   if (!targetFile) {
     if (type === RuleType.SOURCE) {
-      targetFile = await resolveDefaultConfigFile(RuleType.SOURCE);
+      targetFile = await resolveDefaultConfigFile(RuleType.SOURCE, system);
     } else if (type === RuleType.PARSE) {
-      targetFile = await resolveDefaultConfigFile(RuleType.PARSE);
+      targetFile = await resolveDefaultConfigFile(RuleType.PARSE, system);
+    } else if (type === RuleType.WINDOWS) {
+      targetFile = 'windows.toml';
     } else {
       targetFile = `${type}.toml`;
     }
@@ -662,6 +722,7 @@ export async function validateRuleConfig(options) {
   const currentContent = content || '';
 
   const response = await httpRequest.post('/config/rules/validate', {
+    system,
     rule_type: type,
     file: targetFile,
     content: currentContent,
@@ -689,13 +750,18 @@ export async function validateRuleConfig(options) {
  * @returns {Promise<Object>} 保存结果
  */
 export async function saveRuleConfig(options) {
-  const { type, file, content } = options;
+  const { type, file, content, system: rawSystem } = options;
+  const system =
+    type === RuleType.SOURCE_CONNECT || type === RuleType.SINK_CONNECT
+      ? getSharedSystem()
+      : resolveSystem(rawSystem);
 
   // Source 配置走真实后端保存：POST /api/config
   if (type === RuleType.SOURCE) {
-    const targetFile = file || (await resolveDefaultConfigFile(RuleType.SOURCE));
+    const targetFile = file || (await resolveDefaultConfigFile(RuleType.SOURCE, system));
 
     await httpRequest.post('/config', {
+      system,
       rule_type: RuleType.SOURCE,
       file: targetFile,
       content: content || '',
@@ -717,6 +783,7 @@ export async function saveRuleConfig(options) {
     }
 
     await httpRequest.post('/config', {
+      system,
       rule_type: type,
       file: targetFile,
       content: content || '',
@@ -732,9 +799,10 @@ export async function saveRuleConfig(options) {
 
   // 解析配置（parse）走真实后端保存：POST /api/config，固定文件 wparse.toml
   if (type === RuleType.PARSE) {
-    const targetFile = file || (await resolveDefaultConfigFile(RuleType.PARSE));
+    const targetFile = file || (await resolveDefaultConfigFile(RuleType.PARSE, system));
 
     await httpRequest.post('/config', {
+      system,
       rule_type: RuleType.PARSE,
       file: targetFile,
       content: content || '',
@@ -756,6 +824,7 @@ export async function saveRuleConfig(options) {
     }
 
     await httpRequest.post('/config', {
+      system,
       rule_type: RuleType.SINK,
       file: targetFile,
       content: content || '',
@@ -769,14 +838,22 @@ export async function saveRuleConfig(options) {
     };
   }
 
-  // wpl / oml 规则保存走通用规则接口：POST /api/config/rules/save
-  if (type === RuleType.WPL || type === RuleType.OML) {
-    const targetFile = file;
+  // wpl / oml / schema / rule 规则保存走通用规则接口：POST /api/config/rules/save
+  if (
+    type === RuleType.WPL ||
+    type === RuleType.OML ||
+    type === RuleType.WINDOWS ||
+    type === RuleType.SCHEMA ||
+    type === RuleType.RULE ||
+    type === RuleType.SCENARIOS
+  ) {
+    const targetFile = file || (type === RuleType.WINDOWS ? 'windows.toml' : '');
     if (!targetFile) {
       throw new Error('当前未选择任何规则文件');
     }
 
     await httpRequest.post('/config/rules/save', {
+      system,
       rule_type: type,
       file: targetFile,
       content: content || '',
@@ -795,7 +872,8 @@ export async function saveRuleConfig(options) {
 
 // 保存知识库规则配置（knowledge 类型）
 export async function saveKnowledgeRule(options) {
-  const { file, config, createSql, insertSql, data } = options;
+  const { file, config, createSql, insertSql, data, system: rawSystem } = options;
+  const system = resolveSystem(rawSystem);
 
   if (!file) {
     throw new Error('当前未选择任何数据集');
@@ -805,6 +883,7 @@ export async function saveKnowledgeRule(options) {
     '/config/knowledge/save',
     {
       file,
+      system,
       config: config ?? '',
       create_sql: createSql ?? '',
       insert_sql: insertSql ?? '',
@@ -824,8 +903,10 @@ export async function saveKnowledgeRule(options) {
   };
 }
 
-export async function fetchKnowdbConfig() {
-  const response = await httpRequest.get('/config/knowledge/knowdb');
+export async function fetchKnowdbConfig(system) {
+  const response = await httpRequest.get('/config/knowledge/knowdb', {
+    params: { system: resolveSystem(system) },
+  });
   return {
     file: response?.file || 'knowdb.toml',
     content: response?.content || '',
@@ -833,8 +914,9 @@ export async function fetchKnowdbConfig() {
   };
 }
 
-export async function saveKnowdbConfig(content) {
+export async function saveKnowdbConfig(content, system) {
   await httpRequest.post('/config/knowledge/knowdb', {
+    system: resolveSystem(system),
     content: content ?? '',
   });
   return {

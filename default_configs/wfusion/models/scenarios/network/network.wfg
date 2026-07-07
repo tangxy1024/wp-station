@@ -1,0 +1,15 @@
+use "../../schemas/network/network.wfs"
+use "../../rules/rat_propagation/rat_propagation.wfl"
+
+#[duration=10s]
+scenario sandbox<seed=42> {
+  traffic { stream auth_events gen 5/s }
+
+  injection {
+    hit<100%> for rat_propagation_auth auth_events {
+      sip seq {
+        use(result="success", service="ssh", dport=22, dip="192.168.1.10") with(10)
+      }
+    }
+  }
+}

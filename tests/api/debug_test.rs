@@ -58,8 +58,6 @@ max = 10
             .service(wp_station::api::debug_parse)
             .service(wp_station::api::debug_knowledge_status)
             .service(wp_station::api::debug_knowledge_query)
-            .service(wp_station::api::debug_performance_run)
-            .service(wp_station::api::debug_performance_get)
             .service(wp_station::api::wpl_format)
             .service(wp_station::api::oml_format)
             .service(wp_station::api::debug_examples),
@@ -136,25 +134,6 @@ max = 10
     let actual_table_body: serde_json::Value =
         serde_json::from_slice(&actual_table_body_bytes).expect("parse actual table body");
     assert_eq!(actual_table_body["success"], true);
-
-    // start a performance task and fetch it back
-    let run_req = test::TestRequest::post()
-        .uri("/api/debug/performance/run")
-        .set_json(serde_json::json!({
-            "sample": "{\"msg\": \"hello\"}",
-            "config": "{\"concurrency\":1}"
-        }))
-        .to_request();
-    let run_resp = test::call_service(&app, run_req).await;
-    assert_eq!(run_resp.status(), StatusCode::OK);
-    let run_payload: serde_json::Value = test::read_body_json(run_resp).await;
-    let task_id = run_payload["task_id"].as_str().unwrap().to_string();
-
-    let get_req = test::TestRequest::get()
-        .uri(&format!("/api/debug/performance/{}", task_id))
-        .to_request();
-    let get_resp = test::call_service(&app, get_req).await;
-    assert_eq!(get_resp.status(), StatusCode::OK);
 
     // formatter endpoints accept raw text payloads
     let wpl_req = test::TestRequest::post()

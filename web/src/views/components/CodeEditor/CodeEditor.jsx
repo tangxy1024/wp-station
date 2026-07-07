@@ -28,6 +28,8 @@ import {
   OML_COMPLETION_VALID_FOR,
 } from './oml/omlLanguage';
 import { omlHighlightExtension } from './oml/omlTreeSitterHighlight';
+import { wfsHighlightExtension } from './wfusion/wfsHighlight';
+import { wflHighlightExtension } from './wfusion/wflHighlight';
 
 const createCompletionSource = (options, validFor) => (context) => {
   const word = context.matchBefore(validFor);
@@ -142,6 +144,12 @@ function CodeEditor(props, ref) {
         omlHighlightExtension(),
         autocompletion({ override: [omlCompletionSource] }),
       );
+    }
+    if (language === 'wfs') {
+      extensions.splice(6, 0, wfsHighlightExtension());
+    }
+    if (language === 'wfl') {
+      extensions.splice(6, 0, wflHighlightExtension());
     }
     if (language === 'json') {
       extensions.splice(6, 0, json());

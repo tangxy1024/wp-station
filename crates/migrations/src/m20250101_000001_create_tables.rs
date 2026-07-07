@@ -23,13 +23,32 @@ impl MigrationTrait for Migration {
         let stmt = schema.create_table_from_entity(crate::entity::release_target::Entity);
         manager.create_table(stmt).await?;
 
-        // 创建 performance_tasks 表
-        let stmt = schema.create_table_from_entity(crate::entity::performance::Entity);
-        manager.create_table(stmt).await?;
+        // 创建发布分组查询索引，支撑按分组查找最新发布记录。
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_releases_release_group")
+                    .table(crate::entity::release::Entity)
+                    .col(crate::entity::release::Column::ReleaseGroup)
+                    .col(crate::entity::release::Column::Status)
+                    .col(crate::entity::release::Column::PublishedAt)
+                    .to_owned(),
+            )
+            .await?;
 
-        // 创建 performance_results 表
-        let stmt = schema.create_table_from_entity(crate::entity::performance::result::Entity);
-        manager.create_table(stmt).await?;
+        // 创建设备上一成功发布查询索引，支撑回滚和版本比对。
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_release_targets_prev_success")
+                    .table(crate::entity::release_target::Entity)
+                    .col(crate::entity::release_target::Column::DeviceId)
+                    .col(crate::entity::release_target::Column::ReleaseGroup)
+                    .col(crate::entity::release_target::Column::Status)
+                    .col(crate::entity::release_target::Column::CompletedAt)
+                    .to_owned(),
+            )
+            .await?;
 
         // 创建 user 表
         let stmt = schema.create_table_from_entity(crate::entity::user::Entity);
@@ -95,20 +114,6 @@ impl MigrationTrait for Migration {
             .drop_table(
                 Table::drop()
                     .table(crate::entity::user::Entity)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .drop_table(
-                Table::drop()
-                    .table(crate::entity::performance::result::Entity)
-                    .to_owned(),
-            )
-            .await?;
-        manager
-            .drop_table(
-                Table::drop()
-                    .table(crate::entity::performance::Entity)
                     .to_owned(),
             )
             .await?;

@@ -1,4 +1,5 @@
 import httpRequest from './request';
+import { resolveSystem } from './system';
 
 const API_BASE = '/api';
 
@@ -16,8 +17,9 @@ async function parseErrorResponse(response, fallback) {
   }
 }
 
-export async function importProjectArchive(file) {
-  const response = await fetch(`${API_BASE}/project/import/archive`, {
+export async function importProjectArchive(file, system) {
+  const targetSystem = resolveSystem(system);
+  const response = await fetch(`${API_BASE}/project/import/archive?system=${encodeURIComponent(targetSystem)}`, {
     method: 'POST',
     headers: {
       ...getOperatorHeader(),
@@ -34,14 +36,14 @@ export async function importProjectArchive(file) {
   return response.json();
 }
 
-export async function confirmProjectArchiveImport(importId) {
+export async function confirmProjectArchiveImport(importId, system) {
   const response = await fetch(`${API_BASE}/project/import/archive/confirm`, {
     method: 'POST',
     headers: {
       ...getOperatorHeader(),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ import_id: importId }),
+    body: JSON.stringify({ system: resolveSystem(system), import_id: importId }),
   });
 
   if (!response.ok) {
@@ -51,15 +53,17 @@ export async function confirmProjectArchiveImport(importId) {
   return response.json();
 }
 
-export async function importProjectFromFiles({ sourceDir }) {
+export async function importProjectFromFiles({ sourceDir, system }) {
   const response = await httpRequest.post('/project/import', {
+    system: resolveSystem(system),
     source_dir: sourceDir,
   });
   return response?.summary ? response : response?.data || response;
 }
 
-export async function exportProjectArchive() {
-  const response = await fetch(`${API_BASE}/project/export/archive`, {
+export async function exportProjectArchive(system) {
+  const targetSystem = resolveSystem(system);
+  const response = await fetch(`${API_BASE}/project/export/archive?system=${encodeURIComponent(targetSystem)}`, {
     method: 'GET',
     headers: getOperatorHeader(),
   });

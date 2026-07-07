@@ -46,8 +46,9 @@ project_root/
 .vscode/
 project_infra/
 project_models/
+gitea/
 tmp/
 clean.py
 *.tls
 docs/
-db/
+/db/

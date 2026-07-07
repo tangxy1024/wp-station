@@ -14,13 +14,17 @@ function SandboxResultPanel({
   cardStyle,
 }) {
   const status = runData?.status || 'queued';
+  const passed = conclusion?.passed === true;
+  const displayStatus =
+    runData?.status === 'success' && !passed ? 'success_not_passed' : status;
   const statusColor = {
     queued: 'default',
     running: 'blue',
     success: 'green',
+    success_not_passed: 'orange',
     failed: 'red',
     stopped: 'default',
-  }[status];
+  }[displayStatus];
   const totalDurationMs = useMemo(() => {
     if (!runData?.started_at || !runData?.ended_at) {
       return null;
@@ -41,6 +45,17 @@ function SandboxResultPanel({
       return [t('sandbox.executionResultIdle')];
     }
     if (runData.status === 'success') {
+      if (!passed) {
+        const inputCount = conclusion?.input_count ?? 0;
+        const outputCount = conclusion?.runtime_output_count ?? 0;
+        return [
+          t('sandbox.executionResultSuccessButNotPassed'),
+          t('sandbox.executionResultCountMismatch', {
+            input: inputCount,
+            output: outputCount,
+          }),
+        ];
+      }
       const total =
         conclusion?.input_count ?? runData?.options?.sample_count ?? 0;
       return [t('sandbox.executionResultSuccess', { count: total })];
@@ -65,7 +80,15 @@ function SandboxResultPanel({
       return [t('sandbox.executionResultStopped')];
     }
     return [t('sandbox.executionResultFailed')];
-  }, [conclusion?.input_count, conclusion?.top_suggestions, failureSummary, runData, t]);
+  }, [
+    conclusion?.input_count,
+    conclusion?.runtime_output_count,
+    conclusion?.top_suggestions,
+    failureSummary,
+    passed,
+    runData,
+    t,
+  ]);
 
   return (
     <Card title={t('sandbox.resultOverview')} style={{ width: '100%', ...cardStyle }}>
@@ -73,7 +96,7 @@ function SandboxResultPanel({
         <Space align="center" size="small">
           <Text type="secondary">{t('sandbox.statusLabelTitle')}</Text>
           <Tag color={statusColor || 'default'}>
-            {t(`sandbox.statusLabel.${status}`, { defaultValue: status })}
+            {t(`sandbox.statusLabel.${displayStatus}`, { defaultValue: displayStatus })}
           </Tag>
         </Space>
         <div>

@@ -4,6 +4,7 @@ use wp_station::server::rules::{
     RuleFilesQuery, create_rule_file_logic, delete_rule_file_logic, get_knowdb_config_logic,
     get_rule_content_logic, get_rule_files_logic, save_rule_logic, validate_rule_logic,
 };
+use wp_station::utils::SystemKind;
 use wp_station::utils::pagination::PageQuery;
 use wp_station::utils::{
     read_knowledge_files, read_rule_content, unload_knowledge, write_knowdb_config,
@@ -17,6 +18,9 @@ fn cleanup_rule(rule_type: RuleType, file: &str) {
     match rule_type {
         RuleType::Wpl => remove_project_path(format!("models/wpl/{file}")),
         RuleType::Oml => remove_project_path(format!("models/oml/{file}")),
+        RuleType::Schema => remove_project_path(format!("models/schemas/{file}")),
+        RuleType::Rule => remove_project_path(format!("models/rules/{file}")),
+        RuleType::Scenarios => remove_project_path(format!("models/scenarios/{file}")),
         RuleType::Sink => remove_project_path(format!("topology/sinks/{file}")),
         RuleType::Source => remove_project_path(format!("topology/sources/{file}")),
         RuleType::Parse => remove_project_path("conf/wparse.toml"),
@@ -25,6 +29,78 @@ fn cleanup_rule(rule_type: RuleType, file: &str) {
         RuleType::SinkConnect => remove_project_path(format!("connectors/sink.d/{file}")),
         RuleType::Knowledge | RuleType::All => {}
     }
+}
+
+#[tokio::test]
+async fn test_wfusion_scenarios_rule_round_trip_via_logic() {
+    setup_db().await;
+    let name = format!("scenario-{}", rand_suffix());
+    let file = format!("{name}/{name}.wfg");
+
+    create_rule_file_logic(SystemKind::Wfusion, RuleType::Scenarios, file.clone())
+        .await
+        .expect("create scenario rule");
+
+    save_rule_logic(
+        SystemKind::Wfusion,
+        RuleType::Scenarios,
+        file.clone(),
+        Some("scenario sandbox {}".to_string()),
+        None,
+    )
+    .await
+    .expect("save scenario rule");
+
+    let files = get_rule_files_logic(RuleFilesQuery {
+        system: SystemKind::Wfusion,
+        rule_type: RuleType::Scenarios,
+        keyword: None,
+        page: PageQuery {
+            page: Some(1),
+            page_size: Some(50),
+        },
+    })
+    .await
+    .expect("list scenario rules");
+    assert!(files.items.iter().any(|item| item.file == file));
+
+    let content =
+        get_rule_content_logic(SystemKind::Wfusion, RuleType::Scenarios, Some(file.clone()))
+            .await
+            .expect("get scenario content");
+    assert_eq!(content["content"], "scenario sandbox {}");
+
+    cleanup_rule(RuleType::Scenarios, &file);
+}
+
+#[tokio::test]
+async fn test_wfusion_scenarios_supports_legacy_nested_virtual_name() {
+    setup_db().await;
+    let name = format!("legacy-{}", rand_suffix());
+    let file = format!("{name}/{name}.wfg");
+    let legacy_file = format!("{name}.wfg");
+
+    create_rule_file_logic(SystemKind::Wfusion, RuleType::Scenarios, file.clone())
+        .await
+        .expect("create scenario rule");
+
+    save_rule_logic(
+        SystemKind::Wfusion,
+        RuleType::Scenarios,
+        file.clone(),
+        Some("scenario legacy {}".to_string()),
+        None,
+    )
+    .await
+    .expect("save scenario rule");
+
+    let content =
+        get_rule_content_logic(SystemKind::Wfusion, RuleType::Scenarios, Some(legacy_file))
+            .await
+            .expect("get legacy scenario content");
+    assert_eq!(content["content"], "scenario legacy {}");
+
+    cleanup_rule(RuleType::Scenarios, &file);
 }
 
 #[tokio::test]
@@ -43,6 +119,7 @@ async fn test_get_rule_files_and_content_for_knowledge() {
     .expect("write knowledge files");
 
     let files = get_rule_files_logic(RuleFilesQuery {
+        system: SystemKind::Wparse,
         rule_type: RuleType::Knowledge,
         keyword: None,
         page: PageQuery {
@@ -54,9 +131,10 @@ async fn test_get_rule_files_and_content_for_knowledge() {
     .expect("list knowledge files");
     assert!(files.items.iter().any(|item| item.file == file));
 
-    let content = get_rule_content_logic(RuleType::Knowledge, Some(file.clone()))
-        .await
-        .expect("get knowledge content");
+    let content =
+        get_rule_content_logic(SystemKind::Wparse, RuleType::Knowledge, Some(file.clone()))
+            .await
+            .expect("get knowledge content");
     let cfg: serde_json::Value = content;
     assert_eq!(
         cfg.get("file").and_then(|v| v.as_str()),
@@ -98,7 +176,9 @@ max = 10
     )
     .expect("write knowledge files");
 
-    let response = get_knowdb_config_logic().await.expect("get knowdb config");
+    let response = get_knowdb_config_logic(SystemKind::Wparse)
+        .await
+        .expect("get knowdb config");
     assert_eq!(response.file, "knowdb.toml");
     assert!(
         response
@@ -117,7 +197,7 @@ async fn test_create_and_delete_knowledge_rule_via_logic() {
     setup_db().await;
     let file = format!("logic-{}.toml", rand_suffix());
 
-    create_rule_file_logic(RuleType::Knowledge, file.clone())
+    create_rule_file_logic(SystemKind::Wparse, RuleType::Knowledge, file.clone())
         .await
         .expect("create knowledge rule");
 
@@ -127,7 +207,7 @@ async fn test_create_and_delete_knowledge_rule_via_logic() {
             .is_some()
     );
 
-    delete_rule_file_logic(RuleType::Knowledge, file.clone(), None)
+    delete_rule_file_logic(SystemKind::Wparse, RuleType::Knowledge, file.clone(), None)
         .await
         .expect("delete knowledge rule");
 
@@ -144,6 +224,7 @@ async fn test_save_rule_logic_creates_and_updates_rule() {
     let file = format!("wpl-{}", rand_suffix());
 
     save_rule_logic(
+        SystemKind::Wparse,
         RuleType::Wpl,
         file.clone(),
         Some("package demo { rule a { digit:id } }".to_string()),
@@ -153,6 +234,7 @@ async fn test_save_rule_logic_creates_and_updates_rule() {
     .expect("save new rule");
 
     save_rule_logic(
+        SystemKind::Wparse,
         RuleType::Wpl,
         file.clone(),
         Some("package demo { rule a { chars:name } }".to_string()),
@@ -176,7 +258,7 @@ async fn test_get_rule_content_logic_returns_list() {
     write_rule_content(&test_project_layout(), RuleType::Oml, &file, "content")
         .expect("create sample oml");
 
-    let result = get_rule_content_logic(RuleType::Oml, None)
+    let result = get_rule_content_logic(SystemKind::Wparse, RuleType::Oml, None)
         .await
         .expect("list rule content");
     assert!(result.is_array());
@@ -191,6 +273,7 @@ async fn test_get_rule_files_logic_filters_keyword() {
         .expect("write parse rule");
 
     let files = get_rule_files_logic(RuleFilesQuery {
+        system: SystemKind::Wparse,
         rule_type: RuleType::Parse,
         keyword: Some(target.clone()),
         page: PageQuery {
@@ -210,7 +293,7 @@ async fn test_delete_rule_file_logic_for_standard_rule() {
     write_rule_content(&test_project_layout(), RuleType::Sink, &file, "content")
         .expect("insert sink rule");
 
-    delete_rule_file_logic(RuleType::Sink, file.clone(), None)
+    delete_rule_file_logic(SystemKind::Wparse, RuleType::Sink, file.clone(), None)
         .await
         .expect("delete sink rule");
     let record =
@@ -231,9 +314,13 @@ async fn test_wpl_virtual_sample_round_trip() {
     .expect("write wpl parse");
     write_wpl_sample_content(&test_project_layout(), &file, "sample-data").expect("write sample");
 
-    let content = get_rule_content_logic(RuleType::Wpl, Some(format!("{file}/sample.dat")))
-        .await
-        .expect("get sample content");
+    let content = get_rule_content_logic(
+        SystemKind::Wparse,
+        RuleType::Wpl,
+        Some(format!("{file}/sample.dat")),
+    )
+    .await
+    .expect("get sample content");
     assert_eq!(content["content"], "sample-data");
 
     cleanup_rule(RuleType::Wpl, &file);
@@ -243,7 +330,7 @@ async fn test_wpl_virtual_sample_round_trip() {
 async fn test_get_rule_content_logic_missing_file_errors() {
     setup_db().await;
     let missing = format!("missing-{}", rand_suffix());
-    let result = get_rule_content_logic(RuleType::Sink, Some(missing));
+    let result = get_rule_content_logic(SystemKind::Wparse, RuleType::Sink, Some(missing));
     assert!(result.await.is_err());
 }
 
@@ -252,11 +339,12 @@ async fn test_validate_rule_logic_uses_unsaved_wpl_content_in_temp_dir() {
     setup_db().await;
     let file = format!("validate-{}", rand_suffix());
 
-    create_rule_file_logic(RuleType::Wpl, file.clone())
+    create_rule_file_logic(SystemKind::Wparse, RuleType::Wpl, file.clone())
         .await
         .expect("create empty wpl rule");
 
     let response = validate_rule_logic(
+        SystemKind::Wparse,
         RuleType::Wpl,
         format!("{file}/parse.wpl"),
         Some("package demo { rule a { chars:message } }".to_string()),
@@ -279,11 +367,12 @@ async fn test_validate_rule_logic_rejects_empty_wpl_parse_content() {
     setup_db().await;
     let file = format!("validate-empty-{}", rand_suffix());
 
-    create_rule_file_logic(RuleType::Wpl, file.clone())
+    create_rule_file_logic(SystemKind::Wparse, RuleType::Wpl, file.clone())
         .await
         .expect("create empty wpl rule");
 
     let response = validate_rule_logic(
+        SystemKind::Wparse,
         RuleType::Wpl,
         format!("{file}/parse.wpl"),
         Some(String::new()),

@@ -15,6 +15,7 @@ import {
   fetchIntegrationRuleOverview,
   fetchIntegrationRuntimeOverview,
 } from '@/services/features';
+import { useSystem } from '@/contexts/SystemContext';
 
 const normalizeWplEntry = (value, parseFileName) => {
   if (value === undefined || value === null) {
@@ -706,6 +707,7 @@ const renderRuntimeDetailIcon = (label) => {
 
 function IntegrationOverviewPage() {
   const { t } = useTranslation();
+  const { currentSystem } = useSystem();
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);
   const [sourceItems, setSourceItems] = useState([]);
@@ -717,8 +719,8 @@ function IntegrationOverviewPage() {
     setLoading(true);
     try {
       const [ruleOverview, runtimeOverview] = await Promise.all([
-        fetchIntegrationRuleOverview(),
-        fetchIntegrationRuntimeOverview(),
+        fetchIntegrationRuleOverview(currentSystem),
+        fetchIntegrationRuntimeOverview(currentSystem),
       ]);
       const nextRows = (Array.isArray(ruleOverview?.items) ? ruleOverview.items : [])
         .sort((a, b) => a.deviceType.localeCompare(b.deviceType, 'zh-Hans-CN'));
@@ -738,7 +740,7 @@ function IntegrationOverviewPage() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [currentSystem, t]);
 
   useEffect(() => {
     loadOverview();

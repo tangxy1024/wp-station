@@ -4,16 +4,20 @@
 //! 避免在多个模块中重复硬编码。
 
 pub mod project {
-    /// 双仓库布局下的两个根仓库目录名，分别承载规则模型与设施配置；
-    /// 在配置包导入、归档解包、Gitea 提交等场景里，这两个名字也会作为外层包裹目录使用。
-    pub const REPO_MODELS: &str = "project_models";
-    pub const REPO_INFRA: &str = "project_infra";
+    /// 所有系统仓库都挂在 gitea 目录下，按 system__area 命名。
+    pub const DIR_GITEA_ROOT: &str = "gitea";
+    pub const REPO_WPARSE_MODELS: &str = "wparse__models";
+    pub const REPO_WPARSE_INFRA: &str = "wparse__infra";
+    pub const REPO_WFUSION_MODELS: &str = "wfusion__models";
+    pub const REPO_WFUSION_INFRA: &str = "wfusion__infra";
+    pub const REPO_SHARED_CONNECTORS: &str = "shared__connectors";
 
     /// 项目核心配置目录结构：规则模型、基础设施配置、connector 模板与 topology 拓扑都从这里展开。
     pub const DIR_CONF: &str = "conf";
     pub const DIR_CONNECTORS: &str = "connectors";
     pub const DIR_TOPOLOGY: &str = "topology";
     pub const DIR_MODELS: &str = "models";
+    pub const DIR_RUNTIME: &str = "runtime";
 
     /// 仓库内部常见的子目录名，供规则管理、配置管理、模板扫描与发布链路共用。
     pub const DIR_SOURCE_D: &str = "source.d";
@@ -22,13 +26,18 @@ pub mod project {
     pub const DIR_SINKS: &str = "sinks";
     pub const DIR_WPL: &str = "wpl";
     pub const DIR_OML: &str = "oml";
+    pub const DIR_SCHEMAS: &str = "schemas";
+    pub const DIR_RULES: &str = "rules";
+    pub const DIR_SCENARIOS: &str = "scenarios";
     pub const DIR_KNOWLEDGE: &str = "knowledge";
     pub const DIR_BUSINESS_D: &str = "business.d";
     pub const DIR_INFRA_D: &str = "infra.d";
 
     /// 各业务模块约定使用的核心文件名，避免在读写项目文件时散落硬编码。
     pub const FILE_WPARSE: &str = "wparse.toml";
+    pub const FILE_WFUSION: &str = "wfusion.toml";
     pub const FILE_WPGEN: &str = "wpgen.toml";
+    pub const FILE_WINDOWS: &str = "windows.toml";
     pub const FILE_KNOWDB: &str = "knowdb.toml";
     pub const FILE_WPL_PARSE: &str = "parse.wpl";
     pub const FILE_WPL_SAMPLE: &str = "sample.dat";
@@ -157,7 +166,7 @@ pub mod sandbox {
     /// 沙盒执行产物仅保留最近 3 次；更早任务只保留合并后的配置目录，便于排查配置问题。
     pub const RUNTIME_ARTIFACT_RETENTION_RUNS: usize = 3;
 
-    /// 运行产物中重点关注的输出文件及其对应的人类可读说明。
+    /// WParse 沙盒运行产物中重点关注的异常输出文件及其对应的人类可读说明。
     pub const OUTPUT_PATHS: [(&str, &str); 4] = [
         ("data/out_dat/default.dat", "数据命中兜底路由"),
         ("data/out_dat/miss.dat", "样本未命中任何规则"),
@@ -187,11 +196,14 @@ file = "all.json"
     pub const RUNTIME_UDP_PORT: u16 = 31601;
     pub const RUNTIME_SOURCE_KEY: &str = "gen_udp";
     pub const RUNTIME_SOURCE_CONNECTOR: &str = "syslog_udp_src";
-    pub const RUNTIME_OUTPUT_CONNECTOR: &str = "udp_out_sink";
+    pub const RUNTIME_OUTPUT_CONNECTOR: &str = "syslog_udp_sink";
     pub const RUNTIME_SOURCE_ADDR: &str = "0.0.0.0";
-    pub const RUNTIME_OUTPUT_ADDR: &str = "0.0.0.0";
+    pub const RUNTIME_OUTPUT_ADDR: &str = "127.0.0.1";
     pub const RUNTIME_PROTOCOL: &str = "udp";
     pub const RUNTIME_HEADER_MODE: &str = "keep";
+    pub const WFUSION_RUNTIME_TCP_PORT: u16 = 9800;
+    pub const WFUSION_RUNTIME_SOURCE_KEY: &str = "sandbox_tcp";
+    pub const WFUSION_RUNTIME_SOURCE_CONNECTOR: &str = "tcp_src";
 
     /// daemon 启动后额外等待一小段时间，再拉起 wpgen，减少端口刚就绪时的竞态。
     pub const DAEMON_READY_BEFORE_WPGEN_WAIT_MS: u64 = 1_000;
@@ -213,6 +225,7 @@ pub mod release {
     pub const STAGE_CALL_CLIENT: &str = "调用客户端";
     pub const STAGE_RUNTIME: &str = "运行状态";
 
+    /// 返回发布分组对应的中文标题。
     pub fn group_title(group: &str) -> &str {
         match group {
             GROUP_MODELS => "规则配置",
@@ -223,6 +236,7 @@ pub mod release {
         }
     }
 
+    /// 返回发布分组对应的发布按钮文案。
     pub fn publish_label(group: &str) -> &'static str {
         match group {
             GROUP_MODELS => "发布规则",
@@ -241,7 +255,7 @@ pub mod warparse {
 
 pub mod gitea {
     /// Gitea 基线版本使用的保留 tag 名称，用于定位默认对比基线。
-    pub const REPO_BASELINE_TAG: &str = "baseline";
+    pub const REPO_BASELINE_TAG: &str = "v1.0.0";
 }
 
 pub mod assist {

@@ -35,7 +35,6 @@ import ManualTicketModal from './components/ManualTicketModal';
  * 1. 日志解析
  * 2. 记录转换
  * 3. 知识库状态查询
- * 4. 性能测试
  * 对应原型：pages/views/simulate-debug/simulate-parse.html
  */
 
@@ -418,25 +417,6 @@ function SimulateDebugPage() {
   const [knowledgeViewMode, setKnowledgeViewMode] = useState('table');
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
   const [knowledgeInitialized, setKnowledgeInitialized] = useState(false);
-
-  // 性能测试相关状态
-  const EXAMPLE_LOG = `222.133.52.20 - - [06/Aug/2019:12:12:19 +0800] "GET /nginx-logo.png HTTP/1.1" 200 368 "http://119.122.1.4/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.142 Safari/537.36" "-"`;
-  const [performanceSample, setPerformanceSample] = useState(EXAMPLE_LOG);
-  const [performanceConfig, setPerformanceConfig] = useState(`version = "1.0"
-
-[main_conf]
-gen_ref = "sample_gen"
-gen_speed = 100000
-gen_count = 1000000
-gen_secs = 0
-gen_parallel = 1
-out_ref = "out_file"
-
-[main_conf.log_conf]
-level = "warn,ctrl=info,launch=info,klib=info"
-output = "Console"
-output_path = "./logs/"`);
-  const [performanceResult, setPerformanceResult] = useState(null);
 
   // 规则文件管理状态
   const [wplModalVisible, setWplModalVisible] = useState(false);
@@ -1216,13 +1196,6 @@ output_path = "./logs/"`);
         >
           {t('simulateDebug.tabs.knowledge')}
         </button>
-        <button
-          type="button"
-          className={`side-item ${activeKey === 'performance' ? 'is-active' : ''}`}
-          onClick={() => setActiveKey('performance')}
-        >
-          {t('simulateDebug.tabs.performance')}
-        </button>
 
         <h2 style={{ marginTop: "20px" }}>{t('simulateDebug.workspace.mode')}</h2>
         <button
@@ -1919,91 +1892,6 @@ output_path = "./logs/"`);
                           </div>
                         )}
                       </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 性能测试页面 */}
-              {activeKey === 'performance' && (
-                <div className="split-layout performance-layout">
-                  <div className="split-col performance-col performance-col--left">
-                    <div className="panel-block">
-                      <div className="block-header">
-                        <h3>{t('simulateDebug.performance.sampleData')}</h3>
-                        <div className="block-actions">
-                          <button
-                            type="button"
-                            className="btn primary"
-                            onClick={async () => {
-                              setLoading(true);
-                              try {
-                                // 模拟性能测试
-                                await new Promise((resolve) => setTimeout(resolve, 2000));
-                                setPerformanceResult(`== Sinks ==
-business   | /sink/benchmark/[0]                      | ././out/benchmark.dat                                        | 1000
-infras     | monitor/[0]                              | ././data/out_dat/monitor.dat                                 | 0
-infras     | default/[0]                              | ././data/out_dat/default.dat                                 | 0
-infras     | error/[0]                                | ././data/out_dat/error.dat                                   | 0
-infras     | intercept/[0]                            | ././data/out_dat/intercept.dat                               | 0
-infras     | miss/[0]                                 | ././data/out_dat/miss.dat                                    | 0
-infras     | residue/[0]                              | ././data/out_dat/residue.dat                                 | 0
--- total lines: 1000
-validate: PASS
-
-| Group           | Sink | Total | Actual | Ratio | Expect    | Verdict |
-|-----------------|------|-------|--------|-------|-----------|---------|
-| /sink/benchmark | [0]  |  1000 |  1000  |   1   |   1±0.01  |    OK   |
-| monitor         | [0]  |  1000 |    0   |   0   |     -     |    -    |
-| default         | [0]  |  1000 |    0   |   0   |   0±0.02  |    OK   |
-| error           | [0]  |  1000 |    0   |   0   | 0.01±0.02 |    OK   |
-| intercept       | [0]  |  1000 |    0   |   0   |     -     |    -    |
-| miss            | [0]  |  1000 |    0   |   0   |  [0 ~ 2]  |    OK   |
-| residue         | [0]  |  1000 |    0   |   0   |     -     |    -    |`);
-                              } finally {
-                                setLoading(false);
-                              }
-                            }}
-                            disabled={loading}
-                          >
-                            {loading ? t('simulateDebug.performance.testing') : t('simulateDebug.performance.test')}
-                          </button>
-                        </div>
-                      </div>
-                      <CodeEditor
-                        className="code-area"
-                        value={performanceSample}
-                        onChange={(value) => setPerformanceSample(value)}
-                        language="toml"
-                        theme="vscodeDark"
-                      />
-                    </div>
-                    <div className="panel-block panel-block--stretch">
-                      <div className="block-header">
-                        <h3>{t('simulateDebug.performance.dataGenConfig')}</h3>
-                      </div>
-                      <CodeEditor
-                        className="code-area code-area--large"
-                        value={performanceConfig}
-                        onChange={(value) => setPerformanceConfig(value)}
-                        language="toml"
-                        theme="vscodeDark"
-                      />
-                    </div>
-                  </div>
-                  <div className="split-col performance-col performance-col--right">
-                    <div className="panel-block panel-block--stretch">
-                      <div className="block-header">
-                        <h3>{t('simulateDebug.performance.executionResult')}</h3>
-                        <p className="block-desc">{t('simulateDebug.performance.outputDesc')}</p>
-                      </div>
-                      {performanceResult ? (
-                        <pre className="code-block code-block--scroll">{performanceResult}</pre>
-                      ) : (
-                        <pre className="code-block code-block--scroll" style={{ color: '#999' }}>
-                          {t('simulateDebug.performance.clickToTest')}
-                        </pre>
-                      )}
                     </div>
                   </div>
                 </div>

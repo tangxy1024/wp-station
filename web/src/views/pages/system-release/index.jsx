@@ -4,6 +4,7 @@ import { DatePicker, Input, Modal, Table, Select, Checkbox, Spin, Radio } from '
 import { useNavigate } from 'react-router-dom';
 import { fetchReleases, publishRelease, validateRelease } from '@/services/release';
 import { fetchOnlineConnections } from '@/services/connection';
+import { useSystem } from '@/contexts/SystemContext';
 import {
   confirmProjectArchiveImport,
   downloadBlob,
@@ -23,6 +24,7 @@ import ProjectImportResult from '@/views/components/ProjectImportResult';
 function SystemReleasePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { currentSystem, decoratePath } = useSystem();
   const [loading, setLoading] = useState(false);
   const [dataSource, setDataSource] = useState([]);
   const [total, setTotal] = useState(0);
@@ -145,6 +147,7 @@ function SystemReleasePage() {
         ...searchForm,
         page,
         pageSize,
+        system: currentSystem,
       });
       setDataSource(response.items || []);
       setTotal(response.total || 0);
@@ -156,7 +159,7 @@ function SystemReleasePage() {
   // 组件挂载时加载数据
   useEffect(() => {
     loadReleases();
-  }, [page, pageSize]);
+  }, [currentSystem, page, pageSize]);
 
   /**
    * 处理查询按钮点击
@@ -195,7 +198,7 @@ function SystemReleasePage() {
   const handleValidate = async (releaseRecord) => {
     setCurrentRelease(releaseRecord);
     try {
-      const result = await validateRelease(releaseRecord.id);
+      const result = await validateRelease(releaseRecord.id, currentSystem);
       const details = Array.isArray(result.details) ? result.details : [];
       setValidateResult({
         filename: result.filename || `版本 ${releaseRecord.version}`,
@@ -251,7 +254,7 @@ function SystemReleasePage() {
     // 异步加载在线机器
     setLoadingConnections(true);
     try {
-      const connections = await fetchOnlineConnections();
+      const connections = await fetchOnlineConnections(currentSystem);
       setOnlineConnections(connections);
     } finally {
       setLoadingConnections(false);
@@ -287,6 +290,7 @@ function SystemReleasePage() {
         publishReleaseGroup,
         selectedConnectionIds,
         publishNote,
+        currentSystem,
       );
       Modal.success({
         title: t('systemRelease.publishSuccess'),
@@ -330,7 +334,7 @@ function SystemReleasePage() {
 
     setImportingArchive(true);
     try {
-      const preview = await importProjectArchive(file);
+      const preview = await importProjectArchive(file, currentSystem);
       Modal.confirm({
         title: t('systemRelease.importArchiveConfirmTitle'),
         content: (
@@ -345,7 +349,7 @@ function SystemReleasePage() {
         onOk: async () => {
           setImportingArchive(true);
           try {
-            const result = await confirmProjectArchiveImport(preview.import_id);
+            const result = await confirmProjectArchiveImport(preview.import_id, currentSystem);
             showArchiveImportResultModal(t('systemRelease.importArchiveSuccessTitle'), result);
             loadReleases();
           } catch (error) {
@@ -379,7 +383,7 @@ function SystemReleasePage() {
   const handleExportArchive = async () => {
     setExportingArchive(true);
     try {
-      const { blob, fileName } = await exportProjectArchive();
+      const { blob, fileName } = await exportProjectArchive(currentSystem);
       downloadBlob(blob, fileName);
     } catch (error) {
       Modal.error({
@@ -405,6 +409,12 @@ function SystemReleasePage() {
       </span>
     );
   };
+
+  const renderSystemTag = (system) => (
+    <span className="release-status" style={{ marginLeft: 0 }}>
+      {t(`navigation.system.${system || 'wparse'}`)}
+    </span>
+  );
 
   const getReleaseStatusMeta = (record) => {
     const normalizedStatus = String(record?.status || '').toUpperCase();
@@ -463,6 +473,12 @@ function SystemReleasePage() {
         const meta = getReleaseStatusMeta(record);
         return <span className={meta.className}>{meta.text}</span>;
       },
+    },
+    {
+      title: t('systemRelease.system'),
+      dataIndex: 'system',
+      key: 'system',
+      render: (system) => renderSystemTag(system),
     },
     {
       title: t('systemRelease.versionNumber'),
@@ -530,16 +546,16 @@ function SystemReleasePage() {
             <button
               type="button"
               className="link-btn release-detail-btn"
-              onClick={() => {
-                navigate(`/system-release/${releaseRecord.id}`);
-              }}
+              onClick={() => navigate(decoratePath(`/system-release/${releaseRecord.id}`))}
             >
               {t('systemRelease.detail')}
             </button>
             <button
               type="button"
               className="link-btn release-prepublish-btn"
-              onClick={() => navigate(`/system-release/${releaseRecord.id}/prepublish`)}
+              onClick={() =>
+                navigate(decoratePath(`/system-release/${releaseRecord.id}/prepublish`))
+              }
             >
               {statusUpper === 'PASS'
                 ? t('sandbox.prepublishDetail')

@@ -3,8 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tokio::sync::OnceCell;
-use wp_station::db::{get_pool, init_default_configs_to_infra, init_default_configs_to_models};
+use wp_station::db::get_pool;
 use wp_station::server::ProjectLayout;
+use wp_station::utils::{init_default_configs_to_infra, init_default_configs_to_models};
 use wp_station::{Setting, init_pool};
 
 static SETTINGS: OnceCell<Setting> = OnceCell::const_new();

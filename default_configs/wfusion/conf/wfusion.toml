@@ -1,0 +1,26 @@
+mode = "daemon"
+sources_dir = "topology/sources"
+sinks = "topology/sinks"
+windows = "models/windows.toml"
+
+[runtime]
+executor_parallelism = 1
+rule_exec_timeout = "30s"
+schemas = "models/schemas/*/*.wfs"
+rules = "models/rules/*/*.wfl"
+
+[admin_api]
+enabled = true
+bind = "127.0.0.1:19080"
+
+[admin_api.auth]
+mode = "bearer_token"
+token_file = "runtime/admin_api.token"
+
+[admin_api.tls]
+enabled = false
+
+[logging]
+level = "info"
+format = "plain"
+file = "data/wfusion.log"
