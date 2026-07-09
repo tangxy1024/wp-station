@@ -85,6 +85,11 @@ function Navigation({ children, onLocaleChange }) {
     page: 'data-collect',
     external: true,
   };
+  const simulateDebugMenuItem = {
+    path: currentSystem === 'wfusion' ? '/wfusion-rule-editor' : '/simulate-debug',
+    name: t('navigation.simulateDebug'),
+    page: 'simulate-debug',
+  };
   const primaryMenuItems = [
     {
       path: '/system-release',
@@ -93,7 +98,7 @@ function Navigation({ children, onLocaleChange }) {
     },
     { path: '/rule-manage', name: t('navigation.ruleConfig'), page: 'rule-manage' },
     { path: '/config-manage', name: t('navigation.configManage'), page: 'config-manage' },
-    { path: '/simulate-debug', name: t('navigation.simulateDebug'), page: 'simulate-debug' },
+    simulateDebugMenuItem,
     {
       path: '/integration-overview',
       name: t('navigation.integrationOverview'),
@@ -336,7 +341,7 @@ function Navigation({ children, onLocaleChange }) {
       <div className="app-shell-body">
         <div
           className={
-            ['/system-release', '/integration-overview'].some((path) =>
+            ['/system-release', '/integration-overview', '/wfusion-rule-editor'].some((path) =>
               location.pathname === path || location.pathname.startsWith(`${path}/`)
             )
               ? 'main-content no-side-nav'

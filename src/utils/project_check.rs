@@ -30,6 +30,25 @@ impl ProjectCheckTarget {
             ProjectCheckTarget::RuleType(rule_type) => rule_type.to_wparse_check_components(),
         }
     }
+
+    fn to_wfusion_what(self) -> &'static str {
+        match self {
+            ProjectCheckTarget::WholeProject => "all",
+            ProjectCheckTarget::RuleType(rule_type) => match rule_type {
+                RuleType::All => "all",
+                RuleType::Parse => "conf",
+                RuleType::Source => "sources",
+                RuleType::Sink => "sinks",
+                RuleType::SourceConnect | RuleType::SinkConnect => "connectors",
+                RuleType::Schema => "schemas",
+                RuleType::Rule => "rules",
+                RuleType::Scenarios => "scenarios",
+                // `windows.toml` 暂无独立的 what 选项，继续回退到整体校验。
+                RuleType::Windows => "all",
+                RuleType::Wpl | RuleType::Oml | RuleType::Wpgen | RuleType::Knowledge => "all",
+            },
+        }
+    }
 }
 
 /// 校验项目组件（全局共享项目目录）。
@@ -107,8 +126,8 @@ fn check_wparse_components_in_dir(
 
 /// 对指定目录执行 `wfusion/wfadm` 项目校验。
 ///
-/// `wfadm` 当前只支持整体校验，因此 Station 在单文件校验场景下，
-/// 会先把当前编辑内容覆盖到临时项目，再执行一次整体校验。
+/// 编辑态校验会先把当前内容覆盖到临时项目，再按 `what` 只校验当前类型；
+/// 发布页、导入预检和沙盒仍显式走 `WholeProject` 做整体校验。
 fn check_wfusion_in_dir(project_path: &Path, target: ProjectCheckTarget) -> Result<(), AppError> {
     if !project_path.exists() {
         return Err(AppError::Validation(format!(
@@ -117,10 +136,13 @@ fn check_wfusion_in_dir(project_path: &Path, target: ProjectCheckTarget) -> Resu
         )));
     }
 
-    let _ = target;
+    let what = target.to_wfusion_what();
 
     let output = Command::new("wfadm")
         .arg("check")
+        .arg("--what")
+        .arg(what)
+        .arg("--fail-fast")
         .current_dir(project_path)
         .output()
         .map_err(|e| AppError::internal(format!("执行 wfadm check 失败: {}", e)))?;
@@ -140,7 +162,7 @@ fn check_wfusion_in_dir(project_path: &Path, target: ProjectCheckTarget) -> Resu
     };
 
     Err(AppError::validation(format!(
-        "wfadm check 校验失败: {}",
-        detail
+        "wfadm check 校验失败(what={}): {}",
+        what, detail
     )))
 }

@@ -39,6 +39,13 @@ pub struct IntegrationRuleLogTypeResponse {
     pub rule_keys: Vec<String>,
 }
 
+/// 规则侧平铺文件项响应体。
+#[derive(Serialize)]
+pub struct IntegrationRuleFlatItemResponse {
+    pub key: String,
+    pub name: String,
+}
+
 /// 规则侧单个设备类型响应体。
 #[derive(Serialize)]
 pub struct IntegrationRuleItemResponse {
@@ -50,7 +57,12 @@ pub struct IntegrationRuleItemResponse {
 /// 规则侧概览响应体。
 #[derive(Serialize)]
 pub struct IntegrationRuleOverviewResponse {
+    pub system: SystemKind,
     pub items: Vec<IntegrationRuleItemResponse>,
+    pub window_structures: Vec<IntegrationRuleFlatItemResponse>,
+    pub association_rules: Vec<IntegrationRuleFlatItemResponse>,
+    pub window_structure_count: usize,
+    pub association_rule_count: usize,
 }
 
 /// 返回接入概览页面所需的输入源与输出源运行时摘要。
@@ -97,9 +109,10 @@ pub fn get_integration_rule_overview_logic(
 ) -> Result<IntegrationRuleOverviewResponse, AppError> {
     let _setting = Setting::load();
     let layout = layout_for_system(system).as_repo_layout();
-    let overview = load_integration_rule_overview_from_layout(&layout)?;
+    let overview = load_integration_rule_overview_from_layout(system, &layout)?;
 
     Ok(IntegrationRuleOverviewResponse {
+        system: overview.system,
         items: overview
             .items
             .into_iter()
@@ -117,5 +130,23 @@ pub fn get_integration_rule_overview_logic(
                     .collect(),
             })
             .collect(),
+        window_structures: overview
+            .window_structures
+            .into_iter()
+            .map(|item| IntegrationRuleFlatItemResponse {
+                key: item.key,
+                name: item.name,
+            })
+            .collect(),
+        association_rules: overview
+            .association_rules
+            .into_iter()
+            .map(|item| IntegrationRuleFlatItemResponse {
+                key: item.key,
+                name: item.name,
+            })
+            .collect(),
+        window_structure_count: overview.window_structure_count,
+        association_rule_count: overview.association_rule_count,
     })
 }

@@ -37,7 +37,7 @@ use crate::constants::project::{
     DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_TOPOLOGY, IMPORTABLE_ROOT_DIRS,
 };
 use crate::error::AppError;
-use crate::server::sync::{sync_shared_connectors_to_gitea, sync_to_gitea_all};
+use crate::server::sync::{sync_shared_connectors_to_infra_gitea, sync_to_gitea};
 use crate::server::{
     OperationLogAction, OperationLogBiz, OperationLogParams, RepoLayout,
     refresh_draft_release_logic, write_operation_log_for_result,
@@ -392,7 +392,7 @@ async fn import_project_dir(
     let total_rules = rules.len();
     let total_knowledge = knowledge.len();
 
-    finalize_import_side_effects(layout).await?;
+    finalize_import_side_effects(system, layout).await?;
 
     let mut breakdown: Vec<ProjectImportBreakdown> = rule_stats
         .into_iter()
@@ -452,22 +452,29 @@ async fn import_project_archive_dir(
         overwrite_repo_layout_from_partial_dir(source_dir, layout, &scope)?;
     }
 
-    finalize_import_side_effects(layout).await?;
+    finalize_import_side_effects(system, layout).await?;
     build_import_response_from_repo_layout(layout, validation_message, &source_label, &scope)
 }
 
 /// 导入成功后的公共副作用。
 ///
 /// 这里统一处理知识库重载、Gitea 同步和草稿发布刷新。
-async fn finalize_import_side_effects(layout: &RepoLayout) -> Result<(), AppError> {
+async fn finalize_import_side_effects(
+    system: SystemKind,
+    layout: &RepoLayout,
+) -> Result<(), AppError> {
     if let Err(err) = reload_knowledge(layout) {
         warn!("知识库重载失败（忽略）: {}", err);
     }
 
     let commit_message = format!("导入项目配置 {}", Utc::now().format("%Y-%m-%d %H:%M:%S"));
-    sync_to_gitea_all(&commit_message, SystemKind::Wparse).await?;
-    sync_shared_connectors_to_gitea(&commit_message).await?;
-    refresh_draft_release_logic(SystemKind::Wparse, Some(&commit_message)).await?;
-    let _ = refresh_draft_release_logic(SystemKind::Wfusion, Some(&commit_message)).await;
+    sync_to_gitea(&commit_message, system, crate::db::ReleaseGroup::Models).await?;
+    sync_shared_connectors_to_infra_gitea(&commit_message).await?;
+    refresh_draft_release_logic(system, Some(&commit_message)).await?;
+    let impacted_peer = match system {
+        SystemKind::Wparse => SystemKind::Wfusion,
+        SystemKind::Wfusion => SystemKind::Wparse,
+    };
+    let _ = refresh_draft_release_logic(impacted_peer, Some(&commit_message)).await;
     Ok(())
 }

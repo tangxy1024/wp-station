@@ -1,0 +1,9 @@
+{
+  "language": "wfs",
+  "version": 1,
+  "valid_for": ".*",
+  "locales": {
+    "zh-CN": [],
+    "en": []
+  }
+}

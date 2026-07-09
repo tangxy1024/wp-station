@@ -3,11 +3,9 @@
 //! 对外保留三类能力：
 //! - WPL 规则校验与日志解析；
 //! - `DataRecord` 到字段列表的转换；
-//! - WPL 文本格式化。
+//! - WPL 文本格式化（直接复用 tree-sitter-wpl 提供的格式化器）。
 
-mod format;
 mod parse;
-mod tree;
 
-pub use format::{WplFormatError, WplFormatter};
 pub use parse::{ParsedField, record_to_fields, warp_check_record};
+pub use tree_sitter_wpl::{WplFormatError, WplFormatter};

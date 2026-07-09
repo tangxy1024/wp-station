@@ -18,34 +18,11 @@ import { vscodeDark } from '@uiw/codemirror-theme-vscode';
 import { useTranslation } from 'react-i18next';
 import styles from './CodeEditor.module.css';
 import { editorTheme } from './editorTheme';
-import {
-  buildWplCompletionOptions,
-  WPL_COMPLETION_VALID_FOR,
-} from './wpl/wplLanguage';
-import { wplHighlightExtension } from './wpl/wplTreeSitterHighlight';
-import {
-  buildOmlCompletionOptions,
-  OML_COMPLETION_VALID_FOR,
-} from './oml/omlLanguage';
-import { omlHighlightExtension } from './oml/omlTreeSitterHighlight';
-import { wfsHighlightExtension } from './wfusion/wfsHighlight';
-import { wflHighlightExtension } from './wfusion/wflHighlight';
-
-const createCompletionSource = (options, validFor) => (context) => {
-  const word = context.matchBefore(validFor);
-  const pipe = context.matchBefore(/\|/);
-  if (!word && !pipe && !context.explicit) {
-    return null;
-  }
-  const from = (pipe || word)?.from ?? context.pos;
-  return {
-    from,
-    options,
-    validFor,
-  };
-};
+import { createBundleCompletionSource } from './treeSitter/completionSource';
+import { createTreeSitterHighlightExtension } from './treeSitter/highlightExtension';
 
 const EXTERNAL_UPDATE = Annotation.define();
+const TREE_SITTER_LANGUAGES = new Set(['wpl', 'oml', 'wfs', 'wfl', 'wfg']);
 
 function CodeEditor(props, ref) {
   const editorRef = useRef(null);
@@ -55,15 +32,25 @@ function CodeEditor(props, ref) {
   const theme = props.theme; // 可选的主题属性
   const { i18n } = useTranslation();
   const uiLanguage = i18n.language;
-  const wplCompletionOptions = useMemo(() => buildWplCompletionOptions(uiLanguage), [uiLanguage]);
-  const omlCompletionOptions = useMemo(() => buildOmlCompletionOptions(uiLanguage), [uiLanguage]);
   const wplCompletionSource = useMemo(
-    () => createCompletionSource(wplCompletionOptions, WPL_COMPLETION_VALID_FOR),
-    [wplCompletionOptions],
+    () => createBundleCompletionSource('wpl', uiLanguage),
+    [uiLanguage],
   );
   const omlCompletionSource = useMemo(
-    () => createCompletionSource(omlCompletionOptions, OML_COMPLETION_VALID_FOR),
-    [omlCompletionOptions],
+    () => createBundleCompletionSource('oml', uiLanguage),
+    [uiLanguage],
+  );
+  const wfsCompletionSource = useMemo(
+    () => createBundleCompletionSource('wfs', uiLanguage),
+    [uiLanguage],
+  );
+  const wflCompletionSource = useMemo(
+    () => createBundleCompletionSource('wfl', uiLanguage),
+    [uiLanguage],
+  );
+  const wfgCompletionSource = useMemo(
+    () => createBundleCompletionSource('wfg', uiLanguage),
+    [uiLanguage],
   );
   const colorTheme = useMemo(() => {
     if (!textColor) return null;
@@ -133,7 +120,7 @@ function CodeEditor(props, ref) {
       extensions.splice(
         6,
         0,
-        wplHighlightExtension(),
+        createTreeSitterHighlightExtension('wpl'),
         autocompletion({ override: [wplCompletionSource] }),
       );
     }
@@ -141,15 +128,36 @@ function CodeEditor(props, ref) {
       extensions.splice(
         6,
         0,
-        omlHighlightExtension(),
+        createTreeSitterHighlightExtension('oml'),
         autocompletion({ override: [omlCompletionSource] }),
       );
     }
     if (language === 'wfs') {
-      extensions.splice(6, 0, wfsHighlightExtension());
+      extensions.splice(
+        6,
+        0,
+        createTreeSitterHighlightExtension('wfs'),
+        autocompletion({ override: [wfsCompletionSource] }),
+      );
     }
     if (language === 'wfl') {
-      extensions.splice(6, 0, wflHighlightExtension());
+      extensions.splice(
+        6,
+        0,
+        createTreeSitterHighlightExtension('wfl'),
+        autocompletion({ override: [wflCompletionSource] }),
+      );
+    }
+    if (language === 'wfg') {
+      extensions.splice(
+        6,
+        0,
+        createTreeSitterHighlightExtension('wfg'),
+        autocompletion({ override: [wfgCompletionSource] }),
+      );
+    }
+    if (TREE_SITTER_LANGUAGES.has(language) && language !== 'wpl' && language !== 'oml') {
+      // 上面已分别插入 wf 系列高亮与补全，这里不重复注册。
     }
     if (language === 'json') {
       extensions.splice(6, 0, json());
@@ -177,7 +185,17 @@ function CodeEditor(props, ref) {
       view.destroy();
       viewRef.current = null;
     };
-  }, [language, uiLanguage, wplCompletionSource, omlCompletionSource, colorTheme, theme]);
+  }, [
+    language,
+    uiLanguage,
+    wplCompletionSource,
+    omlCompletionSource,
+    wfsCompletionSource,
+    wflCompletionSource,
+    wfgCompletionSource,
+    colorTheme,
+    theme,
+  ]);
 
   // 同步外部 value 到编辑器
   useEffect(() => {

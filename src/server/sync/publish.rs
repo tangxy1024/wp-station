@@ -45,6 +45,10 @@ pub async fn push_and_tag_release(
     system: SystemKind,
     group: ReleaseGroup,
 ) -> Result<(), AppError> {
+    if matches!(group, ReleaseGroup::Infra) {
+        super::mirror_shared_connectors_to_system_infra(system)?;
+    }
+
     let setting = Setting::load();
     let layout = layout_for_system(system).as_repo_layout();
     let gitea_client = super::build_gitea_client(&setting)?;
@@ -72,16 +76,10 @@ fn release_group_repo_targets(
             layout.models_root.clone(),
             format!("system={}, area=models", system.as_ref()),
         )],
-        ReleaseGroup::Infra => vec![
-            (
-                layout.infra_root.clone(),
-                format!("system={}, area=infra", system.as_ref()),
-            ),
-            (
-                layout.connectors_root.clone(),
-                "repo=shared__connectors".to_string(),
-            ),
-        ],
+        ReleaseGroup::Infra => vec![(
+            layout.infra_root.clone(),
+            format!("system={}, area=infra", system.as_ref()),
+        )],
     }
 }
 

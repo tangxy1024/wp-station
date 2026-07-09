@@ -2,22 +2,44 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use regex::Regex;
 
-use crate::constants::project::{DIR_MODELS, DIR_WPL, FILE_WPL_PARSE};
+use crate::constants::project::{DIR_MODELS, DIR_RULES, DIR_SCHEMAS, DIR_WPL, FILE_WPL_PARSE};
 use crate::error::AppError;
 use crate::server::RepoLayout;
+use crate::utils::SystemKind;
 
-use super::{IntegrationRuleItem, IntegrationRuleLogType, IntegrationRuleOverview};
+use super::{
+    IntegrationRuleFlatItem, IntegrationRuleItem, IntegrationRuleLogType, IntegrationRuleOverview,
+};
+
+/// 扫描项目中的规则摘要，按系统返回接入概览页面展示所需的规则侧统计。
+pub fn load_integration_rule_overview_from_layout(
+    system: SystemKind,
+    layout: &RepoLayout,
+) -> Result<IntegrationRuleOverview, AppError> {
+    match system {
+        SystemKind::Wparse => load_wparse_rule_overview_from_layout(layout),
+        SystemKind::Wfusion => load_wfusion_rule_overview_from_layout(layout),
+    }
+}
 
 /// 扫描项目中的 WPL 规则包，并提取接入概览页面展示所需的设备类型与日志类型摘要。
-pub fn load_integration_rule_overview_from_layout(
+fn load_wparse_rule_overview_from_layout(
     layout: &RepoLayout,
 ) -> Result<IntegrationRuleOverview, AppError> {
     let wpl_root = layout.models_root.join(DIR_MODELS).join(DIR_WPL);
     if !wpl_root.exists() {
-        return Ok(IntegrationRuleOverview { items: Vec::new() });
+        return Ok(IntegrationRuleOverview {
+            system: SystemKind::Wparse,
+            items: Vec::new(),
+            window_structures: Vec::new(),
+            association_rules: Vec::new(),
+            window_structure_count: 0,
+            association_rule_count: 0,
+        });
     }
 
     let mut package_dirs = fs::read_dir(&wpl_root)
@@ -52,7 +74,34 @@ pub fn load_integration_rule_overview_from_layout(
     }
 
     items.sort_by(|left, right| left.device_type.cmp(&right.device_type));
-    Ok(IntegrationRuleOverview { items })
+    Ok(IntegrationRuleOverview {
+        system: SystemKind::Wparse,
+        items,
+        window_structures: Vec::new(),
+        association_rules: Vec::new(),
+        window_structure_count: 0,
+        association_rule_count: 0,
+    })
+}
+
+/// 扫描项目中的 WFusion 窗口结构与关联分析规则文件。
+fn load_wfusion_rule_overview_from_layout(
+    layout: &RepoLayout,
+) -> Result<IntegrationRuleOverview, AppError> {
+    let models_root = layout.models_root.join(DIR_MODELS);
+    let window_structures = collect_named_rule_files(&models_root.join(DIR_SCHEMAS), ".wfs")?;
+    let association_rules = collect_named_rule_files(&models_root.join(DIR_RULES), ".wfl")?;
+    let window_structure_count = window_structures.len();
+    let association_rule_count = association_rules.len();
+
+    Ok(IntegrationRuleOverview {
+        system: SystemKind::Wfusion,
+        items: Vec::new(),
+        window_structures,
+        association_rules,
+        window_structure_count,
+        association_rule_count,
+    })
 }
 
 /// 判断某个 package / rule 标识是否属于 ignore 类型。
@@ -194,4 +243,73 @@ fn extract_wpl_rule_overview(content: &str, fallback_package: &str) -> Option<In
         device_type,
         log_types,
     })
+}
+
+fn collect_named_rule_files(root: &Path, extension: &str) -> Result<Vec<IntegrationRuleFlatItem>, AppError> {
+    let mut files = Vec::new();
+    if !root.exists() {
+        return Ok(files);
+    }
+
+    visit_named_rule_files(root, root, extension, &mut files)?;
+    files.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(files)
+}
+
+fn visit_named_rule_files(
+    root: &Path,
+    current: &Path,
+    extension: &str,
+    files: &mut Vec<IntegrationRuleFlatItem>,
+) -> Result<(), AppError> {
+    let mut entries = fs::read_dir(current)
+        .map_err(AppError::internal)?
+        .filter_map(|entry| entry.ok())
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.path());
+
+    for entry in entries {
+        let path = entry.path();
+        if path.is_dir() {
+            visit_named_rule_files(root, &path, extension, files)?;
+            continue;
+        }
+
+        if path.extension().and_then(|value| value.to_str()) != Some(&extension[1..]) {
+            continue;
+        }
+
+        let relative = path
+            .strip_prefix(root)
+            .map_err(AppError::internal)?
+            .to_path_buf();
+        let key = relative.to_string_lossy().replace('\\', "/");
+        let name = format_named_rule_name(&relative, extension);
+        files.push(IntegrationRuleFlatItem { key, name });
+    }
+
+    Ok(())
+}
+
+fn format_named_rule_name(relative: &PathBuf, extension: &str) -> String {
+    let normalized = relative.to_string_lossy().replace('\\', "/");
+    let trimmed = normalized.strip_suffix(extension).unwrap_or(normalized.as_str());
+    let parts = trimmed
+        .split('/')
+        .filter(|part| !part.trim().is_empty())
+        .collect::<Vec<_>>();
+
+    match parts.as_slice() {
+        [] => trimmed.to_string(),
+        [single] => (*single).to_string(),
+        _ => {
+            let file_name = parts.last().copied().unwrap_or(trimmed);
+            let parents = &parts[..parts.len() - 1];
+            if parents.last().copied() == Some(file_name) {
+                parents.join("/")
+            } else {
+                trimmed.to_string()
+            }
+        }
+    }
 }

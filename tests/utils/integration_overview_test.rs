@@ -2,7 +2,8 @@ use std::fs;
 
 use wp_station::server::ProjectLayout;
 use wp_station::utils::{
-    load_integration_rule_overview_from_layout, load_integration_runtime_overview_from_layout,
+    SystemKind, load_integration_rule_overview_from_layout,
+    load_integration_runtime_overview_from_layout,
 };
 
 fn write_file(path: &std::path::Path, content: &str) {
@@ -150,7 +151,8 @@ package ignore_pkg {
 "#,
     );
 
-    let overview = load_integration_rule_overview_from_layout(&layout).expect("load rule overview");
+    let overview = load_integration_rule_overview_from_layout(SystemKind::Wparse, &layout)
+        .expect("load rule overview");
 
     assert_eq!(overview.items.len(), 1);
     let item = &overview.items[0];
@@ -164,4 +166,51 @@ package ignore_pkg {
     );
     assert_eq!(item.log_types[1].log_type_name, "错误日志");
     assert_eq!(item.log_types[1].rule_keys, vec!["error".to_string()]);
+}
+
+#[test]
+fn test_load_wfusion_integration_rule_overview_extracts_wfs_and_wfl_counts() {
+    let temp_dir = tempfile::tempdir().expect("create temp dir");
+    let layout = ProjectLayout {
+        models_root: temp_dir.path().join("project_models"),
+        infra_root: temp_dir.path().join("project_infra"),
+    };
+
+    write_file(
+        &layout
+            .models_root
+            .join("models/schemas/network/network.wfs"),
+        "window network {}",
+    );
+    write_file(
+        &layout.models_root.join("models/schemas/auth/auth.wfs"),
+        "window auth {}",
+    );
+    write_file(
+        &layout.models_root.join("models/rules/ssh/ssh_brute_force.wfl"),
+        "rule ssh_brute_force {}",
+    );
+
+    let overview = load_integration_rule_overview_from_layout(SystemKind::Wfusion, &layout)
+        .expect("load wfusion rule overview");
+
+    assert!(overview.items.is_empty());
+    assert_eq!(overview.window_structure_count, 2);
+    assert_eq!(overview.association_rule_count, 1);
+    assert_eq!(
+        overview
+            .window_structures
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["auth", "network"]
+    );
+    assert_eq!(
+        overview
+            .association_rules
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["ssh/ssh_brute_force"]
+    );
 }

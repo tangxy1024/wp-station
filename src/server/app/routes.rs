@@ -68,7 +68,12 @@ pub(super) fn configure_api_services(cfg: &mut web::ServiceConfig) {
         .service(api::debug_knowledge_query)
         .service(api::wpl_format)
         .service(api::oml_format)
+        .service(api::wfs_format)
+        .service(api::wfl_format)
+        .service(api::wfg_format)
+        .service(api::toml_format)
         .service(api::debug_examples)
+        .service(api::debug_wfusion_rule_editor_parse)
         // AI 辅助规则编写 API
         .service(api::assist_submit)
         .service(api::assist_list)

@@ -36,12 +36,25 @@ export async function fetchIntegrationRuleOverview(system) {
       ruleKeys: Array.isArray(item?.rule_keys) ? item.rule_keys : [],
     }));
 
+  const normalizeFlatItems = (items = []) =>
+    (Array.isArray(items) ? items : []).map((item) => ({
+      key: item?.key || '',
+      name: item?.name || '',
+    }));
+
   return {
+    system: payload?.system || '',
     items: (Array.isArray(payload.items) ? payload.items : []).map((item) => ({
       key: item?.key || '',
       deviceType: item?.device_type || '',
       logTypes: normalizeLogTypes(item?.log_types),
     })),
+    windowStructures: normalizeFlatItems(payload?.window_structures),
+    associationRules: normalizeFlatItems(payload?.association_rules),
+    windowStructureCount:
+      typeof payload?.window_structure_count === 'number' ? payload.window_structure_count : 0,
+    associationRuleCount:
+      typeof payload?.association_rule_count === 'number' ? payload.association_rule_count : 0,
   };
 }
 

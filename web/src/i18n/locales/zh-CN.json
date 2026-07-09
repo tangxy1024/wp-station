@@ -35,7 +35,8 @@
     "close": "关闭",
     "clear": "清空",
     "loading": "加载中...",
-    "noData": "暂无数据"
+    "noData": "暂无数据",
+    "noFormatContent": "没有可格式化的内容"
   },
   "multipleInstances": {
     "addInstance": "添加实例",
@@ -136,6 +137,51 @@
       "meta": "meta",
       "name": "name",
       "value": "value"
+    }
+  },
+  "debug": {
+    "toml": {
+      "formatError": "格式化TOML代码失败"
+    },
+    "wfs": {
+      "formatError": "格式化WFS代码失败"
+    },
+    "wfl": {
+      "formatError": "格式化WFL代码失败"
+    },
+    "wfg": {
+      "formatError": "格式化WFG代码失败"
+    }
+  },
+  "wfusionRuleEditor": {
+    "title": "WFusion 规则编辑器",
+    "subtitle": "独立编写 WFS / WFL，并直接用标准化 NDJSON 做校验和试跑。",
+    "parse": "解析",
+    "parsing": "解析中...",
+    "loadExample": "加载示例",
+    "clearAll": "全部清空",
+    "ndjsonTitle": "标准化 NDJSON",
+    "wfsTitle": "WFS Schema",
+    "wflTitle": "WFL Rule",
+    "hint": "建议一次粘贴 50 行左右标准化 NDJSON；只有校验通过才会进入试跑。",
+    "resultTitle": "诊断与试跑结果",
+    "currentStage": "当前阶段",
+    "noResult": "点击“解析”后查看诊断或命中结果",
+    "success": "解析完成",
+    "failed": "解析失败",
+    "requestFailed": "执行规则试跑失败，请稍后重试",
+    "summaryEvents": "输入事件",
+    "summaryMatches": "命中次数",
+    "summaryErrors": "运行错误",
+    "diagnostics": "诊断",
+    "alerts": "Alerts",
+    "noAlerts": "未产生 alert 输出",
+    "stage": {
+      "wfs_parse": "WFS 解析",
+      "wfl_parse": "WFL 解析",
+      "wfl_check": "WFL 校验",
+      "replay": "试跑",
+      "success": "完成"
     }
   },
   "sandbox": {
@@ -255,6 +301,7 @@
     "dataCollection": "运行监控",
     "systemRelease": "配置发布",
     "ruleConfig": "规则配置",
+    "wfusionRuleEditor": "WFusion 编辑器",
     "configManage": "设施配置",
     "simulateDebug": "规则编辑器",
     "integrationOverview": "接入概览",
@@ -276,10 +323,14 @@
     "title": "接入概览",
     "coveredDeviceTypes": "已接入设备类型",
     "coveredLogTypes": "已接入日志类型",
+    "coveredWindowStructures": "已接入窗口结构",
+    "coveredAssociationRules": "已接入关联分析规则",
     "supportedSourceTypes": "已支持输入源种类",
     "supportedSinkTypes": "已支持输出源种类",
     "deviceType": "设备类型",
     "logTypeCount": "日志类型",
+    "windowStructure": "窗口结构",
+    "associationRule": "关联分析规则",
     "logStatus": "日志情况",
     "sourceOverview": "输入源",
     "sinkOverview": "输出源",

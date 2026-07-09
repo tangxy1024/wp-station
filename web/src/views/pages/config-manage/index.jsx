@@ -15,6 +15,7 @@ import {
   deleteConnectionConfigFile,
   renderConfigTemplate,
 } from '@/services/config';
+import { tomlCodeFormat } from '@/services/debug';
 import { useSystem } from '@/contexts/SystemContext';
 import CodeEditor from '@/views/components/CodeEditor/CodeEditor';
 import ValidateResultModal from '@/components/ValidateResultModal';
@@ -604,6 +605,28 @@ function ConfigManagePage() {
     }
   };
 
+  const handleFormat = async () => {
+    if (!content || content.trim() === '') {
+      message.warning(t('common.noFormatContent'));
+      return;
+    }
+
+    try {
+      const result = await tomlCodeFormat(content);
+      const formattedCode = result?.toml_code || '';
+
+      if (formattedCode && formattedCode !== content) {
+        setContent(formattedCode);
+        message.success(t('ruleManage.format'));
+        return;
+      }
+
+      message.info(t('ruleManage.format'));
+    } catch (error) {
+      message.error(error?.message || t('debug.toml.formatError'));
+    }
+  };
+
   const handleDeleteConnectionFile = async (category, file) =>
     new Promise((resolve, reject) => {
       Modal.confirm({
@@ -835,6 +858,11 @@ function ConfigManagePage() {
         <span className="single-config-name">{fileName}</span>
         <div className="single-config-actions">
           {extraActions}
+          {language === 'toml' ? (
+            <button type="button" className="btn ghost" onClick={handleFormat}>
+              {t('ruleManage.format')}
+            </button>
+          ) : null}
           <button type="button" className="btn tertiary" onClick={handleValidate}>
             {t('configManage.validate')}
           </button>
@@ -980,6 +1008,9 @@ function ConfigManagePage() {
               }
             >
               {t('configManage.addSinkTemplate')}
+            </button>
+            <button type="button" className="btn ghost" onClick={handleFormat}>
+              {t('ruleManage.format')}
             </button>
             <button type="button" className="btn tertiary" onClick={handleValidate}>
               {t('configManage.validate')}
@@ -1199,6 +1230,9 @@ function ConfigManagePage() {
               : t('configManage.noFileSelected')}
           </div>
           <div className="editor-actions">
+            <button type="button" className="btn ghost" onClick={handleFormat}>
+              {t('ruleManage.format')}
+            </button>
             <button type="button" className="btn tertiary" onClick={handleValidate}>
               {t('configManage.validate')}
             </button>

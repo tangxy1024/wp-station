@@ -35,7 +35,8 @@
     "close": "Close",
     "clear": "Clear",
     "loading": "Loading...",
-    "noData": "No Data"
+    "noData": "No Data",
+    "noFormatContent": "No content to format"
   },
   "multipleInstances": {
     "addInstance": "Add Instance",
@@ -138,10 +139,56 @@
       "value": "value"
     }
   },
+  "debug": {
+    "toml": {
+      "formatError": "Failed to format TOML code"
+    },
+    "wfs": {
+      "formatError": "Failed to format WFS code"
+    },
+    "wfl": {
+      "formatError": "Failed to format WFL code"
+    },
+    "wfg": {
+      "formatError": "Failed to format WFG code"
+    }
+  },
+  "wfusionRuleEditor": {
+    "title": "WFusion Rule Editor",
+    "subtitle": "Write WFS / WFL independently and validate them directly with normalized NDJSON replay.",
+    "parse": "Parse",
+    "parsing": "Parsing...",
+    "loadExample": "Load Example",
+    "clearAll": "Clear All",
+    "ndjsonTitle": "Normalized NDJSON",
+    "wfsTitle": "WFS Schema",
+    "wflTitle": "WFL Rule",
+    "hint": "About 50 normalized NDJSON lines is recommended; replay only starts after validation passes.",
+    "resultTitle": "Diagnostics & Replay Result",
+    "currentStage": "Current Stage",
+    "noResult": "Click Parse to inspect diagnostics or matched alerts",
+    "success": "Parse completed",
+    "failed": "Parse failed",
+    "requestFailed": "Rule replay failed, please try again later",
+    "summaryEvents": "Events",
+    "summaryMatches": "Matches",
+    "summaryErrors": "Runtime Errors",
+    "diagnostics": "Diagnostics",
+    "alerts": "Alerts",
+    "noAlerts": "No alert output produced",
+    "stage": {
+      "wfs_parse": "WFS Parse",
+      "wfl_parse": "WFL Parse",
+      "wfl_check": "WFL Check",
+      "replay": "Replay",
+      "success": "Completed"
+    }
+  },
   "navigation": {
     "dataCollection": "Runtime Monitor",
     "systemRelease": "Config Release",
     "ruleConfig": "Rule Config",
+    "wfusionRuleEditor": "WFusion Editor",
     "configManage": "Facility Config",
     "simulateDebug": "Rule Editor",
     "integrationOverview": "Integration Overview",
@@ -163,10 +210,14 @@
     "title": "Integration Overview",
     "coveredDeviceTypes": "Covered Device Types",
     "coveredLogTypes": "Covered Log Types",
+    "coveredWindowStructures": "Covered Window Structures",
+    "coveredAssociationRules": "Covered Correlation Rules",
     "supportedSourceTypes": "Supported Source Types",
     "supportedSinkTypes": "Supported Sink Types",
     "deviceType": "Device Type",
     "logTypeCount": "Log Type",
+    "windowStructure": "Window Structure",
+    "associationRule": "Correlation Rule",
     "logStatus": "Log Status",
     "sourceOverview": "Sources",
     "sinkOverview": "Sinks",

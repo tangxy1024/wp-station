@@ -2,7 +2,9 @@
 
 use crate::db::RuleType;
 use crate::error::AppError;
-use crate::server::sync::{sync_delete_to_gitea, sync_shared_connectors_to_gitea, sync_to_gitea};
+use crate::server::sync::{
+    sync_delete_to_gitea, sync_shared_connectors_to_infra_gitea, sync_to_gitea,
+};
 use crate::server::{
     OperationLogAction, OperationLogBiz, OperationLogParams, refresh_draft_release_logic,
     write_operation_log_for_result,
@@ -24,7 +26,7 @@ async fn sync_config_change(
     commit_message: &str,
 ) -> Result<(), AppError> {
     if is_shared_connector_rule(rule_type) {
-        sync_shared_connectors_to_gitea(commit_message).await
+        sync_shared_connectors_to_infra_gitea(commit_message).await
     } else {
         sync_to_gitea(
             commit_message,

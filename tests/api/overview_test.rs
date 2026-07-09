@@ -33,7 +33,7 @@ package nginx {
             .await;
 
     let req = test::TestRequest::get()
-        .uri("/api/integration-overview/rules")
+        .uri("/api/integration-overview/rules?system=wparse")
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -96,7 +96,7 @@ file = "all.json"
             .await;
 
     let req = test::TestRequest::get()
-        .uri("/api/integration-overview/runtime")
+        .uri("/api/integration-overview/runtime?system=wparse")
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);

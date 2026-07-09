@@ -708,8 +708,11 @@ const renderRuntimeDetailIcon = (label) => {
 function IntegrationOverviewPage() {
   const { t } = useTranslation();
   const { currentSystem } = useSystem();
+  const isWfusionSystem = currentSystem === 'wfusion';
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);
+  const [windowStructureItems, setWindowStructureItems] = useState([]);
+  const [associationRuleItems, setAssociationRuleItems] = useState([]);
   const [sourceItems, setSourceItems] = useState([]);
   const [sinkItems, setSinkItems] = useState([]);
   const [supportedSourceTypeCount, setSupportedSourceTypeCount] = useState(0);
@@ -731,6 +734,12 @@ function IntegrationOverviewPage() {
           logTypes: mergeLogTypesByName(item.logTypes),
         })),
       );
+      setWindowStructureItems(
+        Array.isArray(ruleOverview?.windowStructures) ? ruleOverview.windowStructures : [],
+      );
+      setAssociationRuleItems(
+        Array.isArray(ruleOverview?.associationRules) ? ruleOverview.associationRules : [],
+      );
       setSourceItems(Array.isArray(runtimeOverview?.sources) ? runtimeOverview.sources : []);
       setSinkItems(Array.isArray(runtimeOverview?.sinks) ? runtimeOverview.sinks : []);
       setSupportedSourceTypeCount(runtimeOverview?.supportedSourceTypeCount || 0);
@@ -748,63 +757,111 @@ function IntegrationOverviewPage() {
 
   const summary = useMemo(
     () => ({
-      deviceTypeCount: rows.length,
-      logTypeCount: rows.reduce((total, item) => total + item.logTypes.length, 0),
+      deviceTypeCount: isWfusionSystem ? windowStructureItems.length : rows.length,
+      logTypeCount: isWfusionSystem
+        ? associationRuleItems.length
+        : rows.reduce((total, item) => total + item.logTypes.length, 0),
     }),
-    [rows],
+    [associationRuleItems.length, isWfusionSystem, rows, windowStructureItems.length],
   );
 
-  const columns = [
-    {
-      title: '序号',
-      key: 'index',
-      width: 80,
-      render: (_, __, index) => index + 1,
-    },
-    {
-      title: t('integrationOverview.deviceType'),
-      dataIndex: 'deviceType',
-      key: 'deviceType',
-      width: 180,
-      render: (deviceType) => (
-        <Tag className="integration-overview-device-tag" bordered={false}>
-          {deviceType}
-        </Tag>
-      ),
-    },
-    {
-      title: t('integrationOverview.logTypeCount'),
-      dataIndex: 'logTypes',
-      key: 'logTypeCount',
-      width: 120,
-      render: (logTypes) => logTypes.length,
-    },
-    {
-      title: t('integrationOverview.logStatus'),
-      dataIndex: 'logTypes',
-      key: 'logStatus',
-      width: 320,
-      render: (logTypes) => (
-        <div className="integration-overview-log-list">
-          {logTypes.length > 0 ? (
-            logTypes.map((logType) => (
+  const wfusionRows = useMemo(() => {
+    const length = Math.max(windowStructureItems.length, associationRuleItems.length);
+    return Array.from({ length }, (_, index) => ({
+      key: `wfusion-${index}`,
+      windowStructure: windowStructureItems[index]?.name || '-',
+      associationRule: associationRuleItems[index]?.name || '-',
+    }));
+  }, [associationRuleItems, windowStructureItems]);
+
+  const columns = isWfusionSystem
+    ? [
+        {
+          title: '序号',
+          key: 'index',
+          width: 80,
+          render: (_, __, index) => index + 1,
+        },
+        {
+          title: t('integrationOverview.windowStructure'),
+          dataIndex: 'windowStructure',
+          key: 'windowStructure',
+          width: 280,
+          render: (windowStructure) => (
+            <Tag className="integration-overview-device-tag" bordered={false}>
+              {windowStructure}
+            </Tag>
+          ),
+        },
+        {
+          title: t('integrationOverview.associationRule'),
+          dataIndex: 'associationRule',
+          key: 'associationRule',
+          width: 360,
+          render: (associationRule) => (
+            <div className="integration-overview-log-list">
               <div
-                key={logType.key}
-                className="integration-overview-log-item"
-                title={logType.ruleKeys.join(', ')}
+                className={`integration-overview-log-item ${
+                  associationRule === '-' ? 'integration-overview-log-item--empty' : ''
+                }`}
               >
-                <span className="integration-overview-log-primary">{logType.logTypeName}</span>
+                {associationRule}
               </div>
-            ))
-          ) : (
-            <div className="integration-overview-log-item integration-overview-log-item--empty">
-              -
             </div>
-          )}
-        </div>
-      ),
-    },
-  ];
+          ),
+        },
+      ]
+    : [
+        {
+          title: '序号',
+          key: 'index',
+          width: 80,
+          render: (_, __, index) => index + 1,
+        },
+        {
+          title: t('integrationOverview.deviceType'),
+          dataIndex: 'deviceType',
+          key: 'deviceType',
+          width: 180,
+          render: (deviceType) => (
+            <Tag className="integration-overview-device-tag" bordered={false}>
+              {deviceType}
+            </Tag>
+          ),
+        },
+        {
+          title: t('integrationOverview.logTypeCount'),
+          dataIndex: 'logTypes',
+          key: 'logTypeCount',
+          width: 120,
+          render: (logTypes) => logTypes.length,
+        },
+        {
+          title: t('integrationOverview.logStatus'),
+          dataIndex: 'logTypes',
+          key: 'logStatus',
+          width: 320,
+          render: (logTypes) => (
+            <div className="integration-overview-log-list">
+              {logTypes.length > 0 ? (
+                logTypes.map((logType) => (
+                  <div
+                    key={logType.key}
+                    className="integration-overview-log-item"
+                    title={logType.ruleKeys.join(', ')}
+                  >
+                    <span className="integration-overview-log-primary">{logType.logTypeName}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="integration-overview-log-item integration-overview-log-item--empty">
+                  -
+                </div>
+              )}
+            </div>
+          ),
+        },
+      ];
 
   const renderRuntimeSection = (title, items, emptyKey, options = {}) => (
     <section className="integration-overview-runtime-section">
@@ -866,12 +923,16 @@ function IntegrationOverviewPage() {
   const summaryCards = [
     {
       key: 'device',
-      label: t('integrationOverview.coveredDeviceTypes'),
+      label: isWfusionSystem
+        ? t('integrationOverview.coveredWindowStructures')
+        : t('integrationOverview.coveredDeviceTypes'),
       value: summary.deviceTypeCount,
     },
     {
       key: 'log',
-      label: t('integrationOverview.coveredLogTypes'),
+      label: isWfusionSystem
+        ? t('integrationOverview.coveredAssociationRules')
+        : t('integrationOverview.coveredLogTypes'),
       value: summary.logTypeCount,
     },
     {
@@ -929,7 +990,7 @@ function IntegrationOverviewPage() {
             rowKey="key"
             loading={loading}
             columns={columns}
-            dataSource={rows}
+            dataSource={isWfusionSystem ? wfusionRows : rows}
             scroll={{ x: 1080 }}
             pagination={{
               pageSize: 10,

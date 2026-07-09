@@ -23,7 +23,8 @@ pub use config::{
 };
 pub use debug::{
     debug_examples, debug_knowledge_query, debug_knowledge_status, debug_parse, debug_transform,
-    oml_format, wpl_format,
+    debug_wfusion_rule_editor_parse, oml_format, toml_format, wfg_format, wfl_format, wfs_format,
+    wpl_format,
 };
 pub use device::{
     create_device, delete_device, list_devices, list_online_devices, refresh_device_status,

@@ -72,6 +72,7 @@ pub async fn start() -> std::io::Result<()> {
                     .exclude("/devices")
                     .exclude("/features")
                     .exclude("/rule-manage")
+                    .exclude("/wfusion-rule-editor")
                     .exclude("/config-manage")
                     .exclude("/simulate-debug")
                     .exclude("/system-release")

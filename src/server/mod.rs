@@ -34,9 +34,11 @@ pub use config::{
     get_config_logic, get_config_templates_logic, render_config_template_logic, save_config_logic,
 };
 pub use debug::{
-    DebugKnowledgeQueryRequest, DebugKnowledgeStatusQuery, DebugParseRequest,
-    DebugTransformRequest, SharedRecord, debug_examples_logic, debug_knowledge_query_logic,
-    debug_knowledge_status_logic, debug_parse_logic, debug_transform_logic, oml_format_logic,
+    DebugFormatKind, DebugKnowledgeQueryRequest, DebugKnowledgeStatusQuery, DebugParseRequest,
+    DebugTransformRequest, DebugWfusionRuleEditorParseRequest, SharedRecord, debug_examples_logic,
+    debug_knowledge_query_logic, debug_knowledge_status_logic, debug_parse_logic,
+    debug_transform_logic, debug_wfusion_rule_editor_parse_logic, format_code_logic,
+    oml_format_logic, toml_format_logic, wfg_format_logic, wfl_format_logic, wfs_format_logic,
     wpl_format_logic,
 };
 pub use device::{

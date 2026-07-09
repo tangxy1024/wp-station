@@ -4337,7 +4337,7 @@ mark.diff-highlight {
 .header-system-float {
   position: absolute;
   top: 14px;
-  left: 29%;
+  left: 26%;
   transform: translateX(-50%);
   z-index: 2;
   pointer-events: none;
@@ -4905,4 +4905,265 @@ mark.diff-highlight {
 .example-list__message {
   color: #666;
   font-size: 12px;
+}
+
+.wfusion-rule-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.wfusion-rule-editor--compact {
+  gap: 14px;
+  height: 100%;
+}
+
+.wfusion-rule-editor__title {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.wfusion-rule-editor__subtitle,
+.wfusion-rule-editor__hint,
+.wfusion-rule-editor__stage {
+  margin: 6px 0 0;
+  color: #667085;
+  font-size: 13px;
+}
+
+.wfusion-rule-editor__stage--standalone {
+  margin-top: 0;
+}
+
+.wfusion-rule-editor__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wfusion-rule-editor__log-block {
+  flex: 0 0 auto;
+}
+
+.wfusion-rule-editor__log-input {
+  height: 220px;
+  min-height: 220px;
+  max-height: 220px;
+}
+
+.wfusion-rule-editor__workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 16px;
+}
+
+.wfusion-rule-editor__editor-col {
+  flex: 1.05 1 560px;
+}
+
+.wfusion-rule-editor__result-col {
+  flex: 0.95 1 420px;
+}
+
+.wfusion-rule-editor__editor-header {
+  align-items: flex-start;
+}
+
+.wfusion-rule-editor__editor-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+.wfusion-rule-editor__editor-toggle {
+  width: fit-content;
+}
+
+.wfusion-rule-editor__editor-actions {
+  flex-wrap: nowrap;
+}
+
+.wfusion-rule-editor__result-panel {
+  height: 100%;
+}
+
+.wfusion-rule-editor__result-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 500px;
+  max-height: 500px;
+  overflow: hidden;
+}
+
+.wfusion-rule-editor__workspace .panel-block,
+.wfusion-rule-editor .panel-block--fill {
+  min-height: 0;
+}
+
+.wfusion-rule-editor__rule-input {
+  height: 520px !important;
+  min-height: 520px !important;
+  max-height: 520px !important;
+}
+
+.wfusion-rule-editor__result {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  min-height: 0;
+}
+
+.wfusion-rule-editor__result-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.wfusion-rule-editor__result-title {
+  min-width: 0;
+}
+
+.wfusion-rule-editor__result-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14px;
+  min-width: 0;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  margin-left: 24px;
+}
+
+.wfusion-rule-editor__inline-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  margin-left: 8px;
+  min-width: 0;
+}
+
+.wfusion-rule-editor__inline-stats--header {
+  margin-left: 0;
+}
+
+.wfusion-rule-editor__inline-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  color: #667085;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.wfusion-rule-editor__inline-stat strong {
+  color: #101828;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.wfusion-rule-editor__section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wfusion-rule-editor__section h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.wfusion-rule-editor__empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: #98a2b3;
+  border: 1px dashed rgba(15, 23, 42, 0.12);
+  border-radius: 16px;
+  background: #fcfcfd;
+}
+
+.wfusion-rule-editor__error {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wfusion-rule-editor__error-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #344054;
+}
+
+.wfusion-rule-editor__error-item {
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(217, 45, 32, 0.14);
+  background: #fef3f2;
+  color: #912018;
+  line-height: 1.6;
+}
+
+.wfusion-rule-editor__error-hint {
+  margin-top: 6px;
+  color: #b42318;
+  font-size: 12px;
+}
+
+@media (max-width: 960px) {
+  .wfusion-rule-editor__log-input {
+    height: 200px;
+    min-height: 200px;
+    max-height: 200px;
+  }
+
+  .wfusion-rule-editor__workspace {
+    flex-direction: column;
+  }
+
+  .wfusion-rule-editor__editor-actions {
+    flex-wrap: wrap;
+  }
+
+  .wfusion-rule-editor__editor-title {
+    align-items: flex-start;
+  }
+
+  .wfusion-rule-editor__rule-input {
+    height: 360px !important;
+    min-height: 360px !important;
+    max-height: 360px !important;
+  }
+
+  .wfusion-rule-editor__result-body {
+    height: 360px;
+    max-height: 360px;
+  }
+
+  .wfusion-rule-editor__stats {
+    grid-template-columns: 1fr;
+  }
+
+  .wfusion-rule-editor__result-header {
+    align-items: flex-start;
+  }
+
+  .wfusion-rule-editor__result-toolbar {
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .wfusion-rule-editor__inline-stats {
+    margin-left: 0;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
 }

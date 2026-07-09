@@ -27,6 +27,18 @@ function hasSystemParam(search = '') {
   return params.has('system');
 }
 
+function mapPathForSystem(pathname = '', nextSystem) {
+  if (pathname === '/simulate-debug' || pathname.startsWith('/simulate-debug/')) {
+    return nextSystem === 'wfusion' ? '/wfusion-rule-editor' : '/simulate-debug';
+  }
+
+  if (pathname === '/wfusion-rule-editor' || pathname.startsWith('/wfusion-rule-editor/')) {
+    return nextSystem === 'wfusion' ? '/wfusion-rule-editor' : '/simulate-debug';
+  }
+
+  return pathname;
+}
+
 export function SystemProvider({ children }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -42,10 +54,23 @@ export function SystemProvider({ children }) {
     const params = new URLSearchParams(location.search || '');
     const querySystem = params.get('system');
     const nextSystem = normalizeSystem(querySystem || currentSystem);
+    const nextPathname = mapPathForSystem(location.pathname, nextSystem);
 
     if (querySystem && nextSystem !== currentSystem) {
       persistCurrentSystem(nextSystem);
       setCurrentSystem(nextSystem);
+      return;
+    }
+
+    if (nextPathname !== location.pathname) {
+      const nextSearch = buildSystemSearch(location.search, nextSystem);
+      navigate(
+        {
+          pathname: nextPathname,
+          search: nextSearch ? `?${nextSearch}` : '',
+        },
+        { replace: true },
+      );
       return;
     }
 
@@ -110,9 +135,10 @@ export function SystemProvider({ children }) {
     setCurrentSystem(nextSystem);
 
     const nextSearch = buildSystemSearch(location.search, nextSystem);
+    const nextPathname = mapPathForSystem(location.pathname, nextSystem);
     navigate(
       {
-        pathname: location.pathname,
+        pathname: nextPathname,
         search: nextSearch ? `?${nextSearch}` : '',
       },
       { replace: true },

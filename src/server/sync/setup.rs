@@ -3,14 +3,10 @@
 use std::path::Path;
 
 use crate::constants::gitea::REPO_BASELINE_TAG;
-use crate::constants::project::REPO_SHARED_CONNECTORS;
 use crate::db::ReleaseGroup;
 use crate::error::AppError;
 use crate::server::{RepoStartupStrategy, Setting};
-use crate::utils::{
-    SystemKind, all_system_layouts, init_default_connectors_to_shared, layout_for_system,
-    repo_name, shared_connectors_root,
-};
+use crate::utils::{SystemKind, all_system_layouts, layout_for_system, repo_name};
 use gitea::GiteaClient;
 
 /// 初始化双仓库 Gitea 仓库和基线 tag。
@@ -31,8 +27,7 @@ pub async fn init_gitea_repo() -> Result<(), AppError> {
         .map_err(|e| AppError::internal(format!("初始化 models 默认配置失败: {}", e)))?;
     crate::utils::init_default_configs_to_infra(layout.infra_root.to_string_lossy().as_ref())
         .map_err(|e| AppError::internal(format!("初始化 infra 默认配置失败: {}", e)))?;
-    init_default_connectors_to_shared(shared_connectors_root().to_string_lossy().as_ref())
-        .map_err(|e| AppError::internal(format!("初始化共享 connectors 默认配置失败: {}", e)))?;
+    super::prepare_shared_connectors_workspace()?;
 
     init_single_repo(
         &setting,
@@ -50,7 +45,6 @@ pub async fn init_gitea_repo() -> Result<(), AppError> {
         &layout.infra_root,
     )
     .await?;
-    init_shared_connectors_repo(&setting, &gitea_client, &shared_connectors_root()).await?;
 
     Ok(())
 }
@@ -79,7 +73,7 @@ pub async fn ensure_project_repositories() -> Result<(), AppError> {
             .await?;
         }
     }
-    ensure_shared_connectors_repository(&setting, &gitea_client, &shared_connectors_root()).await?;
+    super::prepare_shared_connectors_workspace()?;
 
     Ok(())
 }
@@ -160,76 +154,6 @@ fn init_default_configs_for_group(system: SystemKind, group: ReleaseGroup) -> Re
             layout.infra_root.to_string_lossy().as_ref(),
         )
         .map_err(|e| AppError::internal(format!("初始化 infra 默认配置失败: {}", e))),
-    }
-}
-
-/// 确保共享 connectors 仓库与远端状态满足启动要求。
-async fn ensure_shared_connectors_repository(
-    setting: &Setting,
-    gitea_client: &GiteaClient,
-    project_path: &Path,
-) -> Result<(), AppError> {
-    let local_has_repo = project_path.join(".git").is_dir();
-    let remote_repo = gitea_client
-        .get_repo(REPO_SHARED_CONNECTORS)
-        .await
-        .map_err(|e| {
-            AppError::internal(format!(
-                "查询远程共享 connectors 仓库失败: repo_name={}, error={}",
-                REPO_SHARED_CONNECTORS, e
-            ))
-        })?;
-    let remote_exists = remote_repo.is_some();
-    let remote_has_data = remote_repo
-        .as_ref()
-        .map(|repo| !repo.empty)
-        .unwrap_or(false);
-
-    info!(
-        "检查共享 connectors 仓库: strategy={:?}, local_has_repo={}, remote_exists={}, remote_has_data={}",
-        setting.gitea.repo_startup_strategy, local_has_repo, remote_exists, remote_has_data
-    );
-
-    match (local_has_repo, remote_has_data) {
-        (false, true) => {
-            let repo = remote_repo.expect("remote_has_data implies remote repo exists");
-            clone_remote_over_local(gitea_client, &repo.clone_url, project_path, "connectors").await
-        }
-        (false, false) => {
-            init_default_connectors_to_shared(project_path.to_string_lossy().as_ref())?;
-            init_shared_connectors_repo(setting, gitea_client, project_path).await
-        }
-        (true, false) => {
-            init_default_connectors_to_shared(project_path.to_string_lossy().as_ref())?;
-            prepare_named_repo(
-                setting,
-                gitea_client,
-                REPO_SHARED_CONNECTORS,
-                project_path,
-                false,
-            )
-            .await?;
-            force_push_local_repo(gitea_client, project_path, "connectors")
-        }
-        (true, true) => match setting.gitea.repo_startup_strategy {
-            RepoStartupStrategy::Gitea => {
-                let repo = remote_repo.expect("remote_has_data implies remote repo exists");
-                clone_remote_over_local(gitea_client, &repo.clone_url, project_path, "connectors")
-                    .await
-            }
-            RepoStartupStrategy::Local => {
-                init_default_connectors_to_shared(project_path.to_string_lossy().as_ref())?;
-                prepare_named_repo(
-                    setting,
-                    gitea_client,
-                    REPO_SHARED_CONNECTORS,
-                    project_path,
-                    false,
-                )
-                .await?;
-                force_push_local_repo(gitea_client, project_path, "connectors")
-            }
-        },
     }
 }
 
@@ -320,22 +244,6 @@ async fn prepare_single_repo(
 ) -> Result<(), AppError> {
     let repo_name = repo_name(system, super::area_from_group(group));
     prepare_named_repo(setting, gitea_client, repo_name, project_path, push_main).await
-}
-
-/// 初始化共享 connectors 仓库并在首次准备时推送主分支。
-async fn init_shared_connectors_repo(
-    setting: &Setting,
-    gitea_client: &GiteaClient,
-    project_path: &Path,
-) -> Result<(), AppError> {
-    prepare_named_repo(
-        setting,
-        gitea_client,
-        REPO_SHARED_CONNECTORS,
-        project_path,
-        true,
-    )
-    .await
 }
 
 /// 按仓库名准备本地 git 元信息、远端和基线 tag。

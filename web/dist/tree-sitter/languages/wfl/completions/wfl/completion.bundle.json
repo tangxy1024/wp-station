@@ -1,0 +1,9 @@
+{
+  "language": "wfl",
+  "version": 1,
+  "valid_for": ".*",
+  "locales": {
+    "zh-CN": [],
+    "en": []
+  }
+}

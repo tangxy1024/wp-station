@@ -149,7 +149,7 @@ async fn collect_release_diff_for_group(
     let gitea_client = GiteaClient::new(gitea_config).map_err(AppError::git)?;
     let repo_targets = match parsed_group {
         ReleaseGroup::Models => vec![layout.models_root],
-        ReleaseGroup::Infra => vec![layout.infra_root, layout.connectors_root],
+        ReleaseGroup::Infra => vec![layout.infra_root],
     };
 
     let previous_release =

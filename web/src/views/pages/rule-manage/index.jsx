@@ -13,7 +13,14 @@ import {
   fetchKnowdbConfig,
   saveKnowdbConfig,
 } from '@/services/config';
-import { wplCodeFormat, omlCodeFormat } from '@/services/debug';
+import {
+  omlCodeFormat,
+  tomlCodeFormat,
+  wfgCodeFormat,
+  wflCodeFormat,
+  wfsCodeFormat,
+  wplCodeFormat,
+} from '@/services/debug';
 import { useSystem } from '@/contexts/SystemContext';
 import CodeEditor from '@/views/components/CodeEditor/CodeEditor';
 import ValidateResultModal from '@/components/ValidateResultModal';
@@ -508,6 +515,10 @@ function RuleManagePage() {
     !isWfusionSystem && (activeKey === RuleType.WPL || activeKey === INTEGRATION_OVERVIEW_KEY);
   const isIntegrationOverviewMode = activeKey === INTEGRATION_OVERVIEW_KEY;
   const isKnowledgeMode = activeKey === RuleType.KNOWLEDGE;
+  const isKnowdbEditorMode =
+    isKnowledgeMode &&
+    Boolean(knowledgeConfigFile) &&
+    activeKnowledgeDataset === knowledgeConfigFile;
   const isFixedRuleMode = activeKey === RuleType.WINDOWS;
   const activeTreeRuleType = isTreeRuleType(activeKey) ? activeKey : null;
   const isRepoMode = isWplEditorMode || Boolean(activeTreeRuleType);
@@ -535,7 +546,25 @@ function RuleManagePage() {
         : activeTreeRuleType === RuleType.SCENARIOS
           ? t('ruleManage.scenariosRules')
         : t('ruleManage.enrichmentRules');
-  const showFormatButton = isWplEditorMode || activeTreeRuleType === RuleType.OML;
+  const currentFormatTarget =
+    isWplEditorMode && isWplSampleEntry(activeWplFile, wplParseFile, wplSampleFile)
+      ? null
+      : isWplEditorMode
+        ? 'wpl'
+        : isKnowdbEditorMode
+          ? 'toml'
+          : isFixedRuleMode
+            ? 'toml'
+            : activeTreeRuleType === RuleType.OML
+              ? 'oml'
+              : activeTreeRuleType === RuleType.SCHEMA
+                ? 'wfs'
+                : activeTreeRuleType === RuleType.RULE
+                  ? 'wfl'
+                  : activeTreeRuleType === RuleType.SCENARIOS
+                    ? 'wfg'
+                    : null;
+  const showFormatButton = Boolean(currentFormatTarget);
 
   useEffect(() => {
     const allowedKeys = isWfusionSystem
@@ -1193,6 +1222,25 @@ function RuleManagePage() {
     }
   };
 
+  const resetTreeRuleSelection = useCallback(() => {
+    setActiveOmlFile('');
+    setOmlFiles([]);
+    setOmlTree([]);
+    setOmlExpandedGroups([]);
+    setContent('');
+    setOriginalContent('');
+  }, []);
+
+  const prepareTreeRuleNavigation = useCallback(
+    (targetType) => {
+      if (activeKey !== targetType) {
+        resetTreeRuleSelection();
+      }
+      setLocalOmlFiles([]);
+    },
+    [activeKey, resetTreeRuleSelection],
+  );
+
   // 当配置类型或子文件变化时重新加载
   useEffect(() => {
     loadConfig();
@@ -1402,39 +1450,74 @@ function RuleManagePage() {
    * 处理代码格式化
    */
   const handleFormat = async () => {
-    if (!isWplEditorMode && activeKey !== RuleType.OML) {
+    if (!currentFormatTarget) {
       return;
     }
 
-    if (isWplEditorMode && isWplSampleEntry(activeWplFile, wplParseFile, wplSampleFile)) {
-      message.info(t('ruleManage.sampleFileFormatDisabled'));
-      return;
-    }
-
-    if (!content || content.trim() === '') {
-      message.warning(t('simulateDebug.parseRule.formatError'));
+    const sourceContent = isKnowdbEditorMode ? knowdbConfig : content;
+    if (!sourceContent || sourceContent.trim() === '') {
+      message.warning(t('common.noFormatContent'));
       return;
     }
 
     try {
       let result;
-      if (isWplEditorMode) {
-        result = await wplCodeFormat(content);
-      } else {
-        result = await omlCodeFormat(content);
+      switch (currentFormatTarget) {
+        case 'wpl':
+          result = await wplCodeFormat(sourceContent);
+          break;
+        case 'oml':
+          result = await omlCodeFormat(sourceContent);
+          break;
+        case 'wfs':
+          result = await wfsCodeFormat(sourceContent);
+          break;
+        case 'wfl':
+          result = await wflCodeFormat(sourceContent);
+          break;
+        case 'wfg':
+          result = await wfgCodeFormat(sourceContent);
+          break;
+        case 'toml':
+          result = await tomlCodeFormat(sourceContent);
+          break;
+        default:
+          return;
       }
 
-      // 提取格式化后的代码
-      const formattedCode = isWplEditorMode ? result.wpl_code : result.oml_code;
+      const formattedCode =
+        result.wpl_code ||
+        result.oml_code ||
+        result.wfs_code ||
+        result.wfl_code ||
+        result.wfg_code ||
+        result.toml_code ||
+        '';
 
-      if (formattedCode && formattedCode !== content) {
-        setContent(formattedCode);
+      if (formattedCode && formattedCode !== sourceContent) {
+        if (isKnowdbEditorMode) {
+          setKnowdbConfig(formattedCode);
+        } else {
+          setContent(formattedCode);
+        }
         message.success(t('ruleManage.format'));
       } else {
         message.info(t('ruleManage.format'));
       }
     } catch (error) {
-      message.error(t('simulateDebug.parseRule.formatError'));
+      const errorKey =
+        currentFormatTarget === 'oml'
+          ? 'simulateDebug.omlInput.formatError'
+          : currentFormatTarget === 'toml'
+            ? 'debug.toml.formatError'
+            : currentFormatTarget === 'wfs'
+              ? 'debug.wfs.formatError'
+              : currentFormatTarget === 'wfl'
+                ? 'debug.wfl.formatError'
+                : currentFormatTarget === 'wfg'
+                  ? 'debug.wfg.formatError'
+                  : 'simulateDebug.parseRule.formatError';
+      message.error(error?.message || t(errorKey));
     }
   };
 
@@ -1679,8 +1762,8 @@ function RuleManagePage() {
           : activeTreeRuleType === RuleType.RULE
             ? 'wfl'
             : activeTreeRuleType === RuleType.SCENARIOS
-              ? 'plain'
-        : 'plain';
+              ? 'wfg'
+              : 'plain';
 
   return (
     <>
@@ -1699,13 +1782,8 @@ function RuleManagePage() {
             <button
               type="button"
               className={`side-item ${activeKey === RuleType.SCHEMA ? 'is-active' : ''}`}
-              onClick={() => handleNavigation(RuleType.SCHEMA, async () => {
-                try {
-                  await loadRepoFilesIfNeeded(RuleType.SCHEMA);
-                  setLocalOmlFiles([]);
-                } catch (error) {
-                  message.error(t('ruleManage.loadSchemaFailed', { message: error.message }));
-                }
+              onClick={() => handleNavigation(RuleType.SCHEMA, () => {
+                prepareTreeRuleNavigation(RuleType.SCHEMA);
               })}
             >
               {t('ruleManage.schemasConfig')}
@@ -1713,13 +1791,8 @@ function RuleManagePage() {
             <button
               type="button"
               className={`side-item ${activeKey === RuleType.RULE ? 'is-active' : ''}`}
-              onClick={() => handleNavigation(RuleType.RULE, async () => {
-                try {
-                  await loadRepoFilesIfNeeded(RuleType.RULE);
-                  setLocalOmlFiles([]);
-                } catch (error) {
-                  message.error(t('ruleManage.loadRuleFailed', { message: error.message }));
-                }
+              onClick={() => handleNavigation(RuleType.RULE, () => {
+                prepareTreeRuleNavigation(RuleType.RULE);
               })}
             >
               {t('ruleManage.rulesConfig')}
@@ -1727,13 +1800,8 @@ function RuleManagePage() {
             <button
               type="button"
               className={`side-item ${activeKey === RuleType.SCENARIOS ? 'is-active' : ''}`}
-              onClick={() => handleNavigation(RuleType.SCENARIOS, async () => {
-                try {
-                  await loadRepoFilesIfNeeded(RuleType.SCENARIOS);
-                  setLocalOmlFiles([]);
-                } catch (error) {
-                  message.error(t('ruleManage.loadScenariosFailed', { message: error.message }));
-                }
+              onClick={() => handleNavigation(RuleType.SCENARIOS, () => {
+                prepareTreeRuleNavigation(RuleType.SCENARIOS);
               })}
             >
               {t('ruleManage.scenariosConfig')}
@@ -1760,8 +1828,7 @@ function RuleManagePage() {
               className={`side-item ${activeKey === RuleType.OML ? 'is-active' : ''}`}
               onClick={() => handleNavigation(RuleType.OML, async () => {
                 try {
-                  await loadRepoFilesIfNeeded(RuleType.OML);
-                  setLocalOmlFiles([]);
+                  prepareTreeRuleNavigation(RuleType.OML);
                 } catch (error) {
                   message.error(t('ruleManage.loadOmlFailed', { message: error.message }));
                 }
@@ -2061,6 +2128,11 @@ function RuleManagePage() {
                           : t('ruleManage.datasets')}
                       </span>
                       <div className="editor-actions">
+                        {showFormatButton ? (
+                          <button type="button" className="btn ghost" onClick={handleFormat}>
+                            {t('ruleManage.format')}
+                          </button>
+                        ) : null}
                         <button type="button" className="btn tertiary" onClick={handleValidate}>
                           {t('ruleManage.validate')}
                         </button>
@@ -2135,6 +2207,11 @@ function RuleManagePage() {
             <div className="repo-toolbar">
               <div className="repo-path">{WFUSION_WINDOWS_FILE}</div>
               <div className="editor-actions">
+                {showFormatButton ? (
+                  <button type="button" className="btn ghost" onClick={handleFormat}>
+                    {t('ruleManage.format')}
+                  </button>
+                ) : null}
                 <button type="button" className="btn tertiary" onClick={handleValidate}>
                   {t('ruleManage.validate')}
                 </button>
