@@ -49,13 +49,13 @@ wf-lang = { git = "https://github.com/wp-labs/wp-reactor.git", tag = "v0.1.25" }
 
 # Tree-sitter 支持（用于代码格式化）
 tree-sitter = "0.26.6"
-tree-sitter-wpl = { package = "tree-sitter-wpl", path = "../wp-tree-sitter/tree-sitter-wpl" }
-tree-sitter-oml = { package = "tree-sitter-oml", path = "../wp-tree-sitter/tree-sitter-oml" }
-tree-sitter-wfl = { package = "tree-sitter-wfl", path = "../wp-tree-sitter/tree-sitter-wfl" }
+# tree-sitter-wpl = { package = "tree-sitter-wpl", path = "../wp-tree-sitter/tree-sitter-wpl" }
+# tree-sitter-oml = { package = "tree-sitter-oml", path = "../wp-tree-sitter/tree-sitter-oml" }
+# tree-sitter-wfl = { package = "tree-sitter-wfl", path = "../wp-tree-sitter/tree-sitter-wfl" }
 
-# tree-sitter-wpl = { package = "tree-sitter-wpl", git = "https://github.com/wp-labs/tree-sitter-wpl.git", branch = "main" }
-# tree-sitter-oml = { package = "tree-sitter-oml", git = "https://github.com/wp-labs/tree-sitter-oml.git", branch = "main" }
-# tree-sitter-wfl = { package = "tree-sitter-wfl", git = "https://github.com/wp-labs/tree-sitter-wfl.git", branch = "main" }
+tree-sitter-wpl = { package = "tree-sitter-wpl", git = "https://github.com/wp-labs/tree-sitter-wpl.git", branch = "main" }
+tree-sitter-oml = { package = "tree-sitter-oml", git = "https://github.com/wp-labs/tree-sitter-oml.git", branch = "main" }
+tree-sitter-wfl = { package = "tree-sitter-wfl", git = "https://github.com/wp-labs/tree-sitter-wfl.git", branch = "main" }
 
 # PostgreSQL 数据库支持 - SeaORM
 sea-orm = { version = "1.1", features = ["sqlx-postgres", "sqlx-sqlite", "runtime-tokio-rustls", "macros", "with-chrono"] }

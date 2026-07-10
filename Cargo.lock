@@ -6355,6 +6355,7 @@ checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
 [[package]]
 name = "tree-sitter-oml"
 version = "0.2.0"
+source = "git+https://github.com/wp-labs/tree-sitter-oml.git?branch=main#e97032ae205bba23ee1583cd2bfbff5fa900f700"
 dependencies = [
  "cc",
  "tree-sitter",
@@ -6363,6 +6364,7 @@ dependencies = [
 [[package]]
 name = "tree-sitter-wfl"
 version = "0.0.1"
+source = "git+https://github.com/wp-labs/tree-sitter-wfl.git?branch=main#745910071197dc93d4bc81d4f7306341ac5fffdd"
 dependencies = [
  "cc",
  "tree-sitter",
@@ -6371,6 +6373,7 @@ dependencies = [
 [[package]]
 name = "tree-sitter-wpl"
 version = "0.0.1"
+source = "git+https://github.com/wp-labs/tree-sitter-wpl.git?branch=main#bcf75d6131581a15f70bf7f6cdedcf8a78cbaadb"
 dependencies = [
  "cc",
  "tree-sitter",
