@@ -164,7 +164,8 @@ fn export_wfusion_alert_json(alert: OutputRecord) -> serde_json::Value {
         .ok()
         .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok());
 
-    exported_json.unwrap_or_else(|| serde_json::to_value(&alert).unwrap_or_else(|_| serde_json::json!({})))
+    exported_json
+        .unwrap_or_else(|| serde_json::to_value(&alert).unwrap_or_else(|_| serde_json::json!({})))
 }
 
 /// 解析日志并返回字段列表

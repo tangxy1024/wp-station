@@ -70,10 +70,7 @@ fn get_package_root(packages: &[Value], name: &str) -> Option<PathBuf> {
         .and_then(|manifest_path| Path::new(manifest_path).parent().map(Path::to_path_buf))
 }
 
-fn resolve_asset_root(
-    packages: &[Value],
-    source: &TreeSitterAssetSource,
-) -> Option<PathBuf> {
+fn resolve_asset_root(packages: &[Value], source: &TreeSitterAssetSource) -> Option<PathBuf> {
     if let Some(local_root) = source.local_override_root {
         let path = PathBuf::from(local_root);
         if path.exists() {
@@ -239,7 +236,12 @@ fn export_web_tree_sitter_runtime() {
 }
 
 fn ensure_frontend_tree_sitter_assets(metadata: &Value) {
-    // 检查 npm 是否可用
+    println!("cargo:rerun-if-changed=web/package.json");
+    println!("cargo:rerun-if-changed=web/package-lock.json");
+    println!("cargo:rerun-if-changed=web/src");
+    println!("cargo:rerun-if-changed=web/index.html");
+    println!("cargo:rerun-if-changed=web/vite.config.js");
+
     let npm_check = Command::new("npm").arg("--version").output();
 
     if npm_check.is_err() {
@@ -247,26 +249,29 @@ fn ensure_frontend_tree_sitter_assets(metadata: &Value) {
         return;
     }
 
-    let install_result = Command::new("npm")
-        .arg("install")
-        .current_dir("web")
-        .output();
+    let runtime_src = Path::new("web/node_modules/web-tree-sitter/web-tree-sitter.wasm");
+    if !runtime_src.exists() {
+        let install_result = Command::new("npm")
+            .arg("install")
+            .current_dir("web")
+            .output();
 
-    match install_result {
-        Ok(output) => {
-            if !output.status.success() {
-                println!("cargo:warning=npm install 失败");
-                print_command_output("npm install", &output);
-                println!(
-                    "cargo:warning=npm install 失败，退出码: {:?}",
-                    output.status.code()
-                );
+        match install_result {
+            Ok(output) => {
+                if !output.status.success() {
+                    println!("cargo:warning=npm install 失败");
+                    print_command_output("npm install", &output);
+                    println!(
+                        "cargo:warning=npm install 失败，退出码: {:?}",
+                        output.status.code()
+                    );
+                    return;
+                }
+            }
+            Err(e) => {
+                println!("cargo:warning=npm install 失败: {}", e);
                 return;
             }
-        }
-        Err(e) => {
-            println!("cargo:warning=npm install 失败: {}", e);
-            return;
         }
     }
 
@@ -299,20 +304,16 @@ fn run_npm_build() {
 }
 
 fn main() {
-    // 判断是否为 release 构建
     let is_release = std::env::var("PROFILE").unwrap_or_default() == "release";
 
-    // 只获取一次 metadata
     let metadata = get_cargo_metadata();
-    ensure_frontend_tree_sitter_assets(&metadata);
-
-    if !is_release {
-        run_npm_build();
+    if is_release {
+        println!("cargo:warning=Release 构建，跳过前端资源同步与 npm 构建");
     } else {
-        println!("cargo:warning=Release 构建，跳过 npm 构建");
+        ensure_frontend_tree_sitter_assets(&metadata);
+        run_npm_build();
     }
 
-    // 补充版本号
     let app_name = env!("CARGO_PKG_NAME");
     let wp_parse_pkg_name = "wp-engine";
 

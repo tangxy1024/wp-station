@@ -187,7 +187,9 @@ fn test_load_wfusion_integration_rule_overview_extracts_wfs_and_wfl_counts() {
         "window auth {}",
     );
     write_file(
-        &layout.models_root.join("models/rules/ssh/ssh_brute_force.wfl"),
+        &layout
+            .models_root
+            .join("models/rules/ssh/ssh_brute_force.wfl"),
         "rule ssh_brute_force {}",
     );
 

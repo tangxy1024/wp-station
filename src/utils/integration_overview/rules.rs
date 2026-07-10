@@ -245,7 +245,10 @@ fn extract_wpl_rule_overview(content: &str, fallback_package: &str) -> Option<In
     })
 }
 
-fn collect_named_rule_files(root: &Path, extension: &str) -> Result<Vec<IntegrationRuleFlatItem>, AppError> {
+fn collect_named_rule_files(
+    root: &Path,
+    extension: &str,
+) -> Result<Vec<IntegrationRuleFlatItem>, AppError> {
     let mut files = Vec::new();
     if !root.exists() {
         return Ok(files);
@@ -293,7 +296,9 @@ fn visit_named_rule_files(
 
 fn format_named_rule_name(relative: &PathBuf, extension: &str) -> String {
     let normalized = relative.to_string_lossy().replace('\\', "/");
-    let trimmed = normalized.strip_suffix(extension).unwrap_or(normalized.as_str());
+    let trimmed = normalized
+        .strip_suffix(extension)
+        .unwrap_or(normalized.as_str());
     let parts = trimmed
         .split('/')
         .filter(|part| !part.trim().is_empty())

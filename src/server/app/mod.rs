@@ -7,6 +7,7 @@ mod boot;
 mod routes;
 
 use crate::server::{SandboxState, Setting};
+use crate::utils::read_runtime_asset_from_public;
 use actix_web::{App, HttpRequest, HttpResponse, HttpServer, Result, middleware::Logger, web};
 use mime_guess::from_path;
 use rust_embed::RustEmbed;
@@ -30,8 +31,19 @@ pub(super) async fn static_files(req: HttpRequest) -> Result<HttpResponse> {
         path = "index.html";
     }
 
+    if let Some(bytes) = read_runtime_asset_from_public(req.path())
+        .map_err(actix_web::error::ErrorInternalServerError)?
+    {
+        let content_type = if path.ends_with(".wasm") {
+            "application/wasm".to_string()
+        } else {
+            from_path(path).first_or_octet_stream().to_string()
+        };
+
+        return Ok(HttpResponse::Ok().content_type(content_type).body(bytes));
+    }
+
     if let Some(file) = WebAssets::get(path) {
-        // 特殊处理 WASM 文件的 MIME type
         let content_type = if path.ends_with(".wasm") {
             "application/wasm".to_string()
         } else {

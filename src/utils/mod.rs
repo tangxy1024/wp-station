@@ -16,6 +16,7 @@ pub mod project_check;
 pub mod project_fs;
 pub mod sandbox;
 pub mod system;
+pub mod tree_sitter_assets;
 pub mod wpl;
 
 pub use assist_service::{
@@ -61,4 +62,5 @@ pub use system::{
     WfusionService, all_system_layouts, layout_for_system, repo_name, shared_connectors_root,
     wfusion_not_implemented,
 };
+pub use tree_sitter_assets::read_runtime_asset_from_public;
 pub use wpl::{ParsedField, WplFormatter, warp_check_record};
