@@ -6,6 +6,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::BufRead;
+use std::path::Path;
 
 use crate::error::AppError;
 use chrono::DateTime;
@@ -34,10 +35,14 @@ pub fn replay_events<R: BufRead>(
     reader: R,
     color: bool,
 ) -> Result<ReplayResult, AppError> {
-    let wfl_file =
-        wf_lang::parse_wfl(wfl_source).map_err(|err| AppError::validation(err.to_string()))?;
-    let plans = wf_lang::compile_wfl(&wfl_file, schemas)
-        .map_err(|err| AppError::validation(err.to_string()))?;
+    let wfl_path = Path::new("rules/editor.wfl");
+    let wfl_file = wf_lang::parse_wfl_with_diagnostics(wfl_source, wfl_path).map_err(|err| {
+        AppError::validation(err.detail().clone().unwrap_or_else(|| err.to_string()))
+    })?;
+    let plans = wf_lang::compile_wfl_with_diagnostics(&wfl_file, schemas, wfl_source, wfl_path)
+        .map_err(|err| {
+            AppError::validation(err.detail().clone().unwrap_or_else(|| err.to_string()))
+        })?;
 
     if plans.is_empty() {
         return Ok(ReplayResult {

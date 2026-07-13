@@ -62,6 +62,15 @@ const splitSinkFile = (file = '') => {
   };
 };
 
+const displayConfigFileName = (file = '') => {
+  const normalized = String(file || '').trim();
+  if (!normalized) {
+    return '';
+  }
+  const parts = normalized.split('/').filter(Boolean);
+  return parts[parts.length - 1] || normalized;
+};
+
 function ConfigManagePage() {
   const { t } = useTranslation();
   const { currentSystem, registerBeforeSystemSwitch } = useSystem();
@@ -69,11 +78,16 @@ function ConfigManagePage() {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [sinkFiles, setSinkFiles] = useState([]);
+  const [sourceFiles, setSourceFiles] = useState([]);
+  const [activeSourceFile, setActiveSourceFile] = useState('');
+  const [hoveredSourceFile, setHoveredSourceFile] = useState('');
   const [activeSinkFile, setActiveSinkFile] = useState('');
   const [sinkExpandedGroups, setSinkExpandedGroups] = useState([]);
   const [hoveredSinkFile, setHoveredSinkFile] = useState('');
   const [sinkAddModalVisible, setSinkAddModalVisible] = useState(false);
   const [newSinkFileName, setNewSinkFileName] = useState('');
+  const [sourceAddModalVisible, setSourceAddModalVisible] = useState(false);
+  const [newSourceFileName, setNewSourceFileName] = useState('');
   const [connectionFiles, setConnectionFiles] = useState({ sources: [], sinks: [] });
   const [activeConnectionFile, setActiveConnectionFile] = useState('');
   const [activeConnectionCategory, setActiveConnectionCategory] = useState('source_connect');
@@ -157,6 +171,16 @@ function ConfigManagePage() {
     [connectionFiles.sinks, sortConnectionItems],
   );
   const displayedSinkFiles = useMemo(() => sortSinkItems(sinkFiles), [sinkFiles]);
+  const displayedSourceFiles = useMemo(
+    () =>
+      sortSinkItems(
+        sourceFiles.map((item) => ({
+          ...item,
+          displayName: item.displayName || displayConfigFileName(item.file),
+        })),
+      ),
+    [sourceFiles],
+  );
   const sinkGroups = useMemo(() => {
     const groups = new Map();
     displayedSinkFiles.forEach((item) => {
@@ -221,7 +245,7 @@ function ConfigManagePage() {
 
   const getDefaultFileForKey = (key) => {
     if (key === RuleType.PARSE || key === RuleType.SOURCE) {
-      return currentSingleConfigFile || '';
+      return key === RuleType.SOURCE ? activeSourceFile || '' : currentSingleConfigFile || '';
     }
     if (key === RuleType.SINK) {
       return activeSinkFile || '';
@@ -262,6 +286,13 @@ function ConfigManagePage() {
     return files;
   };
 
+  const loadSourceFiles = async () => {
+    const response = await fetchRuleFiles({ type: RuleType.SOURCE });
+    const files = Array.isArray(response?.items) ? response.items : [];
+    setSourceFiles(files);
+    return files;
+  };
+
   const ensureSelectionAfterListLoad = React.useCallback(
     (key, files) => {
       if (key === RuleType.SINK) {
@@ -269,6 +300,20 @@ function ConfigManagePage() {
         const activeExists = normalized.some((item) => item.file === activeSinkFile);
         if (!activeExists) {
           setActiveSinkFile(normalized[0]?.file || '');
+        }
+        return;
+      }
+
+      if (key === RuleType.SOURCE) {
+        const normalized = sortSinkItems(
+          (files || []).map((item) => ({
+            ...item,
+            displayName: item.displayName || displayConfigFileName(item.file),
+          })),
+        );
+        const activeExists = normalized.some((item) => item.file === activeSourceFile);
+        if (!activeExists) {
+          setActiveSourceFile(normalized[0]?.file || '');
         }
         return;
       }
@@ -291,12 +336,31 @@ function ConfigManagePage() {
         }
       }
     },
-    [activeConnectionCategory, activeConnectionFile, activeSinkFile],
+    [activeConnectionCategory, activeConnectionFile, activeSinkFile, activeSourceFile],
   );
 
   const loadConfig = async () => {
     setLoading(true);
     try {
+      if (activeKey === RuleType.SOURCE) {
+        setCurrentSingleConfigFile('');
+        if (!activeSourceFile) {
+          setContent('');
+          setOriginalContent('');
+          setHasUnsavedChanges(false);
+          return;
+        }
+        const response = await fetchRuleConfig({
+          type: RuleType.SOURCE,
+          file: activeSourceFile,
+        });
+        const newContent = response?.content || '';
+        setContent(newContent);
+        setOriginalContent(newContent);
+        setHasUnsavedChanges(false);
+        return;
+      }
+
       if (activeKey === RuleType.SINK) {
         setCurrentSingleConfigFile('');
         if (!activeSinkFile) {
@@ -346,6 +410,15 @@ function ConfigManagePage() {
   };
 
   useEffect(() => {
+    if (activeKey === RuleType.SOURCE) {
+      loadSourceFiles()
+        .then((files) => ensureSelectionAfterListLoad(activeKey, files))
+        .catch((error) => {
+          message.error(t('configManage.loadFailed', { message: error.message }));
+        });
+      return;
+    }
+
     if (activeKey === RuleType.SINK) {
       loadSinkFiles()
         .then((files) => ensureSelectionAfterListLoad(activeKey, files))
@@ -366,7 +439,7 @@ function ConfigManagePage() {
 
   useEffect(() => {
     loadConfig();
-  }, [activeKey, activeSinkFile, activeConnectionFile, activeConnectionCategory]);
+  }, [activeKey, activeSourceFile, activeSinkFile, activeConnectionFile, activeConnectionCategory]);
 
   useEffect(() => {
     setHasUnsavedChanges(content !== originalContent);
@@ -499,6 +572,11 @@ function ConfigManagePage() {
         file = activeConnectionFile;
       }
 
+      if (activeKey === RuleType.SOURCE && !activeSourceFile) {
+        message.warning(t('configManage.noFileSelected'));
+        return;
+      }
+
       if (activeKey === RuleType.SINK && !activeSinkFile) {
         message.warning(t('configManage.noFileSelected'));
         return;
@@ -532,7 +610,17 @@ function ConfigManagePage() {
 
   const handleSave = async () => {
     try {
-      if (activeKey === RuleType.SINK) {
+      if (activeKey === RuleType.SOURCE) {
+        if (!activeSourceFile) {
+          message.warning(t('configManage.noFileSelected'));
+          return;
+        }
+        await saveRuleConfig({
+          type: RuleType.SOURCE,
+          file: activeSourceFile,
+          content,
+        });
+      } else if (activeKey === RuleType.SINK) {
         if (!activeSinkFile) {
           message.warning(t('configManage.noFileSelected'));
           return;
@@ -713,6 +801,59 @@ function ConfigManagePage() {
       message.error(t('configManage.createFailed', { message: error.message }));
     }
   };
+
+  const handleCreateSourceConfigFile = async () => {
+    const normalized = newSourceFileName.trim();
+
+    if (!normalized) {
+      message.warning(t('configManage.enterFileName'));
+      return;
+    }
+
+    const fileName = normalized.endsWith('.toml') ? normalized : `${normalized}.toml`;
+
+    try {
+      await createConfigFile({
+        type: RuleType.SOURCE,
+        file: fileName,
+      });
+      const refreshed = await loadSourceFiles();
+      setActiveSourceFile(fileName);
+      ensureSelectionAfterListLoad(RuleType.SOURCE, refreshed);
+      setSourceAddModalVisible(false);
+      setNewSourceFileName('');
+      message.success(t('configManage.createSuccess', { filename: fileName }));
+    } catch (error) {
+      message.error(t('configManage.createFailed', { message: error.message }));
+    }
+  };
+
+  const handleDeleteSourceFile = async (file) =>
+    new Promise((resolve, reject) => {
+      Modal.confirm({
+        title: t('configManage.deleteConfirm'),
+        content: t('configManage.deleteConfirmMessage', { filename: file }),
+        okText: t('common.delete'),
+        okButtonProps: { danger: true },
+        cancelText: t('common.cancel'),
+        onOk: async () => {
+          try {
+            await deleteConfigFile({
+              type: RuleType.SOURCE,
+              file,
+            });
+            const refreshed = await loadSourceFiles();
+            ensureSelectionAfterListLoad(RuleType.SOURCE, refreshed);
+            message.success(t('configManage.deleteSuccess'));
+            resolve(true);
+          } catch (error) {
+            message.error(t('configManage.deleteFailed', { message: error.message }));
+            reject(error);
+          }
+        },
+        onCancel: () => resolve(false),
+      });
+    });
 
   const handleDeleteSinkFile = async (file) =>
     new Promise((resolve, reject) => {
@@ -1033,6 +1174,123 @@ function ConfigManagePage() {
     </div>
   );
 
+  const renderSourceConfig = () => (
+    <div className="repo-layout" data-repo="source">
+      <aside className="repo-tree" aria-label="来源配置文件列表">
+        <div className="repo-tree-header">
+          <h3>{t('configManage.configFiles')}</h3>
+          <button
+            type="button"
+            className="btn ghost repo-add-btn"
+            onClick={() => setSourceAddModalVisible(true)}
+          >
+            {t('configManage.add')}
+          </button>
+        </div>
+        <div className="repo-folder-content" style={{ paddingLeft: 0 }}>
+          {displayedSourceFiles.map((item) => (
+            <div
+              key={item.file}
+              className="repo-file-row"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                position: 'relative',
+              }}
+              onMouseEnter={() => setHoveredSourceFile(item.file)}
+              onMouseLeave={() => setHoveredSourceFile('')}
+            >
+              <button
+                type="button"
+                className={`repo-file ${activeSourceFile === item.file ? 'is-active' : ''}`}
+                onClick={() =>
+                  confirmBeforeSwitch(() => {
+                    setActiveSourceFile(item.file);
+                  })
+                }
+                style={{
+                  flex: 1,
+                  textAlign: 'left',
+                  paddingRight: hoveredSourceFile === item.file ? '28px' : '12px',
+                }}
+                title={item.file}
+              >
+                {item.displayName || displayConfigFileName(item.file)}
+              </button>
+              <button
+                type="button"
+                className="repo-file-delete"
+                style={{
+                  position: 'absolute',
+                  right: '4px',
+                  minWidth: 20,
+                  width: 20,
+                  height: 20,
+                  borderRadius: '50%',
+                  border: 'none',
+                  backgroundColor: '#ff4d4f',
+                  color: '#fff',
+                  fontSize: 16,
+                  padding: 0,
+                  cursor: 'pointer',
+                  display: hoveredSourceFile === item.file ? 'inline-flex' : 'none',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                onClick={async (event) => {
+                  event.stopPropagation();
+                  await handleDeleteSourceFile(item.file);
+                }}
+              >
+                -
+              </button>
+            </div>
+          ))}
+        </div>
+      </aside>
+
+      <div className="repo-content">
+        <div className="repo-toolbar">
+          <div className="repo-path">
+            {activeSourceFile
+              ? displayConfigFileName(activeSourceFile)
+              : t('configManage.noFileSelected')}
+          </div>
+          <div className="editor-actions">
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => openTemplateModal(RuleType.SOURCE)}
+              disabled={!activeSourceFile}
+            >
+              {t('configManage.addSourceTemplate')}
+            </button>
+            <button type="button" className="btn ghost" onClick={handleFormat}>
+              {t('ruleManage.format')}
+            </button>
+            <button type="button" className="btn tertiary" onClick={handleValidate}>
+              {t('configManage.validate')}
+            </button>
+            <button type="button" className="btn primary" onClick={handleSave}>
+              {t('configManage.save')}
+            </button>
+          </div>
+        </div>
+        <div className="repo-view">
+          <CodeEditor
+            className="code-area code-area--large repo-doc is-visible"
+            value={content}
+            onChange={(value) => setContent(value)}
+            language="toml"
+            theme="vscodeDark"
+          />
+        </div>
+      </div>
+    </div>
+  );
+
   const renderConnectionConfig = () => (
     <div className="repo-layout" data-repo="connection">
       <aside className="repo-tree" aria-label="连接配置文件列表">
@@ -1297,17 +1555,7 @@ function ConfigManagePage() {
             {activeKey === RuleType.PARSE
               ? renderSingleConfig(currentSingleConfigFile || t('configManage.parseConfig'))
               : activeKey === RuleType.SOURCE
-                ? renderSingleConfig(
-                    currentSingleConfigFile || t('configManage.sourceConfig'),
-                    'toml',
-                    <button
-                      type="button"
-                      className="btn ghost"
-                      onClick={() => openTemplateModal(RuleType.SOURCE)}
-                    >
-                      {t('configManage.addSourceTemplate')}
-                    </button>,
-                  )
+                ? renderSourceConfig()
                 : activeKey === RuleType.SINK
                   ? renderSinkConfig()
                   : renderConnectionConfig()}
@@ -1615,6 +1863,30 @@ function ConfigManagePage() {
         result={validateResult}
         onClose={() => setValidateModalVisible(false)}
       />
+
+      <Modal
+        title={t('configManage.addSourceConfig')}
+        open={sourceAddModalVisible}
+        onCancel={() => {
+          setSourceAddModalVisible(false);
+          setNewSourceFileName('');
+        }}
+        onOk={handleCreateSourceConfigFile}
+        okText={t('common.confirm')}
+        cancelText={t('common.cancel')}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ color: 'var(--muted)', fontSize: 13 }}>
+            {t('configManage.fileNameRule')}
+          </div>
+          <Input
+            placeholder={t('configManage.fileNamePlaceholder', { type: t('configManage.source') })}
+            value={newSourceFileName}
+            onChange={(event) => setNewSourceFileName(event.target.value)}
+            onPressEnter={handleCreateSourceConfigFile}
+          />
+        </div>
+      </Modal>
 
       <Modal
         title={t('configManage.addSinkConfig')}

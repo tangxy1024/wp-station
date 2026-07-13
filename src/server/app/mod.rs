@@ -7,7 +7,7 @@ mod boot;
 mod routes;
 
 use crate::server::{SandboxState, Setting};
-use crate::utils::read_runtime_asset_from_public;
+use crate::utils::{read_runtime_asset_from_public, sync_tree_sitter_assets_for_dev_start};
 use actix_web::{App, HttpRequest, HttpResponse, HttpServer, Result, middleware::Logger, web};
 use mime_guess::from_path;
 use rust_embed::RustEmbed;
@@ -67,6 +67,11 @@ pub async fn start() -> std::io::Result<()> {
     let setting = Setting::load();
     let runtime_log_level = boot::build_runtime_log_level(&setting.log.level);
     simple_log::quick!(&runtime_log_level);
+
+    if let Err(err) = sync_tree_sitter_assets_for_dev_start() {
+        tracing::warn!("开发态同步 tree-sitter 资产失败: error={}", err);
+    }
+
     boot::initialize_runtime(&setting).await?;
 
     // 创建并注入 SharedRecord

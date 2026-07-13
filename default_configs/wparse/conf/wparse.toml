@@ -38,12 +38,11 @@ enabled = false
 
 [project_remote]
 enabled = true
-repo = ""
 
 [project_remote.models]
-repo = "http://localhost:3000/gitea/project_models.git"
+repo = "http://localhost:3000/gitea/wparse__models.git"
 init_version = "1.0.0"
 
 [project_remote.infra]
-repo = "http://localhost:3000/gitea/project_infra.git"
+repo = "http://localhost:3000/gitea/wparse__infra.git"
 init_version = "1.0.0"

@@ -4065,6 +4065,7 @@ mark.diff-highlight {
 .repo-layout[data-repo='oml'],
 .repo-layout[data-repo='schema'],
 .repo-layout[data-repo='rule'],
+.repo-layout[data-repo='source'],
 .repo-layout[data-repo='connection'],
 .repo-layout[data-repo='knowledge'],
 .repo-layout[data-repo='sink'] {
@@ -4080,6 +4081,7 @@ mark.diff-highlight {
 .repo-layout[data-repo='oml'] .repo-content,
 .repo-layout[data-repo='schema'] .repo-content,
 .repo-layout[data-repo='rule'] .repo-content,
+.repo-layout[data-repo='source'] .repo-content,
 .repo-layout[data-repo='connection'] .repo-content,
 .repo-layout[data-repo='knowledge'] .repo-content,
 .repo-layout[data-repo='sink'] .repo-content {
@@ -4100,6 +4102,7 @@ mark.diff-highlight {
 .repo-layout[data-repo='oml'] .repo-view,
 .repo-layout[data-repo='schema'] .repo-view,
 .repo-layout[data-repo='rule'] .repo-view,
+.repo-layout[data-repo='source'] .repo-view,
 .repo-layout[data-repo='connection'] .repo-view,
 .repo-layout[data-repo='knowledge'] .repo-view,
 .repo-layout[data-repo='sink'] .repo-view {
@@ -4113,6 +4116,7 @@ mark.diff-highlight {
 .repo-layout[data-repo='oml'] .repo-doc,
 .repo-layout[data-repo='schema'] .repo-doc,
 .repo-layout[data-repo='rule'] .repo-doc,
+.repo-layout[data-repo='source'] .repo-doc,
 .repo-layout[data-repo='connection'] .repo-doc,
 .repo-layout[data-repo='knowledge'] .repo-doc,
 .repo-layout[data-repo='sink'] .repo-doc {
@@ -4129,6 +4133,7 @@ mark.diff-highlight {
 .repo-layout[data-repo='oml'] .repo-doc::-webkit-scrollbar,
 .repo-layout[data-repo='schema'] .repo-doc::-webkit-scrollbar,
 .repo-layout[data-repo='rule'] .repo-doc::-webkit-scrollbar,
+.repo-layout[data-repo='source'] .repo-doc::-webkit-scrollbar,
 .repo-layout[data-repo='connection'] .repo-doc::-webkit-scrollbar {
   display: none;
 }
@@ -4588,20 +4593,24 @@ mark.diff-highlight {
 .repo-layout[data-repo='sink'] {
 }
 
+.repo-layout[data-repo='source'] .repo-tree,
 .repo-layout[data-repo='sink'] .repo-tree {
   align-self: stretch;
 }
 
+.repo-layout[data-repo='source'] .repo-content,
 .repo-layout[data-repo='sink'] .repo-content {
   flex: 1 1 auto;
   min-height: 0;
 }
 
+.repo-layout[data-repo='source'] .repo-view,
 .repo-layout[data-repo='sink'] .repo-view {
   display: flex;
   flex: 1 1 auto;
 }
 
+.repo-layout[data-repo='source'] .repo-doc,
 .repo-layout[data-repo='sink'] .repo-doc {
   flex: 1 1 auto;
   height: 100%;
@@ -4611,6 +4620,12 @@ mark.diff-highlight {
 }
 
 .repo-layout[data-repo='sink'] .code-area--large {
+  min-height: 260px;
+  max-height: none;
+  overflow: auto;
+}
+
+.repo-layout[data-repo='source'] .code-area--large {
   min-height: 260px;
   max-height: none;
   overflow: auto;
@@ -5110,6 +5125,28 @@ mark.diff-highlight {
   background: #fef3f2;
   color: #912018;
   line-height: 1.6;
+}
+
+.wfusion-rule-editor__error-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  color: #b54708;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.wfusion-rule-editor__error-snippet {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: rgba(145, 32, 24, 0.06);
+  color: #7a271a;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .wfusion-rule-editor__error-hint {

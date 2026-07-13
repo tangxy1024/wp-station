@@ -564,7 +564,7 @@ pub(super) async fn stage_analyse_runtime_output(
             ));
         }
         if system == crate::utils::SystemKind::Wfusion && analysis.metrics.output_count == 0 {
-            details.push("未观察到 alerts.json 业务告警输出，请检查场景是否命中规则".to_string());
+            details.push("未观察到 alert.json 业务告警输出，请检查场景是否命中规则".to_string());
         }
         let summary = if details.is_empty() {
             "结果检查失败，请点击查看详情".to_string()

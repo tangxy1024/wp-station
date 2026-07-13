@@ -1,0 +1,133 @@
+window xy_system_ssh_log {
+    stream_tag = "xy_system_ssh_log"
+    time = occur_time
+    over = 2h
+    fields {
+        tenant_id: chars
+        event_id: chars
+        log_id: chars
+        raw_log_ref: chars
+        occur_time: time
+        log_type: chars
+        event_category: chars
+        event_type: chars
+        source_ip: ip
+        source_port: digit
+        target_ip: chars
+        target_host: chars
+        target_port: digit
+        target_user: chars
+        operation: chars
+        outcome: chars
+        severity: chars
+        carrier_protocol: chars
+        carrier_process_name: chars
+        carrier_process_pid: chars
+        observer_product: chars
+        whitelist_hit: chars
+    }
+}
+
+window other_logs {
+    stream_tag = [
+        "xy_system_audit_log",
+        "xy_system_network_log",
+        "xy_system_sys_log",
+        "xy_system_kernel_log",
+        "xy_system_auth_log",
+        "xy_system_login_log",
+        "xy_nginx_fluent_bit_log",
+        "sec_portal_peers_log",
+        "sec_portal_users_log",
+        "sec_portal_event_log"
+    ]
+    time = occur_time
+    over = 2h
+    fields {
+        tenant_id: chars
+        event_id: chars
+        log_id: chars
+        raw_log_ref: chars
+        occur_time: time
+        log_type: chars
+        event_category: chars
+        event_type: chars
+        source_ip: ip
+        source_port: digit
+        target_ip: chars
+        target_host: chars
+        target_port: digit
+        target_user: chars
+        operation: chars
+        outcome: chars
+        severity: chars
+        carrier_protocol: chars
+        carrier_process_name: chars
+        carrier_process_pid: chars
+        observer_product: chars
+        whitelist_hit: chars
+    }
+}
+
+window security_alerts {
+    over = 0
+    fields {
+        alert_id: chars
+        alert_display_id: chars
+        tenant_id: chars
+        merge_id: chars
+        source_systems: array/chars
+        alert_name: chars
+        description: chars
+        alert_type: chars
+        category_code: chars
+        category_name: chars
+        subcategory_code: chars
+        subcategory_name: chars
+        summary: chars
+        event_count: chars
+        severity: chars
+        risk_score: chars
+        confidence: chars
+        workflow_status: chars
+        disposition_status: chars
+        ticket_status: chars
+        verdict: chars
+        compromise_status: chars
+        created_time: chars
+        updated_time: chars
+        first_seen: chars
+        last_seen: chars
+        evidence_start_time: chars
+        evidence_end_time: chars
+        duration_seconds: chars
+        rule_id: chars
+        rule_name: chars
+        rule_version: chars
+        rule_type: chars
+        detection_engine: chars
+        primary_entity_id: chars
+        primary_entity_type: chars
+        primary_entity_value: chars
+        dedup_key: chars
+        correlation_id: chars
+        source_ip: ip
+        target_host: chars
+        target_user: chars
+        rule_window_start: chars
+        rule_window_end: chars
+        threshold: chars
+        distinct_source_port_count: chars
+        whitelist_hit: chars
+        source_alert_ref: chars
+        raw_alert_ref: chars
+        latest_analysis_conclusion: chars
+        latest_analysis_summary: chars
+        latest_analysis_time: chars
+        assignee_id: chars
+        ticket_id: chars
+        incident_ids: chars
+        detail: chars
+        extensions: chars
+    }
+}

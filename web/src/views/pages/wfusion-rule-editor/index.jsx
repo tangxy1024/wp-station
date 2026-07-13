@@ -16,71 +16,312 @@ const STORAGE_KEYS = {
   wfl: 'wfusion-rule-editor.wfl',
 };
 
-const SAMPLE_WFS = `window conn_events {
-    stream = "netflow"
-    time = event_time
-    over = 30m
+const SAMPLE_WFS = `window xy_system_ssh_log {
+    stream_tag = "xy_system_ssh_log"
+    time = occur_time
+    over = 2h
     fields {
-        sip: ip
-        dip: ip
-        dport: digit
-        bytes_out: digit
-        protocol: chars
-        event_time: time
+        tenant_id: chars
+        event_id: chars
+        log_id: chars
+        raw_log_ref: chars
+        occur_time: time
+        log_type: chars
+        event_category: chars
+        event_type: chars
+        source_ip: ip
+        source_port: digit
+        target_ip: chars
+        target_host: chars
+        target_port: digit
+        target_user: chars
+        operation: chars
+        outcome: chars
+        severity: chars
+        carrier_protocol: chars
+        carrier_process_name: chars
+        carrier_process_pid: chars
+        observer_product: chars
+        whitelist_hit: chars
     }
 }
 
-window auth_events {
-    stream = "auth_events"
-    time = event_time
-    over = 30m
+window other_logs {
+    stream_tag = [
+        "xy_system_audit_log",
+        "xy_system_network_log",
+        "xy_system_sys_log",
+        "xy_system_kernel_log",
+        "xy_system_auth_log",
+        "xy_system_login_log",
+        "xy_nginx_fluent_bit_log",
+        "sec_portal_peers_log",
+        "sec_portal_users_log",
+        "sec_portal_event_log"
+    ]
+    time = occur_time
+    over = 2h
     fields {
-        sip: ip
-        dip: ip
-        dport: digit
-        service: chars
-        user: chars
-        result: chars
-        event_time: time
+        tenant_id: chars
+        event_id: chars
+        log_id: chars
+        raw_log_ref: chars
+        occur_time: time
+        log_type: chars
+        event_category: chars
+        event_type: chars
+        source_ip: ip
+        source_port: digit
+        target_ip: chars
+        target_host: chars
+        target_port: digit
+        target_user: chars
+        operation: chars
+        outcome: chars
+        severity: chars
+        carrier_protocol: chars
+        carrier_process_name: chars
+        carrier_process_pid: chars
+        observer_product: chars
+        whitelist_hit: chars
     }
 }
 
 window security_alerts {
     over = 0
     fields {
-        sip: ip
-        dip: ip
+        alert_id: chars
+        alert_display_id: chars
+        tenant_id: chars
+        merge_id: chars
+        source_systems: array/chars
+        alert_name: chars
+        description: chars
         alert_type: chars
+        category_code: chars
+        category_name: chars
+        subcategory_code: chars
+        subcategory_name: chars
+        summary: chars
+        event_count: chars
+        severity: chars
+        risk_score: chars
+        confidence: chars
+        workflow_status: chars
+        disposition_status: chars
+        ticket_status: chars
+        verdict: chars
+        compromise_status: chars
+        created_time: chars
+        updated_time: chars
+        first_seen: chars
+        last_seen: chars
+        evidence_start_time: chars
+        evidence_end_time: chars
+        duration_seconds: chars
+        rule_id: chars
+        rule_name: chars
+        rule_version: chars
+        rule_type: chars
+        detection_engine: chars
+        primary_entity_id: chars
+        primary_entity_type: chars
+        primary_entity_value: chars
+        dedup_key: chars
+        correlation_id: chars
+        source_ip: ip
+        target_host: chars
+        target_user: chars
+        rule_window_start: chars
+        rule_window_end: chars
+        threshold: chars
+        distinct_source_port_count: chars
+        whitelist_hit: chars
+        source_alert_ref: chars
+        raw_alert_ref: chars
+        latest_analysis_conclusion: chars
+        latest_analysis_summary: chars
+        latest_analysis_time: chars
+        assignee_id: chars
+        ticket_id: chars
+        incident_ids: chars
         detail: chars
+        extensions: chars
     }
 }`;
 
-const SAMPLE_WFL = `rule rat_propagation {
-    events {
-        scan  : conn_events && (dport == 22 || dport == 445 || dport == 3389) && bytes_out < 1000
-        login : auth_events && result == "success"
-        xfer  : conn_events && bytes_out >= 10000
-    }
-    match<sip,dip:5m> {
-        on event {
-            scan | count >= 1;
-            login | count >= 1;
-            xfer | count >= 1;
-        }
-    } -> score(95.0)
-    entity(ip, scan.sip)
-    yield security_alerts (
-        sip = scan.sip,
-        dip = scan.dip,
-        alert_type = "rat_propagation",
-        detail = "scan -> login -> xfer"
+const SAMPLE_WFL = `use "auth.wfs"
+
+rule ssh_brute_force_alert {
+  events {
+    s : xy_system_ssh_log
+      && event_category == "auth"
+      && event_type == "ssh_session"
+      && operation in ("failed_login", "authenticate")
+      && outcome == "failed"
+      && observer_product == "sshd"
+      && isnotnull(source_ip)
+      && is_blank(target_host) == false
+  }
+
+  match<tenant_id,source_ip,target_host,target_user:1m:fixed> {
+    on event { s | count >= 1; }
+  } -> score(
+    if count(s) >= 1000 then 100.0
+    else if count(s) >= 500 then 80.0
+    else if lower(default_if_blank(s.target_user, "unknown")) in ("root", "admin", "administrator") then 73.0
+    else 65.0
+  )
+
+  entity(ip, s.source_ip)
+
+  yield security_alerts (
+    alert_id = concat(
+      "alert_",
+      sha1(
+        fmt(
+          "{}|{}|{}|{}|{}|{}",
+          s.tenant_id,
+          "SDM-SSH-BRUTE-FORCE-001",
+          s.source_ip,
+          lower(s.target_host),
+          lower(default_if_blank(s.target_user, "unknown")),
+          strftime(now(), "%Y-%m-%d %H:%M:%S%.3f")
+        )
+      )
+    ),
+    alert_display_id = concat(
+      "ALERT-",
+      sha1(
+        fmt(
+          "{}|{}|{}|{}|{}|{}",
+          s.tenant_id,
+          "SDM-SSH-BRUTE-FORCE-001",
+          s.source_ip,
+          lower(s.target_host),
+          lower(default_if_blank(s.target_user, "unknown")),
+          strftime(now(), "%Y-%m-%d %H:%M:%S%.3f")
+        )
+      )
+    ),
+    tenant_id = s.tenant_id,
+    merge_id = concat(
+      "merge_",
+      sha1(
+        fmt(
+          "{}|{}|{}|{}|{}",
+          s.tenant_id,
+          "SDM-SSH-BRUTE-FORCE-001",
+          s.source_ip,
+          lower(s.target_host),
+          lower(default_if_blank(s.target_user, "unknown"))
+        )
+      )
+    ),
+    source_systems = split("sdm-rule-engine", ","),
+    alert_name = fmt(
+      "SSH 暴力破解/撞库 - {} -> {}@{}",
+      s.source_ip,
+      default_if_blank(s.target_user, "unknown"),
+      s.target_host
+    ),
+    description = fmt(
+      "{} 在 {} 命中 SSH 失败登录阈值，对 {} 的 {} 账号已达到 1 分钟 3 次及以上失败。",
+      s.source_ip,
+      strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+      s.target_host,
+      default_if_blank(s.target_user, "unknown")
+    ),
+    alert_type = "DETECTION",
+    category_code = "intrusion",
+    category_name = "intrusion",
+    subcategory_code = "ssh_bruteforce",
+    subcategory_name = "SSH 暴力破解/撞库",
+    summary = fmt(
+      "SSH 登录失败达到阈值，来源 {}，目标 {}@{}。",
+      s.source_ip,
+      default_if_blank(s.target_user, "unknown"),
+      s.target_host
+    ),
+    event_count = "3",
+    severity = if count(s) >= 1000 then "CRITICAL" else if count(s) >= 500 then "HIGH" else "MEDIUM",
+    risk_score = fmt("{}", if lower(default_if_blank(s.target_user, "unknown")) in ("root", "admin", "administrator") then @score + 8.0 else @score),
+    confidence = fmt("{}", if lower(default_if_blank(s.target_user, "unknown")) in ("root", "admin", "administrator") then 85.0 else 80.0),
+    workflow_status = "NEW",
+    disposition_status = "pending",
+    ticket_status = "",
+    verdict = "SUSPICIOUS",
+    compromise_status = "",
+    created_time = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+    updated_time = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+    first_seen = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+    last_seen = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+    evidence_start_time = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+    evidence_end_time = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+    duration_seconds = "0",
+    rule_id = "SDM-SSH-BRUTE-FORCE-001",
+    rule_version = "1.0.0",
+    rule_type = "THRESHOLD",
+    detection_engine = "sdm-rule-engine",
+    primary_entity_id = concat("host:", s.tenant_id, ":", sha1(lower(s.target_host))),
+    primary_entity_type = "host",
+    primary_entity_value = s.target_host,
+    dedup_key = fmt(
+      "{}|{}|{}|{}|{}|{}",
+      s.tenant_id,
+      "SDM-SSH-BRUTE-FORCE-001",
+      s.source_ip,
+      s.target_host,
+      default_if_blank(s.target_user, "unknown"),
+      strftime(now(), "%Y-%m-%d %H:%M:%S%.3f")
+    ),
+    correlation_id = "",
+    source_ip = s.source_ip,
+    target_host = s.target_host,
+    target_user = default_if_blank(s.target_user, "unknown"),
+    rule_window_start = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+    rule_window_end = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+    threshold = "3",
+    distinct_source_port_count = if s.source_port > 0 then "1" else "0",
+    whitelist_hit = default_if_blank(s.whitelist_hit, "false"),
+    source_alert_ref = "",
+    raw_alert_ref = "",
+    latest_analysis_conclusion = "suspicious",
+    latest_analysis_summary = "规则命中：来源 IP 在固定窗口内对同一目标账号产生大量 SSH 认证失败。",
+    latest_analysis_time = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+    assignee_id = "",
+    ticket_id = "",
+    incident_ids = "[]",
+    detail = fmt(
+      "规则命中：{} 在 {} 对 {}@{} 达到 1 分钟 3 次及以上 SSH 失败登录阈值。",
+      s.source_ip,
+      strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+      default_if_blank(s.target_user, "unknown"),
+      s.target_host
+    ),
+    extensions = fmt(
+      "source_ip={};target_host={};target_user={};occur_time={};window_start={};window_end={};threshold={};event_count={};source_port={};whitelist_hit={}",
+      s.source_ip,
+      s.target_host,
+      default_if_blank(s.target_user, "unknown"),
+      strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+      strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+      strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
+      3,
+      3,
+      s.source_port,
+      default_if_blank(s.whitelist_hit, "false")
     )
-    limits { max_memory = "64MB"; max_instances = 10000; on_exceed = throttle; }
+  )
+
+  limits {
+    max_memory = "64MB";
+    max_instances = 10000;
+    on_exceed = throttle;
+  }
 }`;
 
-const SAMPLE_EVENTS = `{"_stream":"netflow","sip":"10.0.0.99","dip":"192.168.1.10","dport":22,"bytes_out":100,"protocol":"tcp","event_time":1700000000000000000}
-{"_stream":"auth_events","sip":"10.0.0.99","dip":"192.168.1.10","dport":22,"service":"ssh","user":"root","result":"success","event_time":1700000001000000000}
-{"_stream":"netflow","sip":"10.0.0.99","dip":"192.168.1.10","dport":22,"bytes_out":50000,"protocol":"tcp","event_time":1700000002000000000}`;
+const SAMPLE_EVENTS = `{"_stream":"xy_system_ssh_log","event_id":"860446468382921265","tenant_id":"tenant01","log_id":"860446468382921265","occur_time":1783911991000000000,"event_type":"ssh_session","event_category":"auth","log_type":"xy_system_ssh_log","source_ip":"220.181.41.82","source_port":56928,"target_user":"wfusion","target_host":"ent-bas-zerotrust-01","target_ip":"","target_port":0,"target_domain":"","target_url":"","target_file_path":"","carrier_protocol":"tcp","http_method":"","carrier_process_name":"sshd","carrier_process_pid":"2982287","carrier_process_path":"","observer_product":"sshd","operation":"failed_login","outcome":"failed","http_status":0,"severity":"info","raw_log_ref":"journald:sshd","whitelist_hit":"false"}`;
 
 const readStorage = (key, fallback = '') => {
   if (typeof window === 'undefined') {
@@ -222,6 +463,44 @@ const renderResultError = (t, result) => {
         diagnostics.map((item, index) => (
           <div key={`${item.file || 'diagnostic'}-${index}`} className="wfusion-rule-editor__error-item">
             <div>{item.message || t('wfusionRuleEditor.requestFailed')}</div>
+            {(item.category || item.file || item.line || item.column) ? (
+              <div className="wfusion-rule-editor__error-meta">
+                {item.category ? (
+                  <span>
+                    {t('wfusionRuleEditor.errorCategory')}
+                    {item.category}
+                  </span>
+                ) : null}
+                {item.file ? (
+                  <span>
+                    {t('wfusionRuleEditor.errorFile')}
+                    {item.file}
+                  </span>
+                ) : null}
+                {item.line ? (
+                  <span>
+                    {t('wfusionRuleEditor.errorLocation')}
+                    {item.line}
+                    {item.column ? `:${item.column}` : ''}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+            {item.rule ? (
+              <div className="wfusion-rule-editor__error-meta">
+                {t('wfusionRuleEditor.errorRule')}
+                {item.rule}
+              </div>
+            ) : null}
+            {item.test ? (
+              <div className="wfusion-rule-editor__error-meta">
+                {t('wfusionRuleEditor.errorTest')}
+                {item.test}
+              </div>
+            ) : null}
+            {item.snippet ? (
+              <pre className="wfusion-rule-editor__error-snippet">{item.snippet}</pre>
+            ) : null}
             {item.hint ? <div className="wfusion-rule-editor__error-hint">{item.hint}</div> : null}
           </div>
         ))

@@ -127,6 +127,47 @@ async fn test_wfusion_schema_and_rule_files_cleanup_parent_dirs() {
 }
 
 #[tokio::test]
+async fn test_wfusion_flat_rule_files_can_be_read_by_listed_name() {
+    setup_db().await;
+    let layout = test_project_layout();
+
+    let schema_file = format!("{}.wfs", unique_name("schema_flat"));
+    write_rule_content(&layout, RuleType::Schema, &schema_file, "schema flat")
+        .expect("write flat schema");
+    let schema_files = list_rule_files(&layout, RuleType::Schema).expect("list flat schemas");
+    assert!(schema_files.contains(&schema_file));
+    let (schema_content, _) = read_rule_content(&layout, RuleType::Schema, &schema_file)
+        .expect("read flat schema")
+        .unwrap();
+    assert_eq!(schema_content, "schema flat");
+
+    let rule_file = format!("{}.wfl", unique_name("rule_flat"));
+    write_rule_content(&layout, RuleType::Rule, &rule_file, "rule flat").expect("write flat rule");
+    let rule_files = list_rule_files(&layout, RuleType::Rule).expect("list flat rules");
+    assert!(rule_files.contains(&rule_file));
+    let (rule_content, _) = read_rule_content(&layout, RuleType::Rule, &rule_file)
+        .expect("read flat rule")
+        .unwrap();
+    assert_eq!(rule_content, "rule flat");
+
+    let scenario_file = format!("{}.wfg", unique_name("scenario_flat"));
+    write_rule_content(
+        &layout,
+        RuleType::Scenarios,
+        &scenario_file,
+        "scenario flat",
+    )
+    .expect("write flat scenario");
+    let scenario_files =
+        list_rule_files(&layout, RuleType::Scenarios).expect("list flat scenarios");
+    assert!(scenario_files.contains(&scenario_file));
+    let (scenario_content, _) = read_rule_content(&layout, RuleType::Scenarios, &scenario_file)
+        .expect("read flat scenario")
+        .unwrap();
+    assert_eq!(scenario_content, "scenario flat");
+}
+
+#[tokio::test]
 async fn test_rule_type_helpers_cover_all_variants() {
     let variants = vec![
         RuleType::All,

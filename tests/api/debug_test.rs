@@ -198,6 +198,13 @@ max = 10
     let wfusion_invalid_body: serde_json::Value = test::read_body_json(wfusion_invalid_resp).await;
     assert_eq!(wfusion_invalid_body["success"], false);
     assert!(wfusion_invalid_body["stage"].as_str().is_some());
+    let first_diagnostic = &wfusion_invalid_body["diagnostics"][0];
+    assert_eq!(first_diagnostic["category"], "rule");
+    assert_eq!(first_diagnostic["file"], "rules/editor.wfl");
+    assert!(first_diagnostic["line"].as_u64().is_some());
+    assert!(first_diagnostic["column"].as_u64().is_some());
+    assert!(first_diagnostic["message"].as_str().is_some());
+    assert!(first_diagnostic["snippet"].as_str().is_some());
 
     cleanup_knowledge_entry(&know_file);
 }

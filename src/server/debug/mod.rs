@@ -12,6 +12,7 @@ use crate::utils::warp_check_record;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io::BufReader;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use toml_edit::visit_mut::{self, VisitMut};
@@ -124,11 +125,19 @@ pub struct DebugKnowledgeQueryResponse {
 pub struct DebugWfusionRuleEditorDiagnostic {
     pub severity: String,
     pub file: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub test: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
 }
@@ -217,32 +226,34 @@ pub async fn debug_transform_logic(
 pub fn debug_wfusion_rule_editor_parse_logic(
     req: DebugWfusionRuleEditorParseRequest,
 ) -> DebugWfusionRuleEditorParseResponse {
+    let wfs_path = Path::new("schemas/editor.wfs");
+    let wfl_path = Path::new("rules/editor.wfl");
     let schemas = match wf_lang::parse_wfs(&req.wfs) {
         Ok(schemas) => schemas,
         Err(err) => {
             return build_rule_editor_failure(
                 "wfs_parse",
-                vec![build_message_diagnostic(
+                diagnostics_from_lang_error(
+                    &err,
                     "error",
-                    "wfs",
-                    err.to_string(),
+                    wfs_path.display().to_string(),
                     Some("请先修复 WFS 语法错误"),
-                )],
+                ),
             );
         }
     };
 
-    let wfl_ast = match wf_lang::parse_wfl(&req.wfl) {
+    let wfl_ast = match wf_lang::parse_wfl_with_diagnostics(&req.wfl, wfl_path) {
         Ok(wfl_ast) => wfl_ast,
         Err(err) => {
             return build_rule_editor_failure(
                 "wfl_parse",
-                vec![build_message_diagnostic(
+                diagnostics_from_lang_error(
+                    &err,
                     "error",
-                    "wfl",
-                    err.to_string(),
+                    wfl_path.display().to_string(),
                     Some("请先修复 WFL 语法错误"),
-                )],
+                ),
             );
         }
     };
@@ -251,11 +262,11 @@ pub fn debug_wfusion_rule_editor_parse_logic(
     let warnings = wf_lang::lint_wfl(&wfl_ast, &schemas);
     let diagnostics = errors
         .iter()
-        .map(|diag| map_check_diagnostic(diag, "wfl"))
+        .flat_map(|diag| map_check_diagnostic(diag, &wfl_ast, &req.wfl, wfl_path))
         .chain(
             warnings
                 .iter()
-                .map(|diag| map_check_diagnostic(diag, "wfl")),
+                .flat_map(|diag| map_check_diagnostic(diag, &wfl_ast, &req.wfl, wfl_path)),
         )
         .collect::<Vec<_>>();
 
@@ -277,7 +288,8 @@ pub fn debug_wfusion_rule_editor_parse_logic(
                 "replay",
                 vec![build_message_diagnostic(
                     "error",
-                    "events_ndjson",
+                    "events.ndjson".to_string(),
+                    None,
                     err.to_string(),
                     Some("请检查 NDJSON 的 _stream、字段类型和时间字段是否与 WFS/WFL 一致"),
                 )],
@@ -422,32 +434,248 @@ fn build_rule_editor_failure(
 
 fn build_message_diagnostic(
     severity: &str,
-    file: &str,
+    file: String,
+    category: Option<String>,
     message: String,
     hint: Option<&str>,
 ) -> DebugWfusionRuleEditorDiagnostic {
     DebugWfusionRuleEditorDiagnostic {
         severity: severity.to_string(),
-        file: file.to_string(),
+        file,
+        category,
         message,
         rule: None,
         test: None,
+        line: None,
+        column: None,
+        snippet: None,
         hint: hint.map(|value| value.to_string()),
     }
 }
 
-fn map_check_diagnostic(diag: &CheckError, file: &str) -> DebugWfusionRuleEditorDiagnostic {
+fn map_check_diagnostic(
+    diag: &CheckError,
+    wfl_ast: &wf_lang::ast::WflFile,
+    wfl_source: &str,
+    wfl_path: &Path,
+) -> Vec<DebugWfusionRuleEditorDiagnostic> {
     let severity = match diag.severity {
         Severity::Error => "error",
         Severity::Warning => "warning",
     };
+    let formatted =
+        wf_lang::diagnostics::format_check_error_with_source(diag, wfl_ast, wfl_source, wfl_path);
+    parse_structured_diagnostics(&formatted, severity, wfl_path.display().to_string(), None)
+}
+
+fn diagnostics_from_lang_error(
+    err: &wf_lang::LangError,
+    severity: &str,
+    fallback_file: String,
+    hint: Option<&str>,
+) -> Vec<DebugWfusionRuleEditorDiagnostic> {
+    let detail = err.detail().clone().unwrap_or_else(|| err.to_string());
+    parse_structured_diagnostics(&detail, severity, fallback_file, hint)
+}
+
+fn parse_structured_diagnostics(
+    detail: &str,
+    default_severity: &str,
+    fallback_file: String,
+    hint: Option<&str>,
+) -> Vec<DebugWfusionRuleEditorDiagnostic> {
+    let text = detail.trim();
+    if text.is_empty() {
+        return vec![build_message_diagnostic(
+            default_severity,
+            fallback_file,
+            None,
+            "未知错误".to_string(),
+            hint,
+        )];
+    }
+
+    let normalized = text.strip_prefix("semantic errors:\n").unwrap_or(text);
+    let chunks = split_diagnostic_chunks(normalized);
+    let diagnostics = chunks
+        .into_iter()
+        .map(|chunk| parse_diagnostic_chunk(&chunk, default_severity, &fallback_file, hint))
+        .collect::<Vec<_>>();
+
+    if diagnostics.is_empty() {
+        vec![build_message_diagnostic(
+            default_severity,
+            fallback_file,
+            None,
+            normalized.to_string(),
+            hint,
+        )]
+    } else {
+        diagnostics
+    }
+}
+
+fn split_diagnostic_chunks(detail: &str) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut current = Vec::new();
+
+    for line in detail.lines() {
+        if line.starts_with("file: ") && !current.is_empty() {
+            chunks.push(current.join("\n").trim().to_string());
+            current.clear();
+        }
+        current.push(line.to_string());
+    }
+
+    if !current.is_empty() {
+        chunks.push(current.join("\n").trim().to_string());
+    }
+
+    if chunks.is_empty() {
+        vec![detail.trim().to_string()]
+    } else {
+        chunks
+    }
+}
+
+fn parse_diagnostic_chunk(
+    chunk: &str,
+    default_severity: &str,
+    fallback_file: &str,
+    hint: Option<&str>,
+) -> DebugWfusionRuleEditorDiagnostic {
+    let mut file = fallback_file.to_string();
+    let mut category = None;
+    let mut message_lines = Vec::new();
+    let mut rule = None;
+    let mut test = None;
+    let mut line = None;
+    let mut column = None;
+    let mut snippet_lines = Vec::new();
+    let mut collecting_snippet = false;
+    let mut severity = default_severity.to_string();
+
+    for raw_line in chunk.lines() {
+        let trimmed = raw_line.trim_end();
+
+        if let Some(value) = trimmed.strip_prefix("file: ") {
+            file = value.trim().to_string();
+            collecting_snippet = false;
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("category: ") {
+            category = Some(value.trim().to_string());
+            collecting_snippet = false;
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("rule: ") {
+            rule = Some(value.trim().to_string());
+            collecting_snippet = false;
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("test: ") {
+            test = Some(value.trim().to_string());
+            collecting_snippet = false;
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("location: ") {
+            let (parsed_line, parsed_column) = parse_location(value);
+            line = parsed_line;
+            column = parsed_column;
+            collecting_snippet = false;
+            continue;
+        }
+
+        if trimmed.starts_with("warning: ") {
+            severity = "warning".to_string();
+            message_lines.push(trimmed.to_string());
+            collecting_snippet = false;
+            continue;
+        }
+        if trimmed.starts_with("error: ") || trimmed.starts_with("parse error at ") {
+            message_lines.push(trimmed.to_string());
+            collecting_snippet = false;
+            if trimmed.starts_with("parse error at ") {
+                let (parsed_line, parsed_column) = parse_parse_error_location(trimmed);
+                if line.is_none() {
+                    line = parsed_line;
+                }
+                if column.is_none() {
+                    column = parsed_column;
+                }
+            }
+            continue;
+        }
+
+        if looks_like_snippet_line(trimmed) || collecting_snippet {
+            collecting_snippet = true;
+            snippet_lines.push(trimmed.to_string());
+            continue;
+        }
+
+        if !trimmed.is_empty() {
+            message_lines.push(trimmed.to_string());
+        }
+    }
+
+    let message = message_lines.join("\n").trim().to_string();
+    let snippet = if snippet_lines.is_empty() {
+        None
+    } else {
+        Some(snippet_lines.join("\n"))
+    };
 
     DebugWfusionRuleEditorDiagnostic {
-        severity: severity.to_string(),
-        file: file.to_string(),
-        message: diag.message.clone(),
-        rule: diag.rule.clone(),
-        test: diag.test.clone(),
-        hint: None,
+        severity,
+        file,
+        category,
+        message: if message.is_empty() {
+            chunk.trim().to_string()
+        } else {
+            message
+        },
+        rule,
+        test,
+        line,
+        column,
+        snippet,
+        hint: hint.map(|value| value.to_string()),
     }
+}
+
+fn parse_location(raw: &str) -> (Option<usize>, Option<usize>) {
+    let value = raw.trim();
+    let Some(line_part) = value.strip_prefix("line ") else {
+        return (None, None);
+    };
+    let Some((line_text, column_part)) = line_part.split_once(", column ") else {
+        return (line_part.trim().parse::<usize>().ok(), None);
+    };
+    (
+        line_text.trim().parse::<usize>().ok(),
+        column_part.trim().parse::<usize>().ok(),
+    )
+}
+
+fn parse_parse_error_location(raw: &str) -> (Option<usize>, Option<usize>) {
+    let Some(line_part) = raw.strip_prefix("parse error at line ") else {
+        return (None, None);
+    };
+    let Some((line_text, column_part)) = line_part.split_once(", column ") else {
+        return (line_part.trim().parse::<usize>().ok(), None);
+    };
+    (
+        line_text.trim().parse::<usize>().ok(),
+        column_part.trim().parse::<usize>().ok(),
+    )
+}
+
+fn looks_like_snippet_line(raw: &str) -> bool {
+    raw.contains('|')
+        && (raw.trim_start().starts_with('|')
+            || raw
+                .trim_start()
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_ascii_digit()))
 }

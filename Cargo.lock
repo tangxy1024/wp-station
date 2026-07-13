@@ -2337,6 +2337,7 @@ dependencies = [
  "allocator-api2",
  "equivalent",
  "foldhash 0.1.5",
+ "serde",
 ]
 
 [[package]]
@@ -6654,6 +6655,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasmparser"
+version = "0.240.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b722dcf61e0ea47440b53ff83ccb5df8efec57a69d150e4f24882e4eba7e24a4"
+dependencies = [
+ "bitflags 2.13.0",
+ "hashbrown 0.15.5",
+ "indexmap",
+ "semver",
+ "serde",
+]
+
+[[package]]
 name = "web-sys"
 version = "0.3.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6693,8 +6707,8 @@ dependencies = [
 
 [[package]]
 name = "wf-config"
-version = "0.1.25"
-source = "git+https://github.com/wp-labs/wp-reactor.git?tag=v0.1.25#6d35d80f4a21dcf520009358b86a8f48b9aef3ef"
+version = "0.1.31"
+source = "git+https://github.com/wp-labs/wp-reactor.git?tag=v0.1.31#993a4e2ba4177d3496bf6268e532410a6fac6e97"
 dependencies = [
  "glob",
  "moju-derive",
@@ -6720,19 +6734,22 @@ dependencies = [
 
 [[package]]
 name = "wf-engine"
-version = "0.1.25"
-source = "git+https://github.com/wp-labs/wp-reactor.git?tag=v0.1.25#6d35d80f4a21dcf520009358b86a8f48b9aef3ef"
+version = "0.1.31"
+source = "git+https://github.com/wp-labs/wp-reactor.git?tag=v0.1.31#993a4e2ba4177d3496bf6268e532410a6fac6e97"
 dependencies = [
  "arrow 59.1.0",
  "async-trait",
  "chrono",
  "derive_more",
+ "hex",
  "log",
+ "md-5",
  "moju-derive",
  "orion-error",
  "regex",
  "serde",
  "serde_json",
+ "sha1 0.10.6",
  "sha2 0.11.0",
  "thiserror 2.0.18",
  "tokio",
@@ -6744,8 +6761,8 @@ dependencies = [
 
 [[package]]
 name = "wf-lang"
-version = "0.1.25"
-source = "git+https://github.com/wp-labs/wp-reactor.git?tag=v0.1.25#6d35d80f4a21dcf520009358b86a8f48b9aef3ef"
+version = "0.1.31"
+source = "git+https://github.com/wp-labs/wp-reactor.git?tag=v0.1.31#993a4e2ba4177d3496bf6268e532410a6fac6e97"
 dependencies = [
  "moju-derive",
  "orion-error",
@@ -7720,6 +7737,7 @@ dependencies = [
  "tree-sitter-wfl",
  "tree-sitter-wpl",
  "urlencoding",
+ "wasmparser",
  "wf-engine",
  "wf-lang",
  "wp-data-fmt",

@@ -327,6 +327,34 @@ port = 9999
 }
 
 #[test]
+fn sandbox_prepare_preserves_runtime_token_permissions() {
+    let runtime = tokio::runtime::Runtime::new().expect("create runtime");
+    runtime.block_on(setup_db());
+
+    let workspace =
+        SandboxWorkspace::prepare("sandbox-runtime-token-perms", SystemKind::Wfusion, &[])
+            .expect("prepare sandbox workspace");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let token_path = workspace.project_dir.join("runtime/admin_api.token");
+        let mode = fs::metadata(&token_path)
+            .expect("read sandbox token metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "sandbox token should keep owner-only permissions"
+        );
+    }
+
+    let _ = fs::remove_dir_all(workspace.root);
+}
+
+#[test]
 fn cleanup_after_run_keeps_recent_workspace_outputs() {
     let task_id = "sandbox-9000000000100-keep";
     cleanup_sandbox_workspace_fixture(task_id);

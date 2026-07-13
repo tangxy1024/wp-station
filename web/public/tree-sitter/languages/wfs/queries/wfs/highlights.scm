@@ -3,6 +3,7 @@
 [
   "window"
   "stream"
+  "stream_tag"
   "time"
   "over"
   "fields"
@@ -22,6 +23,8 @@
   "ip"
   "hex"
 ] @type.builtin
+
+(object_type) @type.builtin
 
 (window_declaration name: (identifier) @function.definition)
 (field_declaration name: (_) @property)

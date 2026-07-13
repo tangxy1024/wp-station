@@ -1,0 +1,21 @@
+use "../schemas/auth.wfs"
+use "../rules/ssh_brute_force_alert.wfl"
+
+#[duration=1m]
+scenario ssh_brute_force_alert_case<seed=42> {
+  traffic {
+    stream xy_system_ssh_log gen 10/s
+  }
+
+  injection {
+    hit<30%> xy_system_ssh_log {
+      source_ip seq {
+        use(tenant_id="tenant01", log_type="xy_system_ssh_log", event_category="auth", event_type="ssh_session", operation="failed_login", outcome="failed", observer_product="sshd", target_host="ent-bas-zerotrust-01", target_user="root", severity="info") with(25)
+      }
+    }
+  }
+
+  expect {
+    hit(ssh_brute_force_alert) >= 70%
+  }
+}

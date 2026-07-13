@@ -19,6 +19,19 @@ token_file = "runtime/admin_api.token"
 
 [admin_api.tls]
 enabled = false
+cert_file = "tls/server.crt"
+key_file = "tls/server.key"
+
+[project_remote]
+enabled = true
+
+[project_remote.models]
+repo = "http://localhost:3000/gitea/wfusion__models.git"
+init_version = "1.0.0"
+
+[project_remote.infra]
+repo = "http://localhost:3000/gitea/wfusion__infra.git"
+init_version = "1.0.0"
 
 [logging]
 level = "info"

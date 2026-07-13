@@ -346,7 +346,9 @@ impl GitRepository {
     /// * `Err(GitError)` - 获取状态失败时返回错误
     pub fn status(&self) -> Result<Vec<FileStatus>, GitError> {
         let mut opts = StatusOptions::new();
-        opts.show(git2::StatusShow::IndexAndWorkdir);
+        opts.show(git2::StatusShow::IndexAndWorkdir)
+            .include_untracked(true)
+            .recurse_untracked_dirs(true);
 
         let statuses = self.raw_repo().statuses(Some(&mut opts))?;
 

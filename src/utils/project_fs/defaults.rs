@@ -257,11 +257,20 @@ fn copy_default_dir(
             fs::create_dir_all(parent).map_err(AppError::internal)?;
         }
 
-        fs::copy(&path, &target_path).map_err(AppError::internal)?;
+        copy_file_preserve_permissions(&path, &target_path)?;
         *written += 1;
         debug!("写入默认配置文件: path={}", target_path.display());
     }
 
+    Ok(())
+}
+
+fn copy_file_preserve_permissions(source: &Path, target: &Path) -> Result<(), AppError> {
+    fs::copy(source, target).map_err(AppError::internal)?;
+    let permissions = fs::metadata(source)
+        .map_err(AppError::internal)?
+        .permissions();
+    fs::set_permissions(target, permissions).map_err(AppError::internal)?;
     Ok(())
 }
 

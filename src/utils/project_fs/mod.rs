@@ -283,11 +283,24 @@ fn wfusion_model_rule_path(
     file_name: &str,
     extension: &str,
 ) -> Result<PathBuf, AppError> {
+    let root = project_dir.join(DIR_MODELS).join(category_dir);
     let normalized = normalize_wfusion_rule_virtual_file(file_name, extension)?;
-    Ok(project_dir
-        .join(DIR_MODELS)
-        .join(category_dir)
-        .join(normalized))
+    let flat_path = root.join(&normalized);
+
+    if flat_path.exists() {
+        return Ok(flat_path);
+    }
+
+    if !file_name.trim().trim_matches('/').contains('/')
+        && let Some(legacy_relative) = legacy_wfusion_rule_virtual_file(file_name, extension)?
+    {
+        let legacy_path = root.join(legacy_relative);
+        if legacy_path.exists() {
+            return Ok(legacy_path);
+        }
+    }
+
+    Ok(flat_path)
 }
 
 fn normalize_wfusion_rule_virtual_file(
@@ -303,6 +316,21 @@ fn normalize_wfusion_rule_virtual_file(
         return Ok(with_extension(trimmed, extension));
     }
 
+    Ok(with_extension(trimmed, extension))
+}
+
+fn legacy_wfusion_rule_virtual_file(
+    file_name: &str,
+    extension: &str,
+) -> Result<Option<String>, AppError> {
+    let trimmed = file_name.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        return Err(AppError::validation("规则文件名不能为空"));
+    }
+    if trimmed.contains('/') {
+        return Ok(None);
+    }
+
     let base = trimmed
         .strip_suffix(extension)
         .unwrap_or(trimmed)
@@ -311,7 +339,7 @@ fn normalize_wfusion_rule_virtual_file(
         return Err(AppError::validation("规则文件名不能为空"));
     }
 
-    Ok(format!("{base}/{}{}", base, extension))
+    Ok(Some(format!("{base}/{}{}", base, extension)))
 }
 
 fn resolve_parse_file_name(project_dir: &Path, file_name: &str) -> String {
@@ -424,7 +452,7 @@ fn copy_named_entry(source_root: &Path, target_root: &Path, name: &str) -> Resul
 fn copy_dir_recursive(source: &Path, target: &Path) -> Result<(), AppError> {
     if source.is_file() {
         ensure_parent_dir(target)?;
-        fs::copy(source, target).map_err(AppError::internal)?;
+        copy_file_preserve_permissions(source, target)?;
         return Ok(());
     }
 
@@ -446,9 +474,18 @@ fn copy_dir_recursive(source: &Path, target: &Path) -> Result<(), AppError> {
             copy_dir_recursive(&source_path, &target_path)?;
         } else if source_path.is_file() {
             ensure_parent_dir(&target_path)?;
-            fs::copy(&source_path, &target_path).map_err(AppError::internal)?;
+            copy_file_preserve_permissions(&source_path, &target_path)?;
         }
     }
+    Ok(())
+}
+
+fn copy_file_preserve_permissions(source: &Path, target: &Path) -> Result<(), AppError> {
+    fs::copy(source, target).map_err(AppError::internal)?;
+    let permissions = fs::metadata(source)
+        .map_err(AppError::internal)?
+        .permissions();
+    fs::set_permissions(target, permissions).map_err(AppError::internal)?;
     Ok(())
 }
 

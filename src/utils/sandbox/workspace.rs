@@ -7,7 +7,7 @@ use std::time::UNIX_EPOCH;
 
 use crate::constants::project::{
     DIR_BUSINESS_D, DIR_CONF, DIR_CONNECTORS, DIR_INFRA_D, DIR_MODELS, DIR_RUNTIME, DIR_SINKS,
-    DIR_SOURCES, DIR_TOPOLOGY,
+    DIR_SOURCES, DIR_TOPOLOGY, FILE_WFUSION,
 };
 use crate::constants::sandbox::{
     BUSINESS_SINK_OVERRIDE, OUTPUT_PATHS, RUNTIME_ARTIFACT_RETENTION_RUNS, RUNTIME_HEADER_MODE,
@@ -74,9 +74,11 @@ impl SandboxWorkspace {
         apply_overrides(&project_dir, overrides)?;
         ensure_sandbox_runtime_dir(&project_dir, system)?;
         ensure_wfusion_sandbox_scenario(&project_dir, system)?;
+        normalize_wfusion_scenario_use_paths(&project_dir, system)?;
         apply_sandbox_runtime_overrides(&project_dir, system)?;
         apply_sandbox_default_infra_sink_overrides(&project_dir, system)?;
         apply_sandbox_default_business_sink_overrides(&project_dir, system)?;
+        harden_admin_api_token_permissions(&project_dir)?;
 
         Ok(SandboxWorkspace {
             root: base_dir,
@@ -193,7 +195,7 @@ enum SandboxOverrideKind {
     PatchWparseAdminApi,
     PatchWpsrcRuntime,
     PatchWpgenRuntime,
-    PatchWfusionConfig,
+    CopyDefaultWfusionConfig,
     RewriteWparseBusinessSink,
     RewriteWfusionSource,
 }
@@ -227,7 +229,7 @@ const WPARSE_SANDBOX_OVERRIDE_SPECS: [SandboxOverrideSpec; 4] = [
 const WFUSION_SANDBOX_OVERRIDE_SPECS: [SandboxOverrideSpec; 2] = [
     SandboxOverrideSpec {
         relative_path: "conf/wfusion.toml",
-        kind: SandboxOverrideKind::PatchWfusionConfig,
+        kind: SandboxOverrideKind::CopyDefaultWfusionConfig,
     },
     SandboxOverrideSpec {
         relative_path: "topology/sources",
@@ -251,8 +253,8 @@ impl SandboxOverrideSpec {
                 "connect={}, addr={}, port={}",
                 RUNTIME_OUTPUT_CONNECTOR, RUNTIME_OUTPUT_ADDR, RUNTIME_UDP_PORT
             ),
-            SandboxOverrideKind::PatchWfusionConfig => {
-                "admin_api.enabled=false, schemas=models/schemas/*/*.wfs".to_string()
+            SandboxOverrideKind::CopyDefaultWfusionConfig => {
+                "直接复制 default_configs/wfusion/conf/wfusion.toml".to_string()
             }
             SandboxOverrideKind::RewriteWparseBusinessSink => {
                 "已固定复写为沙盒输出 sink".to_string()
@@ -277,9 +279,7 @@ impl SandboxOverrideSpec {
             SandboxOverrideKind::PatchWpgenRuntime => {
                 patch_override_file(project_dir, self.relative_path, patch_wpgen_runtime)
             }
-            SandboxOverrideKind::PatchWfusionConfig => {
-                patch_override_file(project_dir, self.relative_path, patch_wfusion_runtime)
-            }
+            SandboxOverrideKind::CopyDefaultWfusionConfig => copy_default_wfusion_conf(project_dir),
             SandboxOverrideKind::RewriteWparseBusinessSink => {
                 write_override_file(project_dir, self.relative_path, BUSINESS_SINK_OVERRIDE)
             }
@@ -342,30 +342,31 @@ fn apply_sandbox_default_business_sink_overrides(
         return Ok(());
     }
 
-    let Some(default_root) = runtime_default_configs_dir() else {
-        return Err(AppError::internal(
-            "沙盒覆盖 business sink 失败: 未找到 default_configs 目录".to_string(),
-        ));
-    };
-
-    let source_dir = resolve_sandbox_default_sink_dir(&default_root, system, DIR_BUSINESS_D);
-    if !source_dir.is_dir() {
-        return Err(AppError::internal(format!(
-            "沙盒覆盖 business sink 失败: 默认目录不存在 {}",
-            source_dir.display()
-        )));
-    }
-
     let target_dir = project_dir
         .join(DIR_TOPOLOGY)
         .join(DIR_SINKS)
         .join(DIR_BUSINESS_D);
-    if target_dir.exists() {
-        fs::remove_dir_all(&target_dir).map_err(AppError::internal)?;
-    }
     fs::create_dir_all(&target_dir).map_err(AppError::internal)?;
 
-    copy_dir_replace_all(&source_dir, &target_dir)
+    if !contains_toml_files(&target_dir)? {
+        let Some(default_root) = runtime_default_configs_dir() else {
+            return Err(AppError::internal(
+                "沙盒覆盖 business sink 失败: 未找到 default_configs 目录".to_string(),
+            ));
+        };
+
+        let source_dir = resolve_sandbox_default_sink_dir(&default_root, system, DIR_BUSINESS_D);
+        if !source_dir.is_dir() {
+            return Err(AppError::internal(format!(
+                "沙盒覆盖 business sink 失败: 默认目录不存在 {}",
+                source_dir.display()
+            )));
+        }
+
+        copy_dir_replace_all(&source_dir, &target_dir)?;
+    }
+
+    rewrite_wfusion_business_sink_runtime(&target_dir)
 }
 
 /// 解析沙盒默认 infra sink 目录。
@@ -414,10 +415,84 @@ fn copy_dir_replace_all(source_dir: &Path, target_dir: &Path) -> Result<(), AppE
         if let Some(parent) = target_path.parent() {
             fs::create_dir_all(parent).map_err(AppError::internal)?;
         }
-        fs::copy(&source_path, &target_path).map_err(AppError::internal)?;
+        copy_file_preserve_permissions(&source_path, &target_path)?;
     }
 
     Ok(())
+}
+
+/// 复制单个文件并尽量保留源文件权限，避免 admin_api.token 等敏感文件权限被放宽。
+fn copy_file_preserve_permissions(source_path: &Path, target_path: &Path) -> Result<(), AppError> {
+    fs::copy(source_path, target_path).map_err(AppError::internal)?;
+    let permissions = fs::metadata(source_path)
+        .map_err(AppError::internal)?
+        .permissions();
+    fs::set_permissions(target_path, permissions).map_err(AppError::internal)?;
+    Ok(())
+}
+
+/// 收紧 admin_api token 文件权限，满足 wfusion/wparse 对 owner-only 的要求。
+fn harden_admin_api_token_permissions(project_dir: &Path) -> Result<(), AppError> {
+    let token_path = project_dir.join(DIR_RUNTIME).join("admin_api.token");
+    if !token_path.is_file() {
+        return Ok(());
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = fs::metadata(&token_path)
+            .map_err(AppError::internal)?
+            .permissions();
+        permissions.set_mode(0o600);
+        fs::set_permissions(&token_path, permissions).map_err(AppError::internal)?;
+    }
+
+    Ok(())
+}
+
+/// 沙盒中的 wfusion 配置固定回退到 default_configs 默认内容，避免对 glob 做额外改写。
+fn copy_default_wfusion_conf(project_dir: &Path) -> Result<(), AppError> {
+    let Some(default_root) = runtime_default_configs_dir() else {
+        return Err(AppError::internal(
+            "沙盒覆盖 wfusion.toml 失败: 未找到 default_configs 目录".to_string(),
+        ));
+    };
+
+    let source_path =
+        resolve_sandbox_default_conf_file(&default_root, SystemKind::Wfusion, FILE_WFUSION);
+    if !source_path.is_file() {
+        return Err(AppError::internal(format!(
+            "沙盒覆盖 wfusion.toml 失败: 默认文件不存在 {}",
+            source_path.display()
+        )));
+    }
+
+    let target_path = project_dir.join(DIR_CONF).join(FILE_WFUSION);
+    if let Some(parent) = target_path.parent() {
+        fs::create_dir_all(parent).map_err(AppError::internal)?;
+    }
+    fs::copy(&source_path, &target_path).map_err(AppError::internal)?;
+    Ok(())
+}
+
+/// 解析沙盒默认 conf 文件路径，兼容 `default_configs/<system>/conf/*` 与旧结构。
+fn resolve_sandbox_default_conf_file(
+    default_root: &Path,
+    system: SystemKind,
+    file_name: &str,
+) -> PathBuf {
+    let system_name = system.as_ref();
+    let new_layout_file = default_root
+        .join(system_name)
+        .join(DIR_CONF)
+        .join(file_name);
+    if new_layout_file.is_file() {
+        return new_layout_file;
+    }
+
+    default_root.join(DIR_CONF).join(file_name)
 }
 
 /// 确保沙盒项目目录中存在 runtime 目录。
@@ -477,6 +552,255 @@ fn contains_wfg_files(dir: &Path) -> Result<bool, AppError> {
         }
     }
     Ok(false)
+}
+
+fn contains_toml_files(dir: &Path) -> Result<bool, AppError> {
+    if !dir.is_dir() {
+        return Ok(false);
+    }
+    for entry in fs::read_dir(dir).map_err(AppError::internal)? {
+        let entry = entry.map_err(AppError::internal)?;
+        let path = entry.path();
+        if path.is_dir() && contains_toml_files(&path)? {
+            return Ok(true);
+        }
+        if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("toml"))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// 将 wfusion 业务 sink 强制改写为本地文件输出，避免真实下游副作用。
+fn rewrite_wfusion_business_sink_runtime(target_dir: &Path) -> Result<(), AppError> {
+    let mut files = Vec::new();
+    collect_toml_files(target_dir, &mut files)?;
+    for file in files {
+        let content = fs::read_to_string(&file).map_err(AppError::internal)?;
+        let patched = patch_wfusion_business_sink_runtime(&content)?;
+        fs::write(&file, patched).map_err(AppError::internal)?;
+    }
+    Ok(())
+}
+
+fn collect_toml_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), AppError> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(dir).map_err(AppError::internal)? {
+        let entry = entry.map_err(AppError::internal)?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_toml_files(&path, files)?;
+            continue;
+        }
+        if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("toml"))
+        {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// 归一化 wfusion 场景中的 `use "*.wfs|*.wfl"` 路径，兼容当前 models 嵌套目录布局。
+fn normalize_wfusion_scenario_use_paths(
+    project_dir: &Path,
+    system: SystemKind,
+) -> Result<(), AppError> {
+    if !matches!(system, SystemKind::Wfusion) {
+        return Ok(());
+    }
+
+    let scenarios_dir = project_dir.join(DIR_MODELS).join("scenarios");
+    let mut scenario_files = Vec::new();
+    collect_wfg_files(&scenarios_dir, &mut scenario_files)?;
+    for scenario_path in scenario_files {
+        normalize_single_wfusion_scenario_use_paths(project_dir, &scenario_path)?;
+    }
+
+    Ok(())
+}
+
+fn normalize_single_wfusion_scenario_use_paths(
+    project_dir: &Path,
+    scenario_path: &Path,
+) -> Result<(), AppError> {
+    let content = fs::read_to_string(scenario_path).map_err(AppError::internal)?;
+    let scenario_dir = scenario_path.parent().ok_or_else(|| {
+        AppError::internal(format!("场景文件缺少父目录: {}", scenario_path.display()))
+    })?;
+    let scenario_group = scenario_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+
+    let mut changed = false;
+    let mut output = Vec::new();
+
+    for line in content.lines() {
+        let Some((indent, raw_path, suffix)) = parse_wfg_use_line(line) else {
+            output.push(line.to_string());
+            continue;
+        };
+
+        let ext = Path::new(&raw_path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if ext != "wfs" && ext != "wfl" {
+            output.push(line.to_string());
+            continue;
+        }
+
+        let current_target = scenario_dir.join(&raw_path);
+        if current_target.exists() {
+            output.push(line.to_string());
+            continue;
+        }
+
+        let resolved = resolve_wfusion_use_target(project_dir, scenario_group, &raw_path, &ext)?;
+        if let Some(target_path) = resolved {
+            let relative = relative_path_from_dir(scenario_dir, &target_path);
+            let relative = relative
+                .to_string_lossy()
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            output.push(format!("{indent}use \"{relative}\"{suffix}"));
+            changed = true;
+        } else {
+            output.push(line.to_string());
+        }
+    }
+
+    if !changed {
+        return Ok(());
+    }
+
+    let mut normalized = output.join("\n");
+    if content.ends_with('\n') {
+        normalized.push('\n');
+    }
+    fs::write(scenario_path, normalized).map_err(AppError::internal)?;
+    Ok(())
+}
+
+fn parse_wfg_use_line(line: &str) -> Option<(String, String, String)> {
+    let trimmed_start = line.trim_start();
+    if !trimmed_start.starts_with("use ") {
+        return None;
+    }
+
+    let indent_len = line.len().saturating_sub(trimmed_start.len());
+    let indent = line[..indent_len].to_string();
+    let quote_start = line[indent_len..].find('"')? + indent_len;
+    let quote_end = line[quote_start + 1..].find('"')? + quote_start + 1;
+    let raw_path = line[quote_start + 1..quote_end].to_string();
+    let suffix = line[quote_end + 1..].to_string();
+    Some((indent, raw_path, suffix))
+}
+
+fn resolve_wfusion_use_target(
+    project_dir: &Path,
+    scenario_group: &str,
+    raw_path: &str,
+    ext: &str,
+) -> Result<Option<PathBuf>, AppError> {
+    let (category_dir, preferred_file) = match ext {
+        "wfs" => (
+            "schemas",
+            project_dir
+                .join(DIR_MODELS)
+                .join("schemas")
+                .join(scenario_group),
+        ),
+        "wfl" => (
+            "rules",
+            project_dir
+                .join(DIR_MODELS)
+                .join("rules")
+                .join(scenario_group),
+        ),
+        _ => return Ok(None),
+    };
+
+    let file_name = Path::new(raw_path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if file_name.is_empty() {
+        return Ok(None);
+    }
+
+    let preferred_path = preferred_file.join(file_name);
+    if preferred_path.is_file() {
+        return Ok(Some(preferred_path));
+    }
+
+    let search_root = project_dir.join(DIR_MODELS).join(category_dir);
+    let mut matches = Vec::new();
+    collect_named_files(&search_root, file_name, &mut matches)?;
+    if matches.len() == 1 {
+        return Ok(matches.into_iter().next());
+    }
+
+    Ok(None)
+}
+
+fn collect_named_files(
+    dir: &Path,
+    file_name: &str,
+    acc: &mut Vec<PathBuf>,
+) -> Result<(), AppError> {
+    if !dir.is_dir() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(dir).map_err(AppError::internal)? {
+        let entry = entry.map_err(AppError::internal)?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_named_files(&path, file_name, acc)?;
+            continue;
+        }
+        if path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value == file_name)
+        {
+            acc.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn relative_path_from_dir(from_dir: &Path, target: &Path) -> PathBuf {
+    let from_components: Vec<_> = from_dir.components().collect();
+    let target_components: Vec<_> = target.components().collect();
+    let mut common_len = 0usize;
+
+    while common_len < from_components.len()
+        && common_len < target_components.len()
+        && from_components[common_len] == target_components[common_len]
+    {
+        common_len += 1;
+    }
+
+    let mut relative = PathBuf::new();
+    for _ in common_len..from_components.len() {
+        relative.push("..");
+    }
+    for component in target_components.iter().skip(common_len) {
+        relative.push(component.as_os_str());
+    }
+    relative
 }
 
 /// 重写 wfusion source 目录，仅保留沙盒 TCP 输入源。
@@ -610,15 +934,6 @@ fn patch_wpgen_runtime(content: &str) -> Result<String, AppError> {
         RUNTIME_OUTPUT_ADDR,
         RUNTIME_UDP_PORT,
     )
-}
-
-/// 将 wfusion.toml 调整为沙盒运行时配置。
-fn patch_wfusion_runtime(content: &str) -> Result<String, AppError> {
-    let patched = patch_admin_api_enabled_false(content);
-    Ok(patched.replace(
-        "schemas = \"models/schemas/*.wfs\"",
-        "schemas = \"models/schemas/*/*.wfs\"",
-    ))
 }
 
 /// 将 wparse.toml 中 [admin_api] 节的 enabled 设为 false。
@@ -962,6 +1277,78 @@ fn patch_wpgen_output_runtime(
     if !found_output_params || !rewritten_output_params {
         return Err(AppError::validation(
             "wpgen.toml 缺少 [output.params] 或 addr/port 配置，无法应用沙盒输出覆盖".to_string(),
+        ));
+    }
+
+    let mut output = lines.join("\n");
+    if content.ends_with('\n') {
+        output.push('\n');
+    }
+    Ok(output)
+}
+
+/// 在保留原配置主体的前提下，将 wfusion 业务 sink 改写为本地 file_json 输出。
+fn patch_wfusion_business_sink_runtime(content: &str) -> Result<String, AppError> {
+    let mut lines = Vec::new();
+    let mut in_sink = false;
+    let mut in_sink_params = false;
+    let mut found_sink = false;
+    let mut found_sink_params = false;
+    let mut patched_connect = false;
+    let mut rewritten_params = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let is_array_section = trimmed.starts_with("[[") && trimmed.ends_with("]]");
+        let is_section = !is_array_section && trimmed.starts_with('[') && trimmed.ends_with(']');
+
+        if in_sink_params && !is_section && !is_array_section {
+            continue;
+        }
+
+        if is_array_section {
+            in_sink = trimmed == "[[sink_group.sinks]]";
+            in_sink_params = false;
+            found_sink |= in_sink;
+            lines.push(line.to_string());
+            continue;
+        }
+
+        if is_section {
+            in_sink_params = trimmed == "[sink_group.sinks.params]";
+            found_sink_params |= in_sink_params;
+            if in_sink_params {
+                lines.push(line.to_string());
+                lines.push("file = \"alert.json\"".to_string());
+                rewritten_params = true;
+                continue;
+            }
+        }
+
+        if in_sink && !in_sink_params && trimmed.starts_with("connect") {
+            let indent = line
+                .chars()
+                .take_while(|ch| ch.is_whitespace())
+                .collect::<String>();
+            lines.push(format!("{indent}connect = \"file_json_sink\""));
+            patched_connect = true;
+            continue;
+        }
+
+        lines.push(line.to_string());
+    }
+
+    if !found_sink || !patched_connect {
+        return Err(AppError::validation(
+            "wfusion 业务 sink 缺少 [[sink_group.sinks]] 或 connect 配置，无法应用沙盒输出覆盖"
+                .to_string(),
+        ));
+    }
+
+    if !found_sink_params || !rewritten_params {
+        return Err(AppError::validation(
+            "wfusion 业务 sink 缺少 [sink_group.sinks.params] 配置，无法应用沙盒输出覆盖"
+                .to_string(),
         ));
     }
 

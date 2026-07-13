@@ -36,7 +36,7 @@ base_url = "https://analyze.warpparse.ai"
 callback_base_url = "https://analyze.warpparse.ai"
 
 [admin_api]
-enabled = false
+enabled = true
 ca_file = "tls/CA.crt"
 
 [features]

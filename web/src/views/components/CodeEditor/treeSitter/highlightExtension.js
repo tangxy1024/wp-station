@@ -19,7 +19,7 @@ const initRuntime = async () => {
 };
 
 const classForCapture = (prefix, name) => {
-  if (name === 'keyword' || name === 'keyword.operator') return `${prefix}-keyword`;
+  if (name.startsWith('keyword')) return `${prefix}-keyword`;
   if (name.startsWith('type')) return `${prefix}-type`;
   if (name.startsWith('function')) return `${prefix}-function`;
   if (name.startsWith('operator')) return `${prefix}-operator`;
@@ -32,6 +32,49 @@ const classForCapture = (prefix, name) => {
   if (name.startsWith('property')) return `${prefix}-property`;
   if (name.startsWith('constant')) return `${prefix}-special`;
   return null;
+};
+
+const splitQueryBlocks = (queryText) =>
+  queryText
+    .split(/\n\s*\n/g)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+const buildQuerySafely = (language, queryText, languageId) => {
+  try {
+    return new Query(language, queryText);
+  } catch (initialError) {
+    const validBlocks = [];
+    const skippedBlocks = [];
+
+    for (const block of splitQueryBlocks(queryText)) {
+      try {
+        new Query(language, block);
+        validBlocks.push(block);
+      } catch (blockError) {
+        skippedBlocks.push({
+          block,
+          reason: blockError?.message || String(blockError),
+        });
+      }
+    }
+
+    if (!validBlocks.length) {
+      throw initialError;
+    }
+
+    if (typeof console !== 'undefined' && skippedBlocks.length) {
+      console.warn(
+        `[tree-sitter] ${languageId} highlights query contains incompatible blocks; skipped ${skippedBlocks.length} block(s).`,
+        skippedBlocks.map(({ block, reason }) => ({
+          reason,
+          preview: block.split('\n').slice(0, 3).join(' '),
+        })),
+      );
+    }
+
+    return new Query(language, validBlocks.join('\n\n'));
+  }
 };
 
 const loadLanguageResources = async (languageId) => {
@@ -57,7 +100,7 @@ const loadLanguageResources = async (languageId) => {
     });
 
     parser.setLanguage(language);
-    const query = new Query(language, queryText);
+    const query = buildQuerySafely(language, queryText, languageId);
 
     return {
       parser,

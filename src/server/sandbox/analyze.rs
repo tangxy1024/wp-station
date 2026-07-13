@@ -115,7 +115,7 @@ pub fn analyse_runtime_output(
     };
     let success_output_path = match system {
         SystemKind::Wparse => project_dir.join("data/out_dat/all.json"),
-        SystemKind::Wfusion => project_dir.join("data/out_dat/alerts.json"),
+        SystemKind::Wfusion => project_dir.join("data/out_dat/alert.json"),
     };
     let monitor_output_path = project_dir.join("data/out_dat/metrics.ndjson");
     let output_count = count_file_lines(&success_output_path).map_err(|err| {
