@@ -34,7 +34,9 @@ mode = "bearer_token"
 token_file = "runtime/admin_api.token"
 
 [admin_api.tls]
-enabled = false
+enabled = true
+cert_file = "tls/server.crt"
+key_file = "tls/server.key"
 
 [project_remote]
 enabled = true

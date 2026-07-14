@@ -6,11 +6,8 @@
 
 use super::tree_sitter_sync_manifest::{TREE_SITTER_ASSET_SOURCES, TreeSitterAssetSource};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use wasmparser::Validator;
 
 const MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
@@ -32,23 +29,6 @@ fn tree_sitter_public_root() -> PathBuf {
 
 fn tree_sitter_languages_root() -> PathBuf {
     tree_sitter_public_root().join("languages")
-}
-
-fn tree_sitter_remote_cache_root() -> PathBuf {
-    if let Ok(path) = std::env::var("WP_STATION_TREE_SITTER_SYNC_ROOT") {
-        return PathBuf::from(path);
-    }
-
-    repo_root().join("target/tree-sitter-upstream")
-}
-
-fn is_tree_sitter_remote_sync_enabled() -> bool {
-    std::env::var("WP_STATION_TREE_SITTER_REMOTE_SYNC")
-        .map(|value| {
-            let normalized = value.trim().to_ascii_lowercase();
-            normalized != "0" && normalized != "false" && normalized != "off"
-        })
-        .unwrap_or(true)
 }
 
 fn ensure_parent_dir(path: &Path) -> std::io::Result<()> {
@@ -100,34 +80,11 @@ fn read_editor_asset_manifest(
     })
 }
 
-fn validate_parser_wasm(crate_root: &Path, manifest: &EditorAssetManifest) -> Result<(), String> {
-    let wasm_path = crate_root.join(&manifest.parser_wasm);
-    let bytes = fs::read(&wasm_path).map_err(|err| {
-        format!(
-            "读取 parser wasm 失败: path={}, error={}",
-            wasm_path.display(),
-            err
-        )
-    })?;
-    Validator::new()
-        .validate_all(&bytes)
-        .map(|_| ())
-        .map_err(|err| {
-            format!(
-                "校验 parser wasm 失败: path={}, error={}",
-                wasm_path.display(),
-                err
-            )
-        })
-}
-
 fn is_asset_root_usable(
     crate_root: &Path,
     source: &TreeSitterAssetSource,
 ) -> Result<EditorAssetManifest, String> {
-    let manifest = read_editor_asset_manifest(crate_root, source)?;
-    validate_parser_wasm(crate_root, &manifest)?;
-    Ok(manifest)
+    read_editor_asset_manifest(crate_root, source)
 }
 
 fn resolve_local_override_root(source: &TreeSitterAssetSource) -> Option<PathBuf> {
@@ -137,127 +94,88 @@ fn resolve_local_override_root(source: &TreeSitterAssetSource) -> Option<PathBuf
         .filter(|path| path.exists())
 }
 
-fn select_asset_root(
+fn get_cargo_metadata() -> Result<serde_json::Value, String> {
+    let output = std::process::Command::new("cargo")
+        .args(["metadata", "--format-version", "1"])
+        .current_dir(repo_root())
+        .output()
+        .map_err(|err| format!("执行 cargo metadata 失败: {}", err))?;
+
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "cargo metadata 失败: status={:?}, stdout={}, stderr={}",
+            output.status.code(),
+            stdout.trim(),
+            stderr.trim()
+        ));
+    }
+
+    serde_json::from_slice(&output.stdout)
+        .map_err(|err| format!("解析 cargo metadata 输出失败: {}", err))
+}
+
+fn get_package_root(packages: &[serde_json::Value], name: &str) -> Option<PathBuf> {
+    packages
+        .iter()
+        .find(|pkg| pkg.get("name").and_then(|v| v.as_str()) == Some(name))
+        .and_then(|pkg| pkg.get("manifest_path").and_then(|v| v.as_str()))
+        .and_then(|manifest_path| Path::new(manifest_path).parent().map(Path::to_path_buf))
+}
+
+fn resolve_local_asset_root(
     source: &TreeSitterAssetSource,
-    remote_root: Option<&PathBuf>,
     local_root: Option<PathBuf>,
 ) -> Option<(PathBuf, EditorAssetManifest)> {
-    if let Some(root) = remote_root {
-        match is_asset_root_usable(root, source) {
-            Ok(manifest) => return Some((root.clone(), manifest)),
-            Err(err) => {
-                tracing::warn!(
-                    "远程 tree-sitter 资产不可用，回退其他来源: package={}, manifest={}, error={}",
-                    source.package_name,
-                    source.manifest_relative,
-                    err
-                );
-            }
-        }
-    }
-
-    if let Some(root) = local_root {
-        match is_asset_root_usable(&root, source) {
-            Ok(manifest) => return Some((root, manifest)),
-            Err(err) => {
-                tracing::warn!(
-                    "本地覆盖 tree-sitter 资产不可用: package={}, manifest={}, error={}",
-                    source.package_name,
-                    source.manifest_relative,
-                    err
-                );
-            }
-        }
-    }
-
-    None
-}
-
-fn run_git_command(args: &[&str], cwd: Option<&Path>) -> Result<(), String> {
-    let mut command = Command::new("git");
-    command.args(args);
-    if let Some(dir) = cwd {
-        command.current_dir(dir);
-    }
-
-    let output = command
-        .output()
-        .map_err(|err| format!("执行 git 命令失败 {:?}: {}", args, err))?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(format!(
-        "git {:?} 失败: status={:?}, stdout={}, stderr={}",
-        args,
-        output.status.code(),
-        stdout.trim(),
-        stderr.trim()
-    ))
-}
-
-fn sync_tree_sitter_repo(source: &TreeSitterAssetSource, cache_root: &Path) -> Option<PathBuf> {
-    if !is_tree_sitter_remote_sync_enabled() {
-        return None;
-    }
-
-    let repo_root = cache_root.join(source.package_name);
-    if let Some(parent) = repo_root.parent() {
-        if let Err(err) = fs::create_dir_all(parent) {
-            tracing::warn!(
-                "创建 tree-sitter 远程缓存目录失败: path={}, error={}",
-                parent.display(),
-                err
-            );
-            return None;
-        }
-    }
-
-    let sync_result = if repo_root.join(".git").exists() {
-        run_git_command(
-            &["fetch", "--depth", "1", "origin", source.branch],
-            Some(&repo_root),
-        )
-        .and_then(|_| run_git_command(&["checkout", "--force", source.branch], Some(&repo_root)))
-        .and_then(|_| {
-            let remote_ref = format!("origin/{}", source.branch);
-            run_git_command(&["reset", "--hard", remote_ref.as_str()], Some(&repo_root))
-        })
-    } else if repo_root.exists() {
-        Err(format!(
-            "缓存目录已存在但不是 git 仓库: {}",
-            repo_root.display()
-        ))
-    } else {
-        let repo_root_string = repo_root.to_string_lossy().to_string();
-        run_git_command(
-            &[
-                "clone",
-                "--depth",
-                "1",
-                "--branch",
-                source.branch,
-                source.repo_url,
-                repo_root_string.as_str(),
-            ],
-            None,
-        )
-    };
-
-    match sync_result {
-        Ok(()) => Some(repo_root),
+    let root = local_root?;
+    match is_asset_root_usable(&root, source) {
+        Ok(manifest) => Some((root, manifest)),
         Err(err) => {
             tracing::warn!(
-                "同步 tree-sitter 远程仓库失败，回退到本地资产: package={}, error={}",
+                "本地覆盖 tree-sitter 资产不可用: package={}, manifest={}, error={}",
                 source.package_name,
+                source.manifest_relative,
                 err
             );
             None
         }
     }
+}
+
+fn resolve_package_asset_root(
+    source: &TreeSitterAssetSource,
+    package_root: Option<PathBuf>,
+) -> Option<(PathBuf, EditorAssetManifest)> {
+    let root = package_root?;
+    match is_asset_root_usable(&root, source) {
+        Ok(manifest) => Some((root, manifest)),
+        Err(err) => {
+            tracing::warn!(
+                "Cargo 依赖 tree-sitter 资产不可用: package={}, manifest={}, error={}",
+                source.package_name,
+                source.manifest_relative,
+                err
+            );
+            None
+        }
+    }
+}
+
+fn select_asset_root(
+    source: &TreeSitterAssetSource,
+    local_root: Option<PathBuf>,
+    package_root: Option<PathBuf>,
+) -> Option<(PathBuf, EditorAssetManifest)> {
+    if let Some(local) = resolve_local_asset_root(source, local_root) {
+        return Some(local);
+    }
+
+    if let Some(pkg) = resolve_package_asset_root(source, package_root) {
+        return Some(pkg);
+    }
+
+    None
 }
 
 fn export_language_assets(
@@ -330,29 +248,26 @@ fn export_tree_sitter_runtime() -> Result<(), String> {
 ///   都会执行；
 /// - 因此这里在开发态启动阶段补一次同步，确保 `/tree-sitter/*` 总能尽量拿到远程最新资产。
 pub fn sync_tree_sitter_assets_for_dev_start() -> Result<(), String> {
-    if !cfg!(debug_assertions) || !is_tree_sitter_remote_sync_enabled() {
+    if !cfg!(debug_assertions) {
         return Ok(());
     }
 
     fs::create_dir_all(tree_sitter_languages_root())
         .map_err(|err| format!("创建 tree-sitter 语言目录失败: {}", err))?;
 
-    let remote_cache_root = tree_sitter_remote_cache_root();
-    let mut synced_roots: HashMap<&'static str, Option<PathBuf>> = HashMap::new();
     let mut exported_manifests = Vec::new();
+    let metadata = get_cargo_metadata()?;
+    let packages = metadata
+        .get("packages")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "cargo metadata 缺少 packages".to_string())?;
 
     for source in TREE_SITTER_ASSET_SOURCES {
-        let remote_root = if let Some(cached) = synced_roots.get(source.package_name) {
-            cached.clone()
-        } else {
-            let synced = sync_tree_sitter_repo(source, &remote_cache_root);
-            synced_roots.insert(source.package_name, synced.clone());
-            synced
-        };
         let local_root = resolve_local_override_root(source);
+        let package_root = get_package_root(packages, source.package_name);
 
         let Some((crate_root, manifest)) =
-            select_asset_root(source, remote_root.as_ref(), local_root)
+            select_asset_root(source, local_root, package_root)
         else {
             tracing::warn!(
                 "未找到可用的 tree-sitter 资产目录，跳过导出: package={}",

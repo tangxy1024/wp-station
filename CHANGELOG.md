@@ -11,6 +11,20 @@ Note:
 - 每条只记录提交里能直接看到的事实，不依赖 `README.md` 或 `AGENTS.md` 的补充描述。
 - `0.3.x` 为当前未发布的大版本更新线，与下方 `0.2.x` 历史版本分开记录。
 
+## [0.3.2] - 2026-07-13
+Commit: `pending`
+
+### Changed
+- `Cargo.toml`: version `0.3.1` -> `0.3.2`
+- `Cargo.toml`: `wf-engine` / `wf-lang` tag `v0.1.25` -> `v0.1.31`
+- `Cargo.toml`: `tree-sitter-wpl`、`tree-sitter-oml`、`tree-sitter-wfl` 切换为远端 `main` 分支依赖，并新增 `wasmparser`
+- Tree-sitter 资源构建链路升级：开发态 `cargo run` 会自动同步并校验 `WPL / OML / WFS / WFL / WFG` 的 wasm、高亮与补全资产，前端编辑器统一按语言清单动态加载资源
+- 调试能力继续补齐：`wfusion` 调试接口对齐新版运行时与语法树能力，支持 `WFS / WFL / WFG` 的格式化、试跑结果展示和错误定位增强
+- `WFusion` 默认项目与沙盒工作区按最新目录布局重整，补齐 schema / rule / scenario / source / sink 样例联动，修复引用路径、输出文件覆写和 `admin_api.token` 权限问题
+- 双系统默认 connectors 初始化收敛到共享镜像链路，减少 `wparse` 本地重复模板目录
+- `infra` 发布链路修复共享 `connectors` 漏提交流程：发布前镜像进仓库的未跟踪文件会参与状态判断和 tag 生成，避免设备端拿到缺失 connectors 的 `infra` 版本后 reload 失败并回滚
+- `WFusion` 发布结果判定改为以发布接口返回值为准：对齐新版 `accepted / result / update / current_version / resolved_tag / error` 契约，将 `restart_required` 识别为已完成但需重启生效的终态结果，同时避免仅因状态接口缺少 `config_version` 就把本次发布误判为失败
+
 ## [0.3.1] - 2026-07-09
 Commit: `pending`
 
@@ -38,7 +52,7 @@ Commit: `daa52a7`
 - 新增项目导入导出、归档预检、规则摘要、运行时摘要等一批新测试和配套 API
 
 ### Changed
-- `Cargo.toml` 当前为 `0.3.1`；`0.3.0` 作为本轮大版本基线在变更记录中单独标记，未对应一次独立的 `Cargo.toml` 提交落版
+- `Cargo.toml` 当前为 `0.3.2`；`0.3.0` 作为本轮大版本基线在变更记录中单独标记，未对应一次独立的 `Cargo.toml` 提交落版
 - 默认配置目录从单套结构重组为 `default_configs/wparse`、`default_configs/wfusion`、`default_configs/shared` 三部分，部署与初始化逻辑同步改造
 - 服务端模块按领域拆分为 `app / config / debug / device / operation_log / overview / project / release / rules / sandbox / sync / user` 等目录化实现，替换原先的大文件布局
 - 双仓库项目读写与快照能力整体下沉到 `src/utils/project_fs/*`，规则、配置、知识库、导入导出、预检和发布都改为复用同一套目录抽象

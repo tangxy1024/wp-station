@@ -240,7 +240,9 @@ const WFUSION_SANDBOX_OVERRIDE_SPECS: [SandboxOverrideSpec; 2] = [
 impl SandboxOverrideSpec {
     fn summary(self) -> String {
         match self.kind {
-            SandboxOverrideKind::PatchWparseAdminApi => "admin_api.enabled=false".to_string(),
+            SandboxOverrideKind::PatchWparseAdminApi => {
+                "admin_api.enabled=false, admin_api.tls.enabled=false".to_string()
+            }
             SandboxOverrideKind::PatchWpsrcRuntime => format!(
                 "仅保留沙盒 UDP 输入: connect={}, addr={}, port={}, protocol={}, header_mode={}, 其他 source 全部 disable",
                 RUNTIME_SOURCE_CONNECTOR,
@@ -474,6 +476,9 @@ fn copy_default_wfusion_conf(project_dir: &Path) -> Result<(), AppError> {
         fs::create_dir_all(parent).map_err(AppError::internal)?;
     }
     fs::copy(&source_path, &target_path).map_err(AppError::internal)?;
+    let content = fs::read_to_string(&target_path).map_err(AppError::internal)?;
+    let patched = patch_admin_api_tls_enabled_false(&content);
+    fs::write(&target_path, patched).map_err(AppError::internal)?;
     Ok(())
 }
 
@@ -918,7 +923,9 @@ fn patch_override_file(
 
 /// 将 wparse.toml 的 admin_api.enabled 固定关闭。
 fn patch_wparse_admin_api_runtime(content: &str) -> Result<String, AppError> {
-    Ok(patch_admin_api_enabled_false(content))
+    Ok(patch_admin_api_tls_enabled_false(
+        &patch_admin_api_enabled_false(content),
+    ))
 }
 
 /// 将 wpsrc.toml 中 gen_udp source 切到沙盒运行时值，并关闭其他所有输入源。
@@ -939,9 +946,19 @@ fn patch_wpgen_runtime(content: &str) -> Result<String, AppError> {
 /// 将 wparse.toml 中 [admin_api] 节的 enabled 设为 false。
 /// 若该节不存在则追加 [admin_api] + enabled = false。
 fn patch_admin_api_enabled_false(content: &str) -> String {
+    patch_section_enabled_false(content, "[admin_api]")
+}
+
+/// 将 admin_api.tls.enabled 设为 false，避免沙盒按 HTTPS 启动。
+fn patch_admin_api_tls_enabled_false(content: &str) -> String {
+    patch_section_enabled_false(content, "[admin_api.tls]")
+}
+
+/// 将指定 TOML 节中的 enabled 统一设为 false；若该节不存在则自动追加。
+fn patch_section_enabled_false(content: &str, section_name: &str) -> String {
     let mut lines = Vec::new();
-    let mut in_admin_api = false;
-    let mut found_admin_api = false;
+    let mut in_section = false;
+    let mut found_section = false;
     let mut patched_enabled = false;
     let mut pending_enabled_insert = false;
 
@@ -949,7 +966,7 @@ fn patch_admin_api_enabled_false(content: &str) -> String {
         let trimmed = line.trim();
         let is_section = trimmed.starts_with('[') && trimmed.ends_with(']');
 
-        if in_admin_api
+        if in_section
             && pending_enabled_insert
             && !trimmed.is_empty()
             && !trimmed.starts_with('#')
@@ -960,20 +977,20 @@ fn patch_admin_api_enabled_false(content: &str) -> String {
             patched_enabled = true;
         }
 
-        if in_admin_api && is_section && trimmed != "[admin_api]" {
-            in_admin_api = false;
+        if in_section && is_section && trimmed != section_name {
+            in_section = false;
         }
 
-        if trimmed == "[admin_api]" {
-            in_admin_api = true;
-            found_admin_api = true;
+        if trimmed == section_name {
+            in_section = true;
+            found_section = true;
             patched_enabled = false;
             pending_enabled_insert = true;
             lines.push(line.to_string());
             continue;
         }
 
-        if in_admin_api && trimmed.starts_with("enabled") {
+        if in_section && trimmed.starts_with("enabled") {
             let indent = line
                 .chars()
                 .take_while(|ch| ch.is_whitespace())
@@ -987,15 +1004,15 @@ fn patch_admin_api_enabled_false(content: &str) -> String {
         lines.push(line.to_string());
     }
 
-    if found_admin_api {
-        if in_admin_api && !patched_enabled {
+    if found_section {
+        if in_section && !patched_enabled {
             lines.push("enabled = false".to_string());
         }
     } else {
         if !lines.last().is_none_or(|line| line.trim().is_empty()) {
             lines.push(String::new());
         }
-        lines.push("[admin_api]".to_string());
+        lines.push(section_name.to_string());
         lines.push("enabled = false".to_string());
     }
 

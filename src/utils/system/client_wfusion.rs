@@ -62,31 +62,12 @@ struct PublishResponse {
     request_id: Option<String>,
     message: Option<String>,
     result: Option<String>,
-    hot_reload: Option<BoolLike>,
-    requires_restart: Option<BoolLike>,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-#[serde(untagged)]
-enum BoolLike {
-    Bool(bool),
-    Int(i64),
-    String(String),
-}
-
-impl BoolLike {
-    fn is_truthy(&self) -> bool {
-        match self {
-            BoolLike::Bool(value) => *value,
-            BoolLike::Int(value) => *value != 0,
-            BoolLike::String(value) => {
-                matches!(
-                    value.trim().to_ascii_lowercase().as_str(),
-                    "1" | "true" | "yes"
-                )
-            }
-        }
-    }
+    update: Option<bool>,
+    requested_version: Option<String>,
+    current_version: Option<String>,
+    resolved_tag: Option<String>,
+    warning: Option<String>,
+    error: Option<String>,
 }
 
 /// `wfusion` 外部服务适配器。
@@ -241,33 +222,44 @@ impl WfusionService {
             .await
             .map_err(|err| ServiceError::Response(err.to_string()))?;
 
+        let accepted = parsed.accepted.unwrap_or(false);
         let result_text = parsed.result.clone();
-        let completed = parsed.accepted.unwrap_or(false)
-            && Self::publish_result_succeeded(result_text.as_deref());
-        let requires_restart = parsed
-            .requires_restart
-            .as_ref()
-            .map(BoolLike::is_truthy)
-            .unwrap_or(false);
-        let hot_reload = parsed
-            .hot_reload
-            .as_ref()
-            .map(BoolLike::is_truthy)
-            .unwrap_or(false);
-
-        let message =
-            Self::publish_message(parsed.message, result_text, hot_reload, requires_restart);
+        let has_error = parsed
+            .error
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty());
+        let completed = accepted
+            && !has_error
+            && Self::publish_result_completed(result_text.as_deref());
+        let message = Self::publish_message(
+            parsed.message.clone(),
+            result_text.clone(),
+            parsed.warning.clone(),
+            parsed.error.clone(),
+            parsed.update,
+            parsed.requested_version.clone(),
+            parsed.current_version.clone(),
+            parsed.resolved_tag.clone(),
+        );
 
         info!(
-            "wfusion 发布响应: accepted={:?}, request_id={:?}, completed={}, requires_restart={}, hot_reload={}",
-            parsed.accepted, parsed.request_id, completed, requires_restart, hot_reload
+            "wfusion 发布响应: accepted={}, request_id={:?}, result={:?}, completed={}, update={:?}, requested_version={:?}, current_version={:?}, resolved_tag={:?}, has_error={}",
+            accepted,
+            parsed.request_id,
+            parsed.result,
+            completed,
+            parsed.update,
+            parsed.requested_version,
+            parsed.current_version,
+            parsed.resolved_tag,
+            has_error
         );
 
         Ok(DeployResult {
-            accepted: parsed.accepted.unwrap_or(false),
+            accepted: accepted && !has_error,
             request_id: parsed.request_id,
             message,
-            completed: completed && !requires_restart,
+            completed,
         })
     }
 
@@ -312,8 +304,15 @@ impl WfusionService {
             .as_deref()
             .map(|value| Self::publish_result_succeeded(Some(value)))
             .unwrap_or(false);
+        let restart_required = status
+            .last_reload_result
+            .as_deref()
+            .map(|value| Self::publish_result_requires_restart(Some(value)))
+            .unwrap_or(false);
 
-        let is_success = if version_matched {
+        let is_success = if restart_required {
+            expected_request_id.is_none() || request_id_matched
+        } else if version_matched {
             expected_request_id.is_none() || request_id_matched || reload_done
         } else {
             request_id_matched && reload_done
@@ -465,11 +464,26 @@ impl WfusionService {
         }
     }
 
+    fn publish_result_requires_restart(result: Option<&str>) -> bool {
+        match result.map(|value| value.trim().to_ascii_lowercase()) {
+            Some(value) => value == "restart_required",
+            None => false,
+        }
+    }
+
+    fn publish_result_completed(result: Option<&str>) -> bool {
+        Self::publish_result_succeeded(result) || Self::publish_result_requires_restart(result)
+    }
+
     fn publish_message(
         message: Option<String>,
         result: Option<String>,
-        hot_reload: bool,
-        requires_restart: bool,
+        warning: Option<String>,
+        error: Option<String>,
+        update: Option<bool>,
+        requested_version: Option<String>,
+        current_version: Option<String>,
+        resolved_tag: Option<String>,
     ) -> Option<String> {
         let mut parts = Vec::new();
         if let Some(message) = message.filter(|value| !value.trim().is_empty()) {
@@ -478,11 +492,25 @@ impl WfusionService {
         if let Some(result) = result.filter(|value| !value.trim().is_empty()) {
             parts.push(format!("result={}", result));
         }
-        if hot_reload {
-            parts.push("hot_reload=true".to_string());
+        if let Some(warning) = warning.filter(|value| !value.trim().is_empty()) {
+            parts.push(format!("warning={}", warning));
         }
-        if requires_restart {
-            parts.push("requires_restart=true".to_string());
+        if let Some(error) = error.filter(|value| !value.trim().is_empty()) {
+            parts.push(format!("error={}", error));
+        }
+        if let Some(update) = update {
+            parts.push(format!("update={}", update));
+        }
+        if let Some(requested_version) =
+            requested_version.filter(|value| !value.trim().is_empty())
+        {
+            parts.push(format!("requested_version={}", requested_version));
+        }
+        if let Some(current_version) = current_version.filter(|value| !value.trim().is_empty()) {
+            parts.push(format!("current_version={}", current_version));
+        }
+        if let Some(resolved_tag) = resolved_tag.filter(|value| !value.trim().is_empty()) {
+            parts.push(format!("resolved_tag={}", resolved_tag));
         }
         if parts.is_empty() {
             None

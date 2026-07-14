@@ -140,7 +140,7 @@ async fn test_wfusion_health_check_supports_unspecified_host() {
 async fn test_wfusion_publish_supports_immediate_apply_response() {
     let server = MockHttpServer::start(HashMap::from([(
         "/admin/v1/reloads/model".to_string(),
-        "{\"request_id\":\"req-1\",\"accepted\":true,\"result\":\"applied\",\"hot_reload\":0,\"requires_restart\":0}".to_string(),
+        "{\"request_id\":\"req-1\",\"accepted\":true,\"result\":\"applied\",\"update\":true,\"current_version\":\"1.2.3\",\"resolved_tag\":\"v1.2.3\"}".to_string(),
     )]))
     .await;
 
@@ -161,7 +161,76 @@ async fn test_wfusion_publish_supports_immediate_apply_response() {
     assert!(result.accepted);
     assert!(result.completed);
     assert_eq!(result.request_id.as_deref(), Some("req-1"));
-    assert_eq!(result.message.as_deref(), Some("result=applied"));
+    assert_eq!(
+        result.message.as_deref(),
+        Some(
+            "result=applied, update=true, current_version=1.2.3, resolved_tag=v1.2.3"
+        )
+    );
+}
+
+#[tokio::test]
+async fn test_wfusion_publish_treats_restart_required_as_completed_result() {
+    let server = MockHttpServer::start(HashMap::from([(
+        "/admin/v1/reloads/model".to_string(),
+        "{\"request_id\":\"req-3\",\"accepted\":true,\"result\":\"restart_required\",\"update\":true,\"requested_version\":\"1.2.3\",\"current_version\":\"1.2.3\",\"resolved_tag\":\"v1.2.3\"}".to_string(),
+    )]))
+    .await;
+
+    let service =
+        WfusionService::from_admin_api_conf(&http_conf(), None).expect("create wfusion service");
+    let device = mock_device("127.0.0.1", server.port());
+    let result = service
+        .publish(
+            &device,
+            PublishPayload {
+                version: "1.2.3".to_string(),
+                release_group: "infra".to_string(),
+            },
+        )
+        .await
+        .expect("wfusion publish");
+
+    assert!(result.accepted);
+    assert!(result.completed);
+    assert_eq!(result.request_id.as_deref(), Some("req-3"));
+    assert_eq!(
+        result.message.as_deref(),
+        Some(
+            "result=restart_required, update=true, requested_version=1.2.3, current_version=1.2.3, resolved_tag=v1.2.3"
+        )
+    );
+}
+
+#[tokio::test]
+async fn test_wfusion_publish_rejects_response_with_error_field() {
+    let server = MockHttpServer::start(HashMap::from([(
+        "/admin/v1/reloads/model".to_string(),
+        "{\"request_id\":\"req-4\",\"accepted\":true,\"result\":\"restart_required\",\"update\":true,\"error\":\"configuration error\"}".to_string(),
+    )]))
+    .await;
+
+    let service =
+        WfusionService::from_admin_api_conf(&http_conf(), None).expect("create wfusion service");
+    let device = mock_device("127.0.0.1", server.port());
+    let result = service
+        .publish(
+            &device,
+            PublishPayload {
+                version: "1.2.3".to_string(),
+                release_group: "infra".to_string(),
+            },
+        )
+        .await
+        .expect("wfusion publish");
+
+    assert!(!result.accepted);
+    assert!(!result.completed);
+    assert_eq!(result.request_id.as_deref(), Some("req-4"));
+    assert_eq!(
+        result.message.as_deref(),
+        Some("result=restart_required, error=configuration error, update=true")
+    );
 }
 
 #[tokio::test]
@@ -183,5 +252,27 @@ async fn test_wfusion_publish_status_check_accepts_matching_request_id() {
     assert!(result.is_success);
     assert_eq!(result.current_version.as_deref(), Some("v1.2.3"));
     assert_eq!(result.config_version.as_deref(), Some("v1.2.3"));
+    assert!(!result.is_reloading);
+}
+
+#[tokio::test]
+async fn test_wfusion_publish_status_check_accepts_restart_required_without_config_version() {
+    let server = MockHttpServer::start(HashMap::from([(
+        "/admin/v1/runtime/status".to_string(),
+        "{\"version\":\"0.1.29\",\"accepting\":true,\"reloading\":false,\"last_reload_request_id\":\"req-5\",\"last_reload_result\":\"restart_required\"}".to_string(),
+    )]))
+    .await;
+
+    let service =
+        WfusionService::from_admin_api_conf(&http_conf(), None).expect("create wfusion service");
+    let device = mock_device("127.0.0.1", server.port());
+    let result = service
+        .check_deploy_success(&device, "1.2.3", Some("req-5"))
+        .await
+        .expect("wfusion publish status check");
+
+    assert!(result.is_success);
+    assert_eq!(result.current_version, None);
+    assert_eq!(result.config_version, None);
     assert!(!result.is_reloading);
 }
