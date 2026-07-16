@@ -10,9 +10,9 @@ use crate::constants::project::{
     DIR_SOURCES, DIR_TOPOLOGY, FILE_WFUSION,
 };
 use crate::constants::sandbox::{
-    BUSINESS_SINK_OVERRIDE, OUTPUT_PATHS, RUNTIME_ARTIFACT_RETENTION_RUNS, RUNTIME_HEADER_MODE,
-    RUNTIME_OUTPUT_ADDR, RUNTIME_OUTPUT_CONNECTOR, RUNTIME_PROTOCOL, RUNTIME_SOURCE_ADDR,
-    RUNTIME_SOURCE_CONNECTOR, RUNTIME_SOURCE_KEY, RUNTIME_UDP_PORT,
+    OUTPUT_PATHS, RUNTIME_ARTIFACT_RETENTION_RUNS, RUNTIME_HEADER_MODE, RUNTIME_OUTPUT_ADDR,
+    RUNTIME_OUTPUT_CONNECTOR, RUNTIME_PROTOCOL, RUNTIME_SOURCE_ADDR, RUNTIME_SOURCE_CONNECTOR,
+    RUNTIME_SOURCE_KEY, RUNTIME_UDP_PORT,
     WFUSION_RUNTIME_SOURCE_CONNECTOR, WFUSION_RUNTIME_SOURCE_KEY, WFUSION_RUNTIME_TCP_PORT,
 };
 use crate::error::AppError;
@@ -178,17 +178,6 @@ fn apply_overrides(project_dir: &Path, overrides: &[FileOverride]) -> Result<(),
     Ok(())
 }
 
-/// 将指定内容写入 project_dir 内的相对路径文件。
-fn write_override_file(project_dir: &Path, relative: &str, content: &str) -> Result<(), AppError> {
-    validate_override_path(relative)?;
-    let target = project_dir.join(relative);
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent).map_err(AppError::internal)?;
-    }
-    fs::write(&target, content).map_err(AppError::internal)?;
-    Ok(())
-}
-
 /// 沙盒覆盖动作类型。
 #[derive(Clone, Copy)]
 enum SandboxOverrideKind {
@@ -196,7 +185,6 @@ enum SandboxOverrideKind {
     PatchWpsrcRuntime,
     PatchWpgenRuntime,
     CopyDefaultWfusionConfig,
-    RewriteWparseBusinessSink,
     RewriteWfusionSource,
 }
 
@@ -207,7 +195,7 @@ struct SandboxOverrideSpec {
     kind: SandboxOverrideKind,
 }
 
-const WPARSE_SANDBOX_OVERRIDE_SPECS: [SandboxOverrideSpec; 4] = [
+const WPARSE_SANDBOX_OVERRIDE_SPECS: [SandboxOverrideSpec; 3] = [
     SandboxOverrideSpec {
         relative_path: "conf/wparse.toml",
         kind: SandboxOverrideKind::PatchWparseAdminApi,
@@ -219,10 +207,6 @@ const WPARSE_SANDBOX_OVERRIDE_SPECS: [SandboxOverrideSpec; 4] = [
     SandboxOverrideSpec {
         relative_path: "conf/wpgen.toml",
         kind: SandboxOverrideKind::PatchWpgenRuntime,
-    },
-    SandboxOverrideSpec {
-        relative_path: "topology/sinks/business.d/sink.toml",
-        kind: SandboxOverrideKind::RewriteWparseBusinessSink,
     },
 ];
 
@@ -241,7 +225,8 @@ impl SandboxOverrideSpec {
     fn summary(self) -> String {
         match self.kind {
             SandboxOverrideKind::PatchWparseAdminApi => {
-                "admin_api.enabled=false, admin_api.tls.enabled=false".to_string()
+                "admin_api.enabled=false, 移除 admin_api.auth, admin_api.tls.enabled=false"
+                    .to_string()
             }
             SandboxOverrideKind::PatchWpsrcRuntime => format!(
                 "仅保留沙盒 UDP 输入: connect={}, addr={}, port={}, protocol={}, header_mode={}, 其他 source 全部 disable",
@@ -257,9 +242,6 @@ impl SandboxOverrideSpec {
             ),
             SandboxOverrideKind::CopyDefaultWfusionConfig => {
                 "直接复制 default_configs/wfusion/conf/wfusion.toml".to_string()
-            }
-            SandboxOverrideKind::RewriteWparseBusinessSink => {
-                "已固定复写为沙盒输出 sink".to_string()
             }
             SandboxOverrideKind::RewriteWfusionSource => format!(
                 "仅保留沙盒 TCP 输入: connect={}, addr=0.0.0.0, port=\"{}\", framing=len, data_format=arrow_framed",
@@ -282,9 +264,6 @@ impl SandboxOverrideSpec {
                 patch_override_file(project_dir, self.relative_path, patch_wpgen_runtime)
             }
             SandboxOverrideKind::CopyDefaultWfusionConfig => copy_default_wfusion_conf(project_dir),
-            SandboxOverrideKind::RewriteWparseBusinessSink => {
-                write_override_file(project_dir, self.relative_path, BUSINESS_SINK_OVERRIDE)
-            }
             SandboxOverrideKind::RewriteWfusionSource => {
                 rewrite_wfusion_source_runtime(project_dir)
             }
@@ -304,11 +283,15 @@ fn apply_sandbox_runtime_overrides(project_dir: &Path, system: SystemKind) -> Re
     Ok(())
 }
 
-/// 沙盒环境中强制使用仓库 default_configs 的 infra sink，避免用户自定义外部输出影响模拟。
+/// 沙盒环境中按系统覆盖默认 sink，避免用户自定义外部输出影响模拟。
 fn apply_sandbox_default_infra_sink_overrides(
     project_dir: &Path,
     system: SystemKind,
 ) -> Result<(), AppError> {
+    if matches!(system, SystemKind::Wparse) {
+        return replace_wparse_sandbox_sinks_with_defaults(project_dir);
+    }
+
     let Some(default_root) = runtime_default_configs_dir() else {
         return Err(AppError::internal(
             "沙盒覆盖 infra sink 失败: 未找到 default_configs 目录".to_string(),
@@ -371,30 +354,61 @@ fn apply_sandbox_default_business_sink_overrides(
     rewrite_wfusion_business_sink_runtime(&target_dir)
 }
 
+/// 将 wparse 沙盒的整个 topology/sinks 目录还原为仓库默认内容。
+fn replace_wparse_sandbox_sinks_with_defaults(project_dir: &Path) -> Result<(), AppError> {
+    let Some(default_root) = runtime_default_configs_dir() else {
+        return Err(AppError::internal(
+            "沙盒覆盖 wparse sinks 失败: 未找到 default_configs 目录".to_string(),
+        ));
+    };
+
+    let source_dir = default_root
+        .join(SystemKind::Wparse.as_ref())
+        .join(DIR_TOPOLOGY)
+        .join(DIR_SINKS);
+    if !source_dir.is_dir() {
+        return Err(AppError::internal(format!(
+            "沙盒覆盖 wparse sinks 失败: 默认目录不存在 {}，期望路径 default_configs/wparse/topology/sinks",
+            source_dir.display()
+        )));
+    }
+
+    let target_dir = project_dir.join(DIR_TOPOLOGY).join(DIR_SINKS);
+    if target_dir.exists() {
+        fs::remove_dir_all(&target_dir).map_err(AppError::internal)?;
+    }
+    fs::create_dir_all(&target_dir).map_err(AppError::internal)?;
+    copy_dir_replace_all(&source_dir, &target_dir)
+}
+
 /// 解析沙盒默认 infra sink 目录。
 ///
 /// 兼容两套目录结构：
 /// 1. 新结构：`default_configs/<system>/topology/sinks/infra.d`
 /// 2. 旧结构：`default_configs/topology/sinks/infra.d`
+fn resolve_sandbox_default_sink_root(default_root: &Path, system: SystemKind) -> PathBuf {
+    let new_layout_dir = default_root
+        .join(system.as_ref())
+        .join(DIR_TOPOLOGY)
+        .join(DIR_SINKS);
+    if new_layout_dir.is_dir() {
+        return new_layout_dir;
+    }
+
+    default_root.join(DIR_TOPOLOGY).join(DIR_SINKS)
+}
+
+/// 解析沙盒默认 infra / business sink 子目录。
+///
+/// 兼容两套目录结构：
+/// 1. 新结构：`default_configs/<system>/topology/sinks/<sink_dir>`
+/// 2. 旧结构：`default_configs/topology/sinks/<sink_dir>`
 fn resolve_sandbox_default_sink_dir(
     default_root: &Path,
     system: SystemKind,
     sink_dir: &str,
 ) -> PathBuf {
-    let system_name = system.as_ref();
-    let new_layout_dir = default_root
-        .join(system_name)
-        .join(DIR_TOPOLOGY)
-        .join(DIR_SINKS)
-        .join(sink_dir);
-    if new_layout_dir.is_dir() {
-        return new_layout_dir;
-    }
-
-    default_root
-        .join(DIR_TOPOLOGY)
-        .join(DIR_SINKS)
-        .join(sink_dir)
+    resolve_sandbox_default_sink_root(default_root, system).join(sink_dir)
 }
 
 /// 递归复制目录，目标存在时直接覆盖同名文件。
@@ -477,7 +491,7 @@ fn copy_default_wfusion_conf(project_dir: &Path) -> Result<(), AppError> {
     }
     fs::copy(&source_path, &target_path).map_err(AppError::internal)?;
     let content = fs::read_to_string(&target_path).map_err(AppError::internal)?;
-    let patched = patch_admin_api_tls_enabled_false(&content);
+    let patched = patch_admin_api_runtime_disabled(&content);
     fs::write(&target_path, patched).map_err(AppError::internal)?;
     Ok(())
 }
@@ -897,9 +911,13 @@ pub(crate) fn sandbox_runtime_override_log_lines(
             )
         })
         .collect();
-    lines
-        .push("topology/sinks/infra.d/*.toml -> 强制使用 default_configs 默认配置覆盖".to_string());
-    if matches!(system, SystemKind::Wfusion) {
+    if matches!(system, SystemKind::Wparse) {
+        lines.push(
+            "topology/sinks/** -> 强制回退到 default_configs/wparse/topology/sinks"
+                .to_string(),
+        );
+    } else {
+        lines.push("topology/sinks/infra.d/*.toml -> 强制使用 default_configs 默认配置覆盖".to_string());
         lines.push(
             "topology/sinks/business.d/*.toml -> 强制使用 default_configs 默认配置覆盖".to_string(),
         );
@@ -921,11 +939,9 @@ fn patch_override_file(
     Ok(())
 }
 
-/// 将 wparse.toml 的 admin_api.enabled 固定关闭。
+/// 将沙盒中的 wparse admin_api 整体关闭，并移除鉴权配置。
 fn patch_wparse_admin_api_runtime(content: &str) -> Result<String, AppError> {
-    Ok(patch_admin_api_tls_enabled_false(
-        &patch_admin_api_enabled_false(content),
-    ))
+    Ok(patch_admin_api_runtime_disabled(content))
 }
 
 /// 将 wpsrc.toml 中 gen_udp source 切到沙盒运行时值，并关闭其他所有输入源。
@@ -949,9 +965,50 @@ fn patch_admin_api_enabled_false(content: &str) -> String {
     patch_section_enabled_false(content, "[admin_api]")
 }
 
+/// 将沙盒中的 admin_api 整体关闭，并移除不再需要的 auth 配置段。
+fn patch_admin_api_runtime_disabled(content: &str) -> String {
+    let without_auth = remove_toml_section(content, "[admin_api.auth]");
+    patch_admin_api_tls_enabled_false(&patch_admin_api_enabled_false(&without_auth))
+}
+
 /// 将 admin_api.tls.enabled 设为 false，避免沙盒按 HTTPS 启动。
 fn patch_admin_api_tls_enabled_false(content: &str) -> String {
     patch_section_enabled_false(content, "[admin_api.tls]")
+}
+
+/// 删除指定 TOML 节及其内容，直到下一个节头为止。
+fn remove_toml_section(content: &str, section_name: &str) -> String {
+    let mut lines = Vec::new();
+    let mut in_target_section = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        let is_section = trimmed.starts_with('[') && trimmed.ends_with(']');
+
+        if is_section {
+            if in_target_section && trimmed != section_name {
+                in_target_section = false;
+            }
+            if trimmed == section_name {
+                in_target_section = true;
+                continue;
+            }
+        }
+
+        if !in_target_section {
+            lines.push(line.to_string());
+        }
+    }
+
+    while lines.last().is_some_and(|line| line.trim().is_empty()) {
+        lines.pop();
+    }
+
+    let mut output = lines.join("\n");
+    if content.ends_with('\n') {
+        output.push('\n');
+    }
+    output
 }
 
 /// 将指定 TOML 节中的 enabled 统一设为 false；若该节不存在则自动追加。

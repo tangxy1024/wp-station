@@ -15,22 +15,22 @@ bind = "127.0.0.1:19080"
 
 [admin_api.auth]
 mode = "bearer_token"
-token_file = "runtime/admin_api.token"
+token_file = "/data/.wfusion/admin_api.token"
 
 [admin_api.tls]
 enabled = true
-cert_file = "tls/server.crt"
-key_file = "tls/server.key"
+cert_file = "/data/.wfusion/tls/server.crt"
+key_file = "/data/.wfusion/tls/server.key"
 
 [project_remote]
 enabled = true
 
 [project_remote.models]
-repo = "http://localhost:3000/gitea/wfusion__models.git"
+repo = "http://wp-station-gitea:3000/gitea/wfusion__models.git"
 init_version = "1.0.0"
 
 [project_remote.infra]
-repo = "http://localhost:3000/gitea/wfusion__infra.git"
+repo = "http://wp-station-gitea:3000/gitea/wfusion__infra.git"
 init_version = "1.0.0"
 
 [logging]
