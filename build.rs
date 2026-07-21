@@ -212,9 +212,8 @@ fn export_tree_sitter_assets(metadata: &Value) {
             .filter(|path| path.exists());
         let package_root = get_package_root(packages, source.package_name);
 
-        if let Some((crate_root, manifest)) =
-            resolve_local_asset_root(source, local_root.clone())
-                .or_else(|| resolve_package_asset_root(source, package_root.clone()))
+        if let Some((crate_root, manifest)) = resolve_local_asset_root(source, local_root.clone())
+            .or_else(|| resolve_package_asset_root(source, package_root.clone()))
         {
             register_tree_sitter_inputs(&crate_root);
             println!(

@@ -70,6 +70,18 @@ struct PublishResponse {
     error: Option<String>,
 }
 
+#[derive(Debug)]
+struct PublishMessageParts {
+    message: Option<String>,
+    result: Option<String>,
+    warning: Option<String>,
+    error: Option<String>,
+    update: Option<bool>,
+    requested_version: Option<String>,
+    current_version: Option<String>,
+    resolved_tag: Option<String>,
+}
+
 /// `wfusion` 外部服务适配器。
 pub struct WfusionService {
     client: Client,
@@ -228,18 +240,19 @@ impl WfusionService {
             .error
             .as_deref()
             .is_some_and(|value| !value.trim().is_empty());
-        let completed = accepted
-            && !has_error
-            && Self::publish_result_completed(result_text.as_deref());
+        let completed =
+            accepted && !has_error && Self::publish_result_completed(result_text.as_deref());
         let message = Self::publish_message(
-            parsed.message.clone(),
-            result_text.clone(),
-            parsed.warning.clone(),
-            parsed.error.clone(),
-            parsed.update,
-            parsed.requested_version.clone(),
-            parsed.current_version.clone(),
-            parsed.resolved_tag.clone(),
+            PublishMessageParts {
+                message: parsed.message.clone(),
+                result: result_text.clone(),
+                warning: parsed.warning.clone(),
+                error: parsed.error.clone(),
+                update: parsed.update,
+                requested_version: parsed.requested_version.clone(),
+                current_version: parsed.current_version.clone(),
+                resolved_tag: parsed.resolved_tag.clone(),
+            },
         );
 
         info!(
@@ -475,47 +488,41 @@ impl WfusionService {
         Self::publish_result_succeeded(result) || Self::publish_result_requires_restart(result)
     }
 
-    fn publish_message(
-        message: Option<String>,
-        result: Option<String>,
-        warning: Option<String>,
-        error: Option<String>,
-        update: Option<bool>,
-        requested_version: Option<String>,
-        current_version: Option<String>,
-        resolved_tag: Option<String>,
-    ) -> Option<String> {
-        let mut parts = Vec::new();
-        if let Some(message) = message.filter(|value| !value.trim().is_empty()) {
-            parts.push(message);
+    fn publish_message(message_parts: PublishMessageParts) -> Option<String> {
+        let mut segments = Vec::new();
+        if let Some(message) = message_parts.message.filter(|value| !value.trim().is_empty()) {
+            segments.push(message);
         }
-        if let Some(result) = result.filter(|value| !value.trim().is_empty()) {
-            parts.push(format!("result={}", result));
+        if let Some(result) = message_parts.result.filter(|value| !value.trim().is_empty()) {
+            segments.push(format!("result={}", result));
         }
-        if let Some(warning) = warning.filter(|value| !value.trim().is_empty()) {
-            parts.push(format!("warning={}", warning));
+        if let Some(warning) = message_parts.warning.filter(|value| !value.trim().is_empty()) {
+            segments.push(format!("warning={}", warning));
         }
-        if let Some(error) = error.filter(|value| !value.trim().is_empty()) {
-            parts.push(format!("error={}", error));
+        if let Some(error) = message_parts.error.filter(|value| !value.trim().is_empty()) {
+            segments.push(format!("error={}", error));
         }
-        if let Some(update) = update {
-            parts.push(format!("update={}", update));
+        if let Some(update) = message_parts.update {
+            segments.push(format!("update={}", update));
         }
         if let Some(requested_version) =
-            requested_version.filter(|value| !value.trim().is_empty())
+            message_parts.requested_version.filter(|value| !value.trim().is_empty())
         {
-            parts.push(format!("requested_version={}", requested_version));
+            segments.push(format!("requested_version={}", requested_version));
         }
-        if let Some(current_version) = current_version.filter(|value| !value.trim().is_empty()) {
-            parts.push(format!("current_version={}", current_version));
+        if let Some(current_version) =
+            message_parts.current_version.filter(|value| !value.trim().is_empty())
+        {
+            segments.push(format!("current_version={}", current_version));
         }
-        if let Some(resolved_tag) = resolved_tag.filter(|value| !value.trim().is_empty()) {
-            parts.push(format!("resolved_tag={}", resolved_tag));
+        if let Some(resolved_tag) = message_parts.resolved_tag.filter(|value| !value.trim().is_empty())
+        {
+            segments.push(format!("resolved_tag={}", resolved_tag));
         }
-        if parts.is_empty() {
+        if segments.is_empty() {
             None
         } else {
-            Some(parts.join(", "))
+            Some(segments.join(", "))
         }
     }
 

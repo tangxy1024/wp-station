@@ -151,12 +151,31 @@ const normalizeNamedRuleEntry = (entry, type) => {
     return normalized.toLowerCase().endsWith('.wfg') ? normalized : `${normalized}.wfg`;
   }
 
-  const baseName = fileName.replace(/\.wfg$/i, '');
-  if (!baseName) {
+  return normalized.toLowerCase().endsWith('.wfg') ? normalized : `${normalized}.wfg`;
+};
+
+const normalizeNamedRuleCreateFile = (repoType, name) => {
+  const normalized = String(name || '')
+    .trim()
+    .replace(/^\/+|\/+$/g, '');
+  if (!normalized) {
     return '';
   }
 
-  return `${baseName}/${baseName}.wfg`;
+  const extension =
+    repoType === 'schema' ? '.wfs' : repoType === 'rule' ? '.wfl' : '.wfg';
+  const hasPath = normalized.includes('/');
+  const hasExtension = normalized.toLowerCase().endsWith(extension);
+
+  if (hasPath) {
+    return hasExtension ? normalized : `${normalized}${extension}`;
+  }
+
+  if (hasExtension) {
+    return normalized;
+  }
+
+  return `${normalized}/${normalized}${extension}`;
 };
 
 const buildWplTreeData = (items, parseFileName, sampleFileName) => {
@@ -292,39 +311,64 @@ const buildOmlTreeData = (items) => {
     }));
 };
 
-const buildNamedRuleTreeData = (items) =>
-  Array.from(
-    (Array.isArray(items) ? items : []).reduce((groups, entry) => {
-      if (typeof entry !== 'string') {
-        return groups;
-      }
-      const normalized = entry.trim();
-      if (!normalized) {
-        return groups;
-      }
+const buildNamedRuleTreeData = (items) => {
+  const groups = new Map();
+  const flatFiles = [];
 
-      const parts = normalized.split('/').filter(Boolean);
-      const [group = '', ...rest] = parts;
-      const fileLabel = rest.length ? rest.join('/') : group;
-      const groupLabel = group || fileLabel.replace(/\.(wfs|wfl|wfg)$/i, '');
-      if (!groupLabel) {
-        return groups;
-      }
+  (Array.isArray(items) ? items : []).forEach((entry) => {
+    if (typeof entry !== 'string') {
+      return;
+    }
+    const normalized = entry.trim();
+    if (!normalized) {
+      return;
+    }
 
-      const files = groups.get(groupLabel) || [];
-      files.push({
-        value: normalized,
-        label: fileLabel || `${groupLabel}.rule`,
+    const parts = normalized.split('/').filter(Boolean);
+    if (!parts.length) {
+      return;
+    }
+
+    if (parts.length === 1) {
+      flatFiles.push({
+        kind: 'file',
+        key: normalized,
+        file: {
+          value: normalized,
+          label: normalized,
+        },
       });
-      groups.set(groupLabel, files);
-      return groups;
-    }, new Map()).entries(),
-  )
+      return;
+    }
+
+    const [group, ...rest] = parts;
+    if (!group) {
+      return;
+    }
+
+    const files = groups.get(group) || [];
+    files.push({
+      value: normalized,
+      label: rest.join('/'),
+    });
+    groups.set(group, files);
+  });
+
+  const groupNodes = Array.from(groups.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([group, files]) => ({
+      kind: 'group',
+      key: group,
       group,
       files: files.sort((a, b) => a.label.localeCompare(b.label)),
     }));
+
+  return [...flatFiles, ...groupNodes].sort((a, b) => {
+    const aLabel = a.kind === 'group' ? a.group : a.file.label;
+    const bLabel = b.kind === 'group' ? b.group : b.file.label;
+    return aLabel.localeCompare(bLabel);
+  });
+};
 
 const normalizeOmlList = (items, type) => {
   const deduped = new Set();
@@ -342,19 +386,34 @@ const normalizeOmlList = (items, type) => {
 
 const getOmlEntriesFromTreeData = (treeData) =>
   (Array.isArray(treeData) ? treeData : []).flatMap((node) =>
-    (Array.isArray(node.files) ? node.files : [])
-      .map((item) => item.value)
-      .filter(Boolean),
+    node.kind === 'file'
+      ? [node.file?.value].filter(Boolean)
+      : (Array.isArray(node.files) ? node.files : [])
+          .map((item) => item.value)
+          .filter(Boolean),
   );
 
 const getFirstOmlEntry = (treeData) => treeData?.[0]?.files?.[0]?.value || '';
-const getFirstNamedRuleEntry = (treeData) => treeData?.[0]?.files?.[0]?.value || '';
+const getFirstNamedRuleEntry = (treeData) => {
+  for (const node of treeData || []) {
+    if (node?.kind === 'file' && node.file?.value) {
+      return node.file.value;
+    }
+    if (Array.isArray(node?.files) && node.files[0]?.value) {
+      return node.files[0].value;
+    }
+  }
+  return '';
+};
 
 const findOmlGroupForFile = (treeData, file) => {
   if (!file) {
     return '';
   }
   for (const node of treeData || []) {
+    if (node?.kind === 'file' && node.file?.value === file) {
+      return '';
+    }
     if (Array.isArray(node.files) && node.files.some((item) => item.value === file)) {
       return node.group;
     }
@@ -842,7 +901,9 @@ function RuleManagePage() {
       setOmlTree(currentTreeData);
       setOmlPage(currentPage);
       setActiveOmlFile(nextActive);
-      const expandedGroups = currentTreeData.map((node) => node.group);
+      const expandedGroups = currentTreeData
+        .filter((node) => node.kind !== 'file')
+        .map((node) => node.group);
       const activeGroup = findOmlGroupForFile(currentTreeData, nextActive);
       setOmlExpandedGroups(
         activeGroup && !expandedGroups.includes(activeGroup)
@@ -1587,12 +1648,11 @@ function RuleManagePage() {
     }
 
     if (repoType === 'schema' || repoType === 'rule' || repoType === 'scenarios') {
-      const virtualFile =
-        repoType === 'schema'
-          ? `${normalizedName}/${normalizedName}.wfs`
-          : repoType === 'rule'
-            ? `${normalizedName}/${normalizedName}.wfl`
-            : `${normalizedName}/${normalizedName}.wfg`;
+      const virtualFile = normalizeNamedRuleCreateFile(repoType, normalizedName);
+      if (!virtualFile) {
+        message.warning(t('ruleManage.fileNameCannotBeEmpty'));
+        return false;
+      }
       const targetType =
         repoType === 'schema'
           ? RuleType.SCHEMA
@@ -2373,6 +2433,64 @@ function RuleManagePage() {
                       );
                     })
                   : omlTree.map((node) => {
+                      if (node.kind === 'file') {
+                        return (
+                          <div
+                            key={node.file.value}
+                            style={{ position: 'relative' }}
+                            onMouseEnter={() => setHoveredRepoFile(node.file.value)}
+                            onMouseLeave={() => setHoveredRepoFile('')}
+                          >
+                            <button
+                              type="button"
+                              className={`repo-file ${
+                                activeOmlFile === node.file.value ? 'is-active' : ''
+                              }`}
+                              onClick={() => handleSelectTreeFile(node.file.value)}
+                              style={{
+                                textAlign: 'left',
+                                paddingRight:
+                                  hoveredRepoFile === node.file.value ? '28px' : '12px',
+                                position: 'relative',
+                              }}
+                            >
+                              {node.file.label}
+                            </button>
+                            <button
+                              type="button"
+                              className="repo-file-delete"
+                              style={{
+                                position: 'absolute',
+                                right: '4px',
+                                minWidth: 20,
+                                width: 20,
+                                height: 20,
+                                borderRadius: '50%',
+                                border: 'none',
+                                backgroundColor: '#ff4d4f',
+                                color: '#fff',
+                                fontSize: 16,
+                                padding: 0,
+                                cursor: 'pointer',
+                                display:
+                                  hoveredRepoFile === node.file.value ? 'inline-flex' : 'none',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                confirmDeleteTreeRule(
+                                  activeTreeRuleType || RuleType.OML,
+                                  node.file.value,
+                                );
+                              }}
+                            >
+                              -
+                            </button>
+                          </div>
+                        );
+                      }
+
                       const expanded = omlExpandedGroups.includes(node.group);
                       return (
                         <div

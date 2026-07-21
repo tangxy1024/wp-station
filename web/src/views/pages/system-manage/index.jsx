@@ -6,6 +6,7 @@ import { Table, Modal, Form, Input, Select, DatePicker, message } from 'antd';
 import { fetchUsers, createUser, updateUser, updateUserStatus, resetUserPassword, changeUserPassword, deleteUser } from '@/services/user';
 import { fetchOperationLogs } from '@/services/operation_log';
 import { importProjectFromFiles } from '@/services/project';
+import { useSystem } from '@/contexts/SystemContext';
 import ProjectImportResult from '@/views/components/ProjectImportResult';
 import ConnectionManage from './ConnectionManage';
 
@@ -21,6 +22,7 @@ const { RangePicker } = DatePicker;
  */
 function SystemManagePage() {
   const { t } = useTranslation();
+  const { currentSystem } = useSystem();
   const [activeKey, setActiveKey] = useState('connections');
   const [loading, setLoading] = useState(false);
   const [dataSource, setDataSource] = useState([]);
@@ -145,6 +147,7 @@ function SystemManagePage() {
     try {
       const response = await importProjectFromFiles({
         sourceDir: importSourceDir.trim(),
+        system: currentSystem,
       });
       setImportResult(response);
       message.success(t('systemManage.initImportSuccess'));
@@ -795,7 +798,7 @@ function SystemManagePage() {
           </>
         )}
 
-        {importResult && <ProjectImportResult result={importResult} />}
+        {importResult && <ProjectImportResult result={importResult} system={currentSystem} />}
 
         {importError && (
           <div

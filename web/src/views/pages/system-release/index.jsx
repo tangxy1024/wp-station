@@ -104,8 +104,8 @@ function SystemReleasePage() {
       warnings: [],
       failed_files: 1,
       source_dir: sourceLabel,
-      project_models: '',
-      project_infra: '',
+      models_root: '',
+      infra_root: '',
     },
     validation: {
       passed: false,
@@ -119,7 +119,7 @@ function SystemReleasePage() {
       width: 760,
       icon: null,
       okText: t('common.confirm'),
-      content: <ProjectImportResult result={result} showPaths={showPaths} />,
+      content: <ProjectImportResult result={result} showPaths={showPaths} system={currentSystem} />,
     });
   };
 
@@ -340,7 +340,7 @@ function SystemReleasePage() {
         content: (
           <div style={{ lineHeight: 1.7, marginTop: 8 }}>
             <p>{t('systemRelease.importArchivePreviewMessage', { file: file.name })}</p>
-            <ProjectImportResult result={preview} showPaths={false} />
+            <ProjectImportResult result={preview} showPaths={false} system={currentSystem} />
           </div>
         ),
         width: 720,

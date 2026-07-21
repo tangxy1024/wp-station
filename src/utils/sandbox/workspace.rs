@@ -12,8 +12,8 @@ use crate::constants::project::{
 use crate::constants::sandbox::{
     OUTPUT_PATHS, RUNTIME_ARTIFACT_RETENTION_RUNS, RUNTIME_HEADER_MODE, RUNTIME_OUTPUT_ADDR,
     RUNTIME_OUTPUT_CONNECTOR, RUNTIME_PROTOCOL, RUNTIME_SOURCE_ADDR, RUNTIME_SOURCE_CONNECTOR,
-    RUNTIME_SOURCE_KEY, RUNTIME_UDP_PORT,
-    WFUSION_RUNTIME_SOURCE_CONNECTOR, WFUSION_RUNTIME_SOURCE_KEY, WFUSION_RUNTIME_TCP_PORT,
+    RUNTIME_SOURCE_KEY, RUNTIME_UDP_PORT, WFUSION_RUNTIME_SOURCE_CONNECTOR,
+    WFUSION_RUNTIME_SOURCE_KEY, WFUSION_RUNTIME_TCP_PORT,
 };
 use crate::error::AppError;
 use crate::server::{FileOverride, Setting, sandbox::OutputFileStatus};
@@ -184,7 +184,7 @@ enum SandboxOverrideKind {
     PatchWparseAdminApi,
     PatchWpsrcRuntime,
     PatchWpgenRuntime,
-    CopyDefaultWfusionConfig,
+    PatchWfusionConfig,
     RewriteWfusionSource,
 }
 
@@ -213,7 +213,7 @@ const WPARSE_SANDBOX_OVERRIDE_SPECS: [SandboxOverrideSpec; 3] = [
 const WFUSION_SANDBOX_OVERRIDE_SPECS: [SandboxOverrideSpec; 2] = [
     SandboxOverrideSpec {
         relative_path: "conf/wfusion.toml",
-        kind: SandboxOverrideKind::CopyDefaultWfusionConfig,
+        kind: SandboxOverrideKind::PatchWfusionConfig,
     },
     SandboxOverrideSpec {
         relative_path: "topology/sources",
@@ -240,8 +240,8 @@ impl SandboxOverrideSpec {
                 "connect={}, addr={}, port={}",
                 RUNTIME_OUTPUT_CONNECTOR, RUNTIME_OUTPUT_ADDR, RUNTIME_UDP_PORT
             ),
-            SandboxOverrideKind::CopyDefaultWfusionConfig => {
-                "直接复制 default_configs/wfusion/conf/wfusion.toml".to_string()
+            SandboxOverrideKind::PatchWfusionConfig => {
+                "保留当前 wfusion.toml，仅关闭 admin_api/auth/tls 以适配沙盒".to_string()
             }
             SandboxOverrideKind::RewriteWfusionSource => format!(
                 "仅保留沙盒 TCP 输入: connect={}, addr=0.0.0.0, port=\"{}\", framing=len, data_format=arrow_framed",
@@ -263,7 +263,7 @@ impl SandboxOverrideSpec {
             SandboxOverrideKind::PatchWpgenRuntime => {
                 patch_override_file(project_dir, self.relative_path, patch_wpgen_runtime)
             }
-            SandboxOverrideKind::CopyDefaultWfusionConfig => copy_default_wfusion_conf(project_dir),
+            SandboxOverrideKind::PatchWfusionConfig => patch_or_seed_wfusion_conf(project_dir),
             SandboxOverrideKind::RewriteWfusionSource => {
                 rewrite_wfusion_source_runtime(project_dir)
             }
@@ -468,28 +468,32 @@ fn harden_admin_api_token_permissions(project_dir: &Path) -> Result<(), AppError
     Ok(())
 }
 
-/// 沙盒中的 wfusion 配置固定回退到 default_configs 默认内容，避免对 glob 做额外改写。
-fn copy_default_wfusion_conf(project_dir: &Path) -> Result<(), AppError> {
-    let Some(default_root) = runtime_default_configs_dir() else {
-        return Err(AppError::internal(
-            "沙盒覆盖 wfusion.toml 失败: 未找到 default_configs 目录".to_string(),
-        ));
-    };
-
-    let source_path =
-        resolve_sandbox_default_conf_file(&default_root, SystemKind::Wfusion, FILE_WFUSION);
-    if !source_path.is_file() {
-        return Err(AppError::internal(format!(
-            "沙盒覆盖 wfusion.toml 失败: 默认文件不存在 {}",
-            source_path.display()
-        )));
-    }
-
+/// 沙盒中的 wfusion 配置优先保留当前仓库内容，仅补丁 admin_api 相关项。
+/// 若工作区中不存在该文件，再回退到 default_configs 模板。
+fn patch_or_seed_wfusion_conf(project_dir: &Path) -> Result<(), AppError> {
     let target_path = project_dir.join(DIR_CONF).join(FILE_WFUSION);
-    if let Some(parent) = target_path.parent() {
-        fs::create_dir_all(parent).map_err(AppError::internal)?;
+    if !target_path.is_file() {
+        let Some(default_root) = runtime_default_configs_dir() else {
+            return Err(AppError::internal(
+                "沙盒覆盖 wfusion.toml 失败: 未找到 default_configs 目录".to_string(),
+            ));
+        };
+
+        let source_path =
+            resolve_sandbox_default_conf_file(&default_root, SystemKind::Wfusion, FILE_WFUSION);
+        if !source_path.is_file() {
+            return Err(AppError::internal(format!(
+                "沙盒覆盖 wfusion.toml 失败: 默认文件不存在 {}",
+                source_path.display()
+            )));
+        }
+
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent).map_err(AppError::internal)?;
+        }
+        fs::copy(&source_path, &target_path).map_err(AppError::internal)?;
     }
-    fs::copy(&source_path, &target_path).map_err(AppError::internal)?;
+
     let content = fs::read_to_string(&target_path).map_err(AppError::internal)?;
     let patched = patch_admin_api_runtime_disabled(&content);
     fs::write(&target_path, patched).map_err(AppError::internal)?;
@@ -913,11 +917,12 @@ pub(crate) fn sandbox_runtime_override_log_lines(
         .collect();
     if matches!(system, SystemKind::Wparse) {
         lines.push(
-            "topology/sinks/** -> 强制回退到 default_configs/wparse/topology/sinks"
-                .to_string(),
+            "topology/sinks/** -> 强制回退到 default_configs/wparse/topology/sinks".to_string(),
         );
     } else {
-        lines.push("topology/sinks/infra.d/*.toml -> 强制使用 default_configs 默认配置覆盖".to_string());
+        lines.push(
+            "topology/sinks/infra.d/*.toml -> 强制使用 default_configs 默认配置覆盖".to_string(),
+        );
         lines.push(
             "topology/sinks/business.d/*.toml -> 强制使用 default_configs 默认配置覆盖".to_string(),
         );

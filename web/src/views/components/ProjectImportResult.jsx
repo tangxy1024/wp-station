@@ -1,16 +1,47 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
-function ProjectImportResult({ result, showPaths = true }) {
+function ProjectImportResult({ result, showPaths = true, system = 'wparse' }) {
   const { t } = useTranslation();
   const importSummary = result?.summary;
   const importValidation = result?.validation;
-  const importStatCards = [
-    { key: 'rules', label: t('systemManage.initImportRulesLabel'), value: importSummary?.rules_imported || 0 },
-    { key: 'knowledge', label: t('systemManage.initImportKnowledgeLabel'), value: importSummary?.knowledge_imported || 0 },
-    { key: 'rulesDeleted', label: t('systemManage.initImportRulesDeletedLabel'), value: importSummary?.rules_deleted || 0 },
-    { key: 'knowledgeDeleted', label: t('systemManage.initImportKnowledgeDeletedLabel'), value: importSummary?.knowledge_deleted || 0 },
-  ];
+  const normalizedSystem = system === 'wfusion' ? 'wfusion' : 'wparse';
+  const importStatCards =
+    normalizedSystem === 'wfusion'
+      ? [
+          {
+            key: 'rules',
+            label: t('systemManage.initImportRulesLabel'),
+            value: importSummary?.rules_imported || 0,
+          },
+          {
+            key: 'rulesDeleted',
+            label: t('systemManage.initImportRulesDeletedLabel'),
+            value: importSummary?.rules_deleted || 0,
+          },
+        ]
+      : [
+          {
+            key: 'rules',
+            label: t('systemManage.initImportRulesLabel'),
+            value: importSummary?.rules_imported || 0,
+          },
+          {
+            key: 'knowledge',
+            label: t('systemManage.initImportKnowledgeLabel'),
+            value: importSummary?.knowledge_imported || 0,
+          },
+          {
+            key: 'rulesDeleted',
+            label: t('systemManage.initImportRulesDeletedLabel'),
+            value: importSummary?.rules_deleted || 0,
+          },
+          {
+            key: 'knowledgeDeleted',
+            label: t('systemManage.initImportKnowledgeDeletedLabel'),
+            value: importSummary?.knowledge_deleted || 0,
+          },
+        ];
   const importSuccessCount =
     (importSummary?.rules_imported || 0) + (importSummary?.knowledge_imported || 0);
   const importFailureCount = importSummary?.failed_files || 0;
@@ -117,7 +148,9 @@ function ProjectImportResult({ result, showPaths = true }) {
                     color: '#1e293b',
                   }}
                 >
-                  <div style={{ fontWeight: 500 }}>{item.rule_type}</div>
+                  <div style={{ fontWeight: 500 }}>
+                    {formatRuleTypeLabel(item.rule_type, normalizedSystem)}
+                  </div>
                   <div style={{ fontSize: 16, fontWeight: 600 }}>{item.count}</div>
                 </div>
               ))}
@@ -144,11 +177,11 @@ function ProjectImportResult({ result, showPaths = true }) {
           </div>
         )}
 
-        {showPaths && (
+        {showPaths && normalizedSystem !== 'wfusion' && (
           <div style={{ marginTop: 16, display: 'grid', gap: 12 }}>
             <PathBlock label={t('systemManage.initImportSourceDirLabel')} value={importSummary?.source_dir} />
-            <PathBlock label={t('systemManage.initImportProjectModels')} value={importSummary?.project_models} />
-            <PathBlock label={t('systemManage.initImportProjectInfra')} value={importSummary?.project_infra} />
+            <PathBlock label={t('systemManage.initImportProjectModels')} value={importSummary?.models_root} />
+            <PathBlock label={t('systemManage.initImportProjectInfra')} value={importSummary?.infra_root} />
           </div>
         )}
       </div>
@@ -187,6 +220,36 @@ function ProjectImportResult({ result, showPaths = true }) {
       )}
     </div>
   );
+}
+
+function formatRuleTypeLabel(ruleType, system) {
+  const normalizedSystem = system === 'wfusion' ? 'wfusion' : 'wparse';
+  const value = String(ruleType || '').trim();
+  if (!value) return '-';
+
+  if (normalizedSystem === 'wfusion') {
+    const labels = {
+      windows: 'windows',
+      schema: 'schema',
+      rule: 'rule',
+      scenarios: 'scenarios',
+      source: 'source',
+      sink: 'sink',
+      source_connect: 'source_connect',
+      sink_connect: 'sink_connect',
+    };
+    return labels[value] || value;
+  }
+
+  const labels = {
+    parse: 'parse',
+    rule: 'rule',
+    source: 'source',
+    sink: 'sink',
+    source_connect: 'source_connect',
+    sink_connect: 'sink_connect',
+  };
+  return labels[value] || value;
 }
 
 function PathBlock({ label, value }) {

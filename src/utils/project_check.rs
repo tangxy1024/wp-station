@@ -166,7 +166,11 @@ fn check_wfusion_in_dir(project_path: &Path, target: ProjectCheckTarget) -> Resu
         .current_dir(project_path)
         .output()
         .map_err(|e| {
-            AppError::internal(format!("执行 wfadm check 失败 ({}): {}", binary.display(), e))
+            AppError::internal(format!(
+                "执行 wfadm check 失败 ({}): {}",
+                binary.display(),
+                e
+            ))
         })?;
 
     if output.status.success() {

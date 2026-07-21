@@ -5,6 +5,7 @@
 //! - 构造预检目录
 //! - 生成导入结果摘要
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use tempfile::tempdir;
@@ -19,8 +20,8 @@ use crate::utils::{
 };
 
 use super::{
-    ImportScope, ProjectImportBreakdown, ProjectImportResponse, ProjectImportSummary,
-    ProjectImportValidation,
+    ImportScope, ProjectImportResponse, ProjectImportSummary, ProjectImportValidation,
+    build_rule_breakdown_from_snapshot,
 };
 
 /// 为归档预检构造摘要结果，不写入真实项目目录。
@@ -30,9 +31,9 @@ pub(super) fn validate_project_import_preview(
 ) -> Result<ProjectImportSummary, AppError> {
     let scope = super::detect_import_scope(source_dir)?;
     let layout = layout_for_system(system).as_repo_layout();
-    let preview_dir = build_preview_project_dir(system, source_dir, &layout, &scope)?;
-    build_import_summary_from_dir(
-        preview_dir.path(),
+    let _preview_dir = build_preview_project_dir(system, source_dir, &layout, &scope)?;
+    build_import_summary_from_source_dir(
+        source_dir,
         source_dir.to_string_lossy().as_ref(),
         &layout,
         &scope,
@@ -53,14 +54,15 @@ pub(super) fn build_preview_project_dir(
     Ok(preview_dir)
 }
 
-/// 基于当前真实 layout 构造最终导入响应。
-pub(super) fn build_import_response_from_repo_layout(
+/// 基于导入源目录构造最终导入响应。
+pub(super) fn build_import_response_from_source_dir(
+    source_dir: &Path,
     layout: &RepoLayout,
     validation_message: &str,
     source_label: &str,
     scope: &ImportScope,
 ) -> Result<ProjectImportResponse, AppError> {
-    let summary = build_import_summary_from_repo_layout(layout, source_label, scope)?;
+    let summary = build_import_summary_from_source_dir(source_dir, source_label, layout, scope)?;
     let validation = ProjectImportValidation {
         passed: true,
         message: scope.summary_message(validation_message),
@@ -72,36 +74,25 @@ pub(super) fn build_import_response_from_repo_layout(
     })
 }
 
-/// 从当前真实 layout 构造导入摘要。
-fn build_import_summary_from_repo_layout(
-    layout: &RepoLayout,
+/// 从导入源目录构造导入摘要。
+fn build_import_summary_from_source_dir(
+    source_dir: &Path,
     source_label: &str,
+    layout: &RepoLayout,
     scope: &ImportScope,
 ) -> Result<ProjectImportSummary, AppError> {
-    let snapshot = load_project_snapshot_from_repo_layout(layout)?;
+    let snapshot = load_snapshot_for_import_scope(source_dir, scope)?;
+    let current_snapshot =
+        filter_snapshot_by_import_scope(load_project_snapshot_from_repo_layout(layout)?, scope);
+    let (rules_deleted, knowledge_deleted) = build_deleted_counts(&snapshot, &current_snapshot);
     build_import_summary_from_snapshot(
         snapshot,
         source_label,
         layout.models_root.to_string_lossy().to_string(),
         layout.infra_root.to_string_lossy().to_string(),
         scope,
-    )
-}
-
-/// 从指定项目目录构造导入摘要。
-fn build_import_summary_from_dir(
-    project_dir: &Path,
-    source_label: &str,
-    layout: &RepoLayout,
-    scope: &ImportScope,
-) -> Result<ProjectImportSummary, AppError> {
-    let snapshot = load_project_snapshot(project_dir)?;
-    build_import_summary_from_snapshot(
-        snapshot,
-        source_label,
-        layout.models_root.to_string_lossy().to_string(),
-        layout.infra_root.to_string_lossy().to_string(),
-        scope,
+        rules_deleted,
+        knowledge_deleted,
     )
 }
 
@@ -112,6 +103,8 @@ fn build_import_summary_from_snapshot(
     models_root: String,
     infra_root: String,
     scope: &ImportScope,
+    rules_deleted: usize,
+    knowledge_deleted: usize,
 ) -> Result<ProjectImportSummary, AppError> {
     if snapshot.rules.is_empty() && snapshot.knowledge.is_empty() {
         return Err(AppError::validation(
@@ -122,9 +115,9 @@ fn build_import_summary_from_snapshot(
     let ProjectSnapshot {
         rules,
         knowledge,
-        rule_stats,
         mut warnings,
         failed_files,
+        ..
     } = snapshot;
 
     if !scope.retained_dir_names().is_empty() {
@@ -135,19 +128,19 @@ fn build_import_summary_from_snapshot(
         ));
     }
 
-    let mut breakdown: Vec<ProjectImportBreakdown> = rule_stats
-        .into_iter()
-        .map(|(rule_type, count)| ProjectImportBreakdown {
-            rule_type: rule_type.as_ref().to_string(),
-            count,
-        })
-        .collect();
-    breakdown.sort_by(|a, b| a.rule_type.cmp(&b.rule_type));
+    let snapshot_for_breakdown = ProjectSnapshot {
+        rules: rules.clone(),
+        knowledge: knowledge.clone(),
+        rule_stats: build_rule_stats(&rules),
+        warnings: Vec::new(),
+        failed_files: 0,
+    };
+    let breakdown = build_rule_breakdown_from_snapshot(&snapshot_for_breakdown);
 
     Ok(ProjectImportSummary {
-        rules_deleted: 0,
+        rules_deleted,
         rules_imported: rules.len(),
-        knowledge_deleted: 0,
+        knowledge_deleted,
         knowledge_imported: knowledge.len(),
         imported_dirs: scope.imported_dir_names(),
         retained_dirs: scope.retained_dir_names(),
@@ -158,6 +151,151 @@ fn build_import_summary_from_snapshot(
         models_root,
         infra_root,
     })
+}
+
+fn load_snapshot_for_import_scope(
+    source_dir: &Path,
+    scope: &ImportScope,
+) -> Result<ProjectSnapshot, AppError> {
+    let snapshot = load_project_snapshot(source_dir)?;
+    Ok(filter_snapshot_by_import_scope(snapshot, scope))
+}
+
+fn build_deleted_counts(
+    source_snapshot: &ProjectSnapshot,
+    current_snapshot: &ProjectSnapshot,
+) -> (usize, usize) {
+    let source_rules: std::collections::HashSet<_> = source_snapshot
+        .rules
+        .iter()
+        .map(|rule| {
+            (
+                rule.rule_type,
+                normalized_import_identity(rule.rule_type, &rule.file_name),
+            )
+        })
+        .collect();
+    let current_rules: std::collections::HashSet<_> = current_snapshot
+        .rules
+        .iter()
+        .map(|rule| {
+            (
+                rule.rule_type,
+                normalized_import_identity(rule.rule_type, &rule.file_name),
+            )
+        })
+        .collect();
+    let rules_deleted = current_rules.difference(&source_rules).count();
+
+    let source_knowledge: std::collections::HashSet<_> = source_snapshot
+        .knowledge
+        .iter()
+        .map(|item| item.file_name.clone())
+        .collect();
+    let current_knowledge: std::collections::HashSet<_> = current_snapshot
+        .knowledge
+        .iter()
+        .map(|item| item.file_name.clone())
+        .collect();
+    let knowledge_deleted = current_knowledge.difference(&source_knowledge).count();
+
+    (rules_deleted, knowledge_deleted)
+}
+
+fn normalized_import_identity(rule_type: crate::db::RuleType, file_name: &str) -> String {
+    let normalized = file_name.trim().trim_matches('/').replace('\\', "/");
+    if normalized.is_empty() {
+        return normalized;
+    }
+
+    match rule_type {
+        crate::db::RuleType::Schema
+        | crate::db::RuleType::Rule
+        | crate::db::RuleType::Scenarios => {
+            let parts: Vec<&str> = normalized
+                .split('/')
+                .filter(|part| !part.is_empty())
+                .collect();
+            if parts.len() == 2 {
+                let folder = parts[0];
+                let file = parts[1];
+                let stem = file.rsplit_once('.').map(|(name, _)| name).unwrap_or(file);
+                if stem == folder {
+                    return file.to_string();
+                }
+            }
+            normalized
+        }
+        _ => normalized,
+    }
+}
+
+fn filter_snapshot_by_import_scope(
+    snapshot: ProjectSnapshot,
+    scope: &ImportScope,
+) -> ProjectSnapshot {
+    let imported_dirs: Vec<&str> = scope.imported_dirs.to_vec();
+    let ProjectSnapshot {
+        rules,
+        knowledge,
+        warnings,
+        failed_files,
+        ..
+    } = snapshot;
+
+    let filtered_rules: Vec<_> = rules
+        .into_iter()
+        .filter(|rule| {
+            imported_dirs.iter().any(|root_dir| match *root_dir {
+                "models" => matches!(
+                    rule.rule_type,
+                    crate::db::RuleType::Wpl
+                        | crate::db::RuleType::Oml
+                        | crate::db::RuleType::Windows
+                        | crate::db::RuleType::Schema
+                        | crate::db::RuleType::Rule
+                        | crate::db::RuleType::Scenarios
+                ),
+                "conf" => matches!(
+                    rule.rule_type,
+                    crate::db::RuleType::Parse | crate::db::RuleType::Wpgen
+                ),
+                "connectors" => matches!(
+                    rule.rule_type,
+                    crate::db::RuleType::SourceConnect | crate::db::RuleType::SinkConnect
+                ),
+                "topology" => matches!(
+                    rule.rule_type,
+                    crate::db::RuleType::Source | crate::db::RuleType::Sink
+                ),
+                _ => false,
+            })
+        })
+        .collect();
+
+    let filtered_knowledge = if imported_dirs.contains(&"models") {
+        knowledge
+    } else {
+        Vec::new()
+    };
+
+    ProjectSnapshot {
+        rule_stats: build_rule_stats(&filtered_rules),
+        rules: filtered_rules,
+        knowledge: filtered_knowledge,
+        warnings,
+        failed_files,
+    }
+}
+
+fn build_rule_stats(
+    rules: &[crate::utils::project_fs::ProjectRuleFile],
+) -> HashMap<crate::db::RuleType, usize> {
+    let mut stats = HashMap::new();
+    for rule in rules {
+        *stats.entry(rule.rule_type).or_insert(0) += 1;
+    }
+    stats
 }
 
 /// 在不覆盖真实项目目录的前提下校验导入范围是否有效。

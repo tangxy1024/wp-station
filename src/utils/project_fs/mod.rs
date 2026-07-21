@@ -260,10 +260,20 @@ fn wfusion_scenario_path(project_dir: &Path, file_name: &str) -> Result<PathBuf,
     }
 
     if trimmed.contains('/') {
-        return Ok(project_dir
+        let nested_path = project_dir
             .join(DIR_MODELS)
             .join(DIR_SCENARIOS)
-            .join(with_extension(trimmed, ".wfg")));
+            .join(with_extension(trimmed, ".wfg"));
+        if nested_path.exists() {
+            return Ok(nested_path);
+        }
+
+        let file = trimmed.rsplit('/').next().unwrap_or(trimmed);
+        let flat_path = project_dir
+            .join(DIR_MODELS)
+            .join(DIR_SCENARIOS)
+            .join(with_extension(file, ".wfg"));
+        return Ok(flat_path);
     }
 
     let flat_path = project_dir

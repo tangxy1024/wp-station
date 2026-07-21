@@ -135,11 +135,59 @@ fn init_default_configs_with_mappings(
     let project_dir = resolve_project_root(project_root);
     fs::create_dir_all(&project_dir).map_err(AppError::internal)?;
 
+    // 仓库已有实际内容时，不再补齐默认样例，避免导入覆盖后又把旧样例补回。
+    if has_existing_managed_files(&project_dir, mappings)? {
+        info!(
+            "项目目录已存在实际配置文件，跳过默认配置补齐: scope={}, project_dir={}",
+            scope,
+            project_dir.display()
+        );
+        return Ok(());
+    }
+
     if let Some(runtime_default_dir) = runtime_default_configs_dir() {
         return init_from_runtime_defaults(&project_dir, &runtime_default_dir, scope, mappings);
     }
 
     init_from_embedded_defaults(&project_dir, scope, mappings)
+}
+
+fn has_existing_managed_files(
+    project_dir: &Path,
+    mappings: &[DefaultCopyMapping],
+) -> Result<bool, AppError> {
+    for mapping in mappings {
+        if dir_contains_visible_files(&project_dir.join(mapping.target_prefix))? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn dir_contains_visible_files(dir: &Path) -> Result<bool, AppError> {
+    if !dir.is_dir() {
+        return Ok(false);
+    }
+
+    for entry in fs::read_dir(dir).map_err(AppError::internal)? {
+        let entry = entry.map_err(AppError::internal)?;
+        let path = entry.path();
+        let Some(name) = entry.file_name().to_str().map(|value| value.to_string()) else {
+            continue;
+        };
+        if name.starts_with('.') {
+            continue;
+        }
+
+        if path.is_file() {
+            return Ok(true);
+        }
+        if path.is_dir() && dir_contains_visible_files(&path)? {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 /// 返回运行时默认配置目录。

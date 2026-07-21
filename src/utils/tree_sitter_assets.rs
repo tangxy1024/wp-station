@@ -266,8 +266,7 @@ pub fn sync_tree_sitter_assets_for_dev_start() -> Result<(), String> {
         let local_root = resolve_local_override_root(source);
         let package_root = get_package_root(packages, source.package_name);
 
-        let Some((crate_root, manifest)) =
-            select_asset_root(source, local_root, package_root)
+        let Some((crate_root, manifest)) = select_asset_root(source, local_root, package_root)
         else {
             tracing::warn!(
                 "未找到可用的 tree-sitter 资产目录，跳过导出: package={}",

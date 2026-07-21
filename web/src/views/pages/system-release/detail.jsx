@@ -1,7 +1,8 @@
-import React, { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { UpOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Modal } from 'antd';
+import { FloatButton, Modal } from 'antd';
 import { useSystem } from '@/contexts/SystemContext';
 import { fetchReleaseDetail, fetchReleaseDiff, rollbackRelease } from '@/services/release';
 import DiffViewer from '@/components/diff/DiffViewer';
@@ -115,6 +116,7 @@ function ReleaseDetailPage() {
   });
   const loadMoreSentinelRef = useRef(null);
   const diffRequestPendingRef = useRef(false);
+  const appendScrollRestoreRef = useRef(null);
   const deferredDiffFiles = useDeferredValue(diffState.files);
 
   const loadDetail = async () => {
@@ -135,6 +137,13 @@ function ReleaseDetailPage() {
   const loadDiffPage = async ({ append, offset }) => {
     if (diffRequestPendingRef.current) {
       return;
+    }
+
+    if (append && typeof window !== 'undefined') {
+      appendScrollRestoreRef.current = {
+        left: window.scrollX,
+        top: window.scrollY,
+      };
     }
 
     diffRequestPendingRef.current = true;
@@ -183,6 +192,23 @@ function ReleaseDetailPage() {
       diffRequestPendingRef.current = false;
     }
   };
+
+  useLayoutEffect(() => {
+    if (diffState.loadingMore || !appendScrollRestoreRef.current || typeof window === 'undefined') {
+      return;
+    }
+
+    const { left, top } = appendScrollRestoreRef.current;
+    appendScrollRestoreRef.current = null;
+
+    const restoreScroll = () => {
+      window.scrollTo(left, top);
+    };
+
+    restoreScroll();
+    const frameId = window.requestAnimationFrame(restoreScroll);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [diffState.files.length, diffState.loadingMore]);
 
   const handleDeviceRollback = async (deviceId, targetId) => {
     if (!window.confirm(t('systemRelease.rollbackConfirmMessage'))) {
@@ -659,6 +685,11 @@ function ReleaseDetailPage() {
           </div>
         </div>
       </div>
+      <FloatButton.BackTop
+        visibilityHeight={320}
+        icon={<UpOutlined />}
+        style={{ right: 24, bottom: 24 }}
+      />
     </div>
   );
 }

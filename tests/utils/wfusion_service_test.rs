@@ -163,9 +163,7 @@ async fn test_wfusion_publish_supports_immediate_apply_response() {
     assert_eq!(result.request_id.as_deref(), Some("req-1"));
     assert_eq!(
         result.message.as_deref(),
-        Some(
-            "result=applied, update=true, current_version=1.2.3, resolved_tag=v1.2.3"
-        )
+        Some("result=applied, update=true, current_version=1.2.3, resolved_tag=v1.2.3")
     );
 }
 

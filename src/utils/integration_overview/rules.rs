@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use regex::Regex;
 
@@ -294,7 +294,7 @@ fn visit_named_rule_files(
     Ok(())
 }
 
-fn format_named_rule_name(relative: &PathBuf, extension: &str) -> String {
+fn format_named_rule_name(relative: &Path, extension: &str) -> String {
     let normalized = relative.to_string_lossy().replace('\\', "/");
     let trimmed = normalized
         .strip_suffix(extension)

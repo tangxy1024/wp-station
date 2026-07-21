@@ -10,6 +10,7 @@ mod archive;
 mod io;
 mod summary;
 
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -30,12 +31,13 @@ use self::io::{
     validate_legacy_project_dir,
 };
 use self::summary::{
-    build_import_response_from_repo_layout, detect_import_scope,
+    build_import_response_from_source_dir, detect_import_scope,
     validate_import_scope_with_repo_layout, validate_project_import_preview,
 };
 use crate::constants::project::{
     DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_TOPOLOGY, IMPORTABLE_ROOT_DIRS,
 };
+use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::sync::{sync_shared_connectors_to_infra_gitea, sync_to_gitea};
 use crate::server::{
@@ -44,10 +46,7 @@ use crate::server::{
 };
 use crate::utils::knowledge::reload_knowledge;
 use crate::utils::project_check::{ProjectCheckTarget, validate_project_in_dir};
-use crate::utils::{
-    ProjectSnapshot, SystemKind, layout_for_system, load_project_snapshot_from_repo_layout,
-    wfusion_not_implemented,
-};
+use crate::utils::{ProjectSnapshot, SystemKind, layout_for_system};
 
 /// 归档或目录导入时解析得到的覆盖范围。
 #[derive(Debug, Clone)]
@@ -130,10 +129,11 @@ pub struct ProjectImportSummary {
 }
 
 /// 各规则类型的导入数量统计。
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct ProjectImportBreakdown {
     pub rule_type: String,
     pub count: usize,
+    pub files: Vec<String>,
 }
 
 /// 项目导入校验结果。
@@ -165,16 +165,42 @@ pub struct ProjectArchiveExport {
     pub bytes: Vec<u8>,
 }
 
+pub(super) fn build_rule_breakdown_from_snapshot(
+    snapshot: &ProjectSnapshot,
+) -> Vec<ProjectImportBreakdown> {
+    let mut files_by_type: HashMap<RuleType, Vec<String>> = HashMap::new();
+    for rule in &snapshot.rules {
+        files_by_type
+            .entry(rule.rule_type)
+            .or_default()
+            .push(rule.file_name.clone());
+    }
+
+    let mut breakdown: Vec<ProjectImportBreakdown> = snapshot
+        .rule_breakdown()
+        .into_iter()
+        .map(|(rule_type, count)| {
+            let mut files = files_by_type.remove(&rule_type).unwrap_or_default();
+            files.sort();
+            files.dedup();
+            ProjectImportBreakdown {
+                rule_type: rule_type.as_ref().to_string(),
+                count,
+                files,
+            }
+        })
+        .collect();
+    breakdown.sort_by(|a, b| a.rule_type.cmp(&b.rule_type));
+    breakdown
+}
+
 /// 按目录导入项目。
 ///
-/// 当前仍主要服务 `wparse`，会先把旧目录结构拆分到固定的 models / infra 仓库。
+/// 旧目录结构会按当前系统拆分到固定的 models / infra 仓库。
 pub async fn import_project_from_files_logic(
     operator: Option<String>,
     req: ProjectImportRequest,
 ) -> Result<ProjectImportResponse, AppError> {
-    if matches!(req.system, SystemKind::Wfusion) {
-        return Err(wfusion_not_implemented("项目目录导入"));
-    }
     let operator_for_log = operator.clone();
     let layout = layout_for_system(req.system).as_repo_layout();
     let source_dir = normalize_source_dir(&req.source_dir)?;
@@ -218,9 +244,6 @@ pub async fn preview_project_archive_logic(
     bytes: Vec<u8>,
 ) -> Result<ProjectArchivePreviewResponse, AppError> {
     // 归档导入先预检，不直接覆盖真实目录，避免错误归档污染仓库。
-    if matches!(system, SystemKind::Wfusion) {
-        return Err(wfusion_not_implemented("项目归档预检"));
-    }
     let _ = operator;
     let import_id = new_archive_import_id();
     let staging_root = archive_import_staging_root();
@@ -234,7 +257,7 @@ pub async fn preview_project_archive_logic(
     fs::create_dir_all(&extract_dir).map_err(AppError::internal)?;
     extract_archive(file_name, &archive_path, &extract_dir)?;
 
-    let project_dir = find_import_project_root(&extract_dir)?;
+    let project_dir = find_import_project_root(&extract_dir, system)?;
     let summary = validate_project_import_preview(system, &project_dir)?;
 
     Ok(ProjectArchivePreviewResponse {
@@ -255,9 +278,6 @@ pub async fn confirm_project_archive_import_logic(
     import_id: &str,
 ) -> Result<ProjectImportResponse, AppError> {
     // 二次确认阶段只消费预检产物，不重复读取原始上传流。
-    if matches!(system, SystemKind::Wfusion) {
-        return Err(wfusion_not_implemented("项目归档导入"));
-    }
     let import_dir = archive_import_dir(import_id)?;
     let project_dir_file = import_dir.join("project_dir.txt");
     let project_dir = fs::read_to_string(&project_dir_file)
@@ -327,9 +347,6 @@ pub async fn confirm_project_archive_import_logic(
 pub async fn export_project_archive_logic(
     system: SystemKind,
 ) -> Result<ProjectArchiveExport, AppError> {
-    if matches!(system, SystemKind::Wfusion) {
-        return Err(wfusion_not_implemented("项目导出"));
-    }
     let layout = layout_for_system(system).as_repo_layout();
     let temp = tempdir().map_err(AppError::internal)?;
     let export_root = temp.path().join("wp-station-project");
@@ -372,64 +389,18 @@ async fn import_project_dir(
 ) -> Result<ProjectImportResponse, AppError> {
     validate_legacy_project_dir(source_dir)?;
     validate_project_in_dir(system, source_dir, ProjectCheckTarget::WholeProject)?;
+    let scope = detect_import_scope(source_dir)?;
+    let source_label = source_dir.to_string_lossy().to_string();
     overwrite_repo_layout_from_legacy_dir(source_dir, layout)?;
 
-    let snapshot = load_project_snapshot_from_repo_layout(layout)?;
-    if snapshot.rules.is_empty() && snapshot.knowledge.is_empty() {
-        return Err(AppError::validation(
-            "导入后的项目目录中未找到可导入的规则或知识库".to_string(),
-        ));
-    }
-
-    let ProjectSnapshot {
-        rules,
-        knowledge,
-        rule_stats,
-        warnings,
-        failed_files,
-    } = snapshot;
-
-    let total_rules = rules.len();
-    let total_knowledge = knowledge.len();
-
     finalize_import_side_effects(system, layout).await?;
-
-    let mut breakdown: Vec<ProjectImportBreakdown> = rule_stats
-        .into_iter()
-        .map(|(rule_type, count)| ProjectImportBreakdown {
-            rule_type: rule_type.as_ref().to_string(),
-            count,
-        })
-        .collect();
-    breakdown.sort_by(|a, b| a.rule_type.cmp(&b.rule_type));
-
-    let summary = ProjectImportSummary {
-        rules_deleted: 0,
-        rules_imported: total_rules,
-        knowledge_deleted: 0,
-        knowledge_imported: total_knowledge,
-        imported_dirs: IMPORTABLE_ROOT_DIRS
-            .iter()
-            .map(|name| (*name).to_string())
-            .collect(),
-        retained_dirs: Vec::new(),
-        rule_breakdown: breakdown,
-        warnings,
-        failed_files,
-        source_dir: source_dir.to_string_lossy().to_string(),
-        models_root: layout.models_root.to_string_lossy().to_string(),
-        infra_root: layout.infra_root.to_string_lossy().to_string(),
-    };
-
-    let validation = ProjectImportValidation {
-        passed: true,
-        message: validation_message.to_string(),
-    };
-
-    Ok(ProjectImportResponse {
-        summary,
-        validation,
-    })
+    build_import_response_from_source_dir(
+        source_dir,
+        layout,
+        validation_message,
+        &source_label,
+        &scope,
+    )
 }
 
 /// 执行归档目录导入。
@@ -453,7 +424,13 @@ async fn import_project_archive_dir(
     }
 
     finalize_import_side_effects(system, layout).await?;
-    build_import_response_from_repo_layout(layout, validation_message, &source_label, &scope)
+    build_import_response_from_source_dir(
+        source_dir,
+        layout,
+        validation_message,
+        &source_label,
+        &scope,
+    )
 }
 
 /// 导入成功后的公共副作用。

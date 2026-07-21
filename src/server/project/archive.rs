@@ -16,9 +16,10 @@ use zip::ZipArchive;
 
 use crate::constants::project::{
     ARCHIVE_IMPORT_STAGING_DIR, DIR_CONF, DIR_CONNECTORS, DIR_MODELS, DIR_TOPOLOGY,
-    IMPORTABLE_ROOT_DIRS, REPO_SHARED_CONNECTORS, REPO_WPARSE_INFRA, REPO_WPARSE_MODELS,
+    IMPORTABLE_ROOT_DIRS, REPO_SHARED_CONNECTORS,
 };
 use crate::error::AppError;
+use crate::utils::{ProjectArea, SystemKind, repo_name};
 
 /// 返回归档导入暂存根目录。
 pub(super) fn archive_import_staging_root() -> PathBuf {
@@ -163,9 +164,12 @@ fn safe_join(root: &Path, relative: &Path) -> Result<PathBuf, AppError> {
 }
 
 /// 在解压目录中定位真正的项目根目录。
-pub(super) fn find_import_project_root(extract_dir: &Path) -> Result<PathBuf, AppError> {
-    if has_supported_import_layout(extract_dir) {
-        let normalized = normalize_import_root(extract_dir)?;
+pub(super) fn find_import_project_root(
+    extract_dir: &Path,
+    system: SystemKind,
+) -> Result<PathBuf, AppError> {
+    if has_supported_import_layout(extract_dir, system) {
+        let normalized = normalize_import_root(extract_dir, system)?;
         persist_preview_project_dir(extract_dir, &normalized)?;
         return Ok(normalized);
     }
@@ -178,8 +182,8 @@ pub(super) fn find_import_project_root(extract_dir: &Path) -> Result<PathBuf, Ap
         }
     }
 
-    if dirs.len() == 1 && has_supported_import_layout(&dirs[0]) {
-        let normalized = normalize_import_root(&dirs[0])?;
+    if dirs.len() == 1 && has_supported_import_layout(&dirs[0], system) {
+        let normalized = normalize_import_root(&dirs[0], system)?;
         persist_preview_project_dir(extract_dir, &normalized)?;
         Ok(normalized)
     } else {
@@ -203,8 +207,8 @@ fn persist_preview_project_dir(extract_dir: &Path, project_dir: &Path) -> Result
 }
 
 /// 判断目录是否具有可识别的导入结构。
-fn has_supported_import_layout(dir: &Path) -> bool {
-    has_flat_import_dirs(dir) || has_split_import_dirs(dir)
+fn has_supported_import_layout(dir: &Path, system: SystemKind) -> bool {
+    has_flat_import_dirs(dir) || has_split_import_dirs(dir, system)
 }
 
 /// 判断目录是否采用扁平导入结构。
@@ -215,27 +219,32 @@ fn has_flat_import_dirs(dir: &Path) -> bool {
 }
 
 /// 判断目录是否采用分仓导入结构。
-fn has_split_import_dirs(dir: &Path) -> bool {
-    dir.join(REPO_WPARSE_MODELS).join(DIR_MODELS).is_dir()
-        || dir.join(REPO_WPARSE_INFRA).join(DIR_CONF).is_dir()
+fn has_split_import_dirs(dir: &Path, system: SystemKind) -> bool {
+    let models_repo = repo_name(system, ProjectArea::Models);
+    let infra_repo = repo_name(system, ProjectArea::Infra);
+
+    dir.join(models_repo).join(DIR_MODELS).is_dir()
+        || dir.join(infra_repo).join(DIR_CONF).is_dir()
         || dir
             .join(REPO_SHARED_CONNECTORS)
             .join(DIR_CONNECTORS)
             .is_dir()
-        || dir.join(REPO_WPARSE_INFRA).join(DIR_CONNECTORS).is_dir()
-        || dir.join(REPO_WPARSE_INFRA).join(DIR_TOPOLOGY).is_dir()
+        || dir.join(infra_repo).join(DIR_CONNECTORS).is_dir()
+        || dir.join(infra_repo).join(DIR_TOPOLOGY).is_dir()
 }
 
 /// 将分仓导入结构规范化为扁平目录，供后续复用同一套导入逻辑。
-fn normalize_import_root(dir: &Path) -> Result<PathBuf, AppError> {
+fn normalize_import_root(dir: &Path, system: SystemKind) -> Result<PathBuf, AppError> {
     if has_flat_import_dirs(dir) {
         return Ok(dir.to_path_buf());
     }
 
+    let models_repo = repo_name(system, ProjectArea::Models);
+    let infra_repo = repo_name(system, ProjectArea::Infra);
     let normalized = dir.join("__normalized_default_configs");
     fs::create_dir_all(&normalized).map_err(AppError::internal)?;
-    if dir.join(REPO_WPARSE_MODELS).join(DIR_MODELS).is_dir() {
-        super::copy_named_entry(&dir.join(REPO_WPARSE_MODELS), &normalized, DIR_MODELS)?;
+    if dir.join(models_repo).join(DIR_MODELS).is_dir() {
+        super::copy_named_entry(&dir.join(models_repo), &normalized, DIR_MODELS)?;
     }
     if dir
         .join(REPO_SHARED_CONNECTORS)
@@ -249,17 +258,17 @@ fn normalize_import_root(dir: &Path) -> Result<PathBuf, AppError> {
         )?;
     }
     for name in [DIR_CONF, DIR_TOPOLOGY] {
-        if dir.join(REPO_WPARSE_INFRA).join(name).is_dir() {
-            super::copy_named_entry(&dir.join(REPO_WPARSE_INFRA), &normalized, name)?;
+        if dir.join(infra_repo).join(name).is_dir() {
+            super::copy_named_entry(&dir.join(infra_repo), &normalized, name)?;
         }
     }
     if !dir
         .join(REPO_SHARED_CONNECTORS)
         .join(DIR_CONNECTORS)
         .is_dir()
-        && dir.join(REPO_WPARSE_INFRA).join(DIR_CONNECTORS).is_dir()
+        && dir.join(infra_repo).join(DIR_CONNECTORS).is_dir()
     {
-        super::copy_named_entry(&dir.join(REPO_WPARSE_INFRA), &normalized, DIR_CONNECTORS)?;
+        super::copy_named_entry(&dir.join(infra_repo), &normalized, DIR_CONNECTORS)?;
     }
     Ok(normalized)
 }

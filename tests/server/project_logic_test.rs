@@ -75,6 +75,47 @@ fn archive_entry_names(bytes: &[u8]) -> Vec<String> {
     entries
 }
 
+fn assert_archive_has_flat_root_dirs(entries: &[String]) {
+    assert!(
+        entries.iter().any(|item| item == "wp-station-project/conf"
+            || item.starts_with("wp-station-project/conf/")),
+        "archive should contain conf root: {entries:?}"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|item| item == "wp-station-project/connectors"
+                || item.starts_with("wp-station-project/connectors/")),
+        "archive should contain connectors root: {entries:?}"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|item| item == "wp-station-project/topology"
+                || item.starts_with("wp-station-project/topology/")),
+        "archive should contain topology root: {entries:?}"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|item| item == "wp-station-project/models"
+                || item.starts_with("wp-station-project/models/")),
+        "archive should contain models root: {entries:?}"
+    );
+    assert!(
+        !entries
+            .iter()
+            .any(|item| item.starts_with("wp-station-project/project_models")),
+        "archive should not contain project_models wrapper: {entries:?}"
+    );
+    assert!(
+        !entries
+            .iter()
+            .any(|item| item.starts_with("wp-station-project/project_infra")),
+        "archive should not contain project_infra wrapper: {entries:?}"
+    );
+}
+
 #[tokio::test]
 async fn test_import_project_requires_legacy_directories() {
     setup_db().await;
@@ -172,15 +213,18 @@ async fn test_import_project_splits_legacy_directory_into_dual_repos() {
         source_dir.to_string_lossy().to_string()
     );
     assert_eq!(
-        response.summary.project_models,
+        response.summary.models_root,
         test_models_root().to_string_lossy().to_string()
     );
     assert_eq!(
-        response.summary.project_infra,
+        response.summary.infra_root,
         test_infra_root().to_string_lossy().to_string()
     );
     assert!(response.summary.rules_imported > 0);
     assert!(response.validation.passed);
+    assert!(response.summary.rule_breakdown.iter().any(
+        |item| item.rule_type == "parse" && item.files.iter().any(|file| file == "wparse.toml")
+    ));
 
     assert!(test_infra_root().join("conf/wparse.toml").exists());
     assert!(
@@ -233,6 +277,14 @@ async fn test_import_project_archive_supports_models_only_directory() {
             "topology".to_string()
         ]
     );
+    assert!(
+        preview.summary.rule_breakdown.iter().all(|item| !matches!(
+            item.rule_type.as_str(),
+            "parse" | "source" | "sink" | "source_connect" | "sink_connect"
+        )),
+        "models-only preview should not include retained infra items: {:?}",
+        preview.summary.rule_breakdown
+    );
 
     let response = confirm_project_archive_import_logic(
         Some("tester".to_string()),
@@ -243,6 +295,14 @@ async fn test_import_project_archive_supports_models_only_directory() {
     .expect("confirm models-only archive");
 
     assert_eq!(response.summary.imported_dirs, vec!["models".to_string()]);
+    assert!(
+        response.summary.rule_breakdown.iter().all(|item| !matches!(
+            item.rule_type.as_str(),
+            "parse" | "source" | "sink" | "source_connect" | "sink_connect"
+        )),
+        "models-only response should not include retained infra items: {:?}",
+        response.summary.rule_breakdown
+    );
     assert_eq!(
         fs::read_to_string(test_infra_root().join("sentinel.txt")).expect("read infra sentinel"),
         "keep infra"
@@ -301,6 +361,13 @@ async fn test_import_project_archive_supports_conf_only_directory() {
             "models".to_string()
         ]
     );
+    assert_eq!(preview.summary.rules_imported, 1);
+    assert_eq!(preview.summary.rule_breakdown.len(), 1);
+    assert_eq!(preview.summary.rule_breakdown[0].rule_type, "parse");
+    assert_eq!(
+        preview.summary.rule_breakdown[0].files,
+        vec!["wparse.toml".to_string()]
+    );
 
     let response = confirm_project_archive_import_logic(
         Some("tester".to_string()),
@@ -311,6 +378,13 @@ async fn test_import_project_archive_supports_conf_only_directory() {
     .expect("confirm conf-only archive");
 
     assert_eq!(response.summary.imported_dirs, vec!["conf".to_string()]);
+    assert_eq!(response.summary.rules_imported, 1);
+    assert_eq!(response.summary.rule_breakdown.len(), 1);
+    assert_eq!(response.summary.rule_breakdown[0].rule_type, "parse");
+    assert_eq!(
+        response.summary.rule_breakdown[0].files,
+        vec!["wparse.toml".to_string()]
+    );
     assert_eq!(
         fs::read_to_string(test_models_root().join("sentinel-models.txt"))
             .expect("read models sentinel"),
@@ -329,42 +403,103 @@ async fn test_export_project_archive_uses_flat_root_directories() {
         .expect("export project archive");
     let entries = archive_entry_names(&archive.bytes);
 
+    assert_archive_has_flat_root_dirs(&entries);
+}
+
+#[tokio::test]
+async fn test_export_wfusion_project_archive_uses_flat_root_directories() {
+    setup_db().await;
+
+    let archive = export_project_archive_logic(SystemKind::Wfusion)
+        .await
+        .expect("export wfusion project archive");
+    let entries = archive_entry_names(&archive.bytes);
+
+    assert_archive_has_flat_root_dirs(&entries);
     assert!(
-        entries.iter().any(|item| item == "wp-station-project/conf"
-            || item.starts_with("wp-station-project/conf/")),
-        "archive should contain conf root: {entries:?}"
+        entries
+            .iter()
+            .any(|item| item == "wp-station-project/conf/wfusion.toml"),
+        "archive should contain wfusion config file: {entries:?}"
     );
     assert!(
         entries
             .iter()
-            .any(|item| item == "wp-station-project/connectors"
-                || item.starts_with("wp-station-project/connectors/")),
-        "archive should contain connectors root: {entries:?}"
+            .any(|item| item == "wp-station-project/models/windows.toml"),
+        "archive should contain wfusion windows config: {entries:?}"
     );
-    assert!(
-        entries
-            .iter()
-            .any(|item| item == "wp-station-project/topology"
-                || item.starts_with("wp-station-project/topology/")),
-        "archive should contain topology root: {entries:?}"
+}
+
+#[tokio::test]
+async fn test_import_project_archive_wfusion_breakdown_keeps_virtual_named_rule_display() {
+    setup_db().await;
+    let source_dir = legacy_import_dir("archive-wfusion-models");
+    fs::create_dir_all(source_dir.join("models/schemas")).expect("create schemas dir");
+    fs::create_dir_all(source_dir.join("models/rules")).expect("create rules dir");
+    fs::create_dir_all(source_dir.join("models/scenarios")).expect("create scenarios dir");
+    write_file(
+        source_dir.join("models/windows.toml"),
+        "title = \"wfusion\"\n",
     );
-    assert!(
-        entries
-            .iter()
-            .any(|item| item == "wp-station-project/models"
-                || item.starts_with("wp-station-project/models/")),
-        "archive should contain models root: {entries:?}"
+    write_file(
+        source_dir.join("models/schemas/kunai.wfs"),
+        "schema kunai {}\n",
     );
-    assert!(
-        !entries
-            .iter()
-            .any(|item| item.starts_with("wp-station-project/project_models")),
-        "archive should not contain project_models wrapper: {entries:?}"
+    write_file(
+        source_dir.join("models/rules/sql_injection_source_alert.wfl"),
+        "rule sql {}\n",
     );
-    assert!(
-        !entries
-            .iter()
-            .any(|item| item.starts_with("wp-station-project/project_infra")),
-        "archive should not contain project_infra wrapper: {entries:?}"
+    write_file(
+        source_dir.join("models/scenarios/ssh_brute_force_attempt.wfg"),
+        "scenario ssh {}\n",
     );
+
+    let preview = preview_project_archive_logic(
+        SystemKind::Wfusion,
+        Some("tester".to_string()),
+        "wfusion-models.zip",
+        build_archive_with_dirs(&source_dir, &["models"]),
+    )
+    .await
+    .expect("preview wfusion models archive");
+
+    let schema_item = preview
+        .summary
+        .rule_breakdown
+        .iter()
+        .find(|item| item.rule_type == "schema")
+        .expect("schema breakdown");
+    assert_eq!(schema_item.files, vec!["kunai.wfs".to_string()]);
+
+    let rule_item = preview
+        .summary
+        .rule_breakdown
+        .iter()
+        .find(|item| item.rule_type == "rule")
+        .expect("rule breakdown");
+    assert_eq!(
+        rule_item.files,
+        vec!["sql_injection_source_alert.wfl".to_string()]
+    );
+
+    let scenario_item = preview
+        .summary
+        .rule_breakdown
+        .iter()
+        .find(|item| item.rule_type == "scenarios")
+        .expect("scenario breakdown");
+    assert_eq!(
+        scenario_item.files,
+        vec!["ssh_brute_force_attempt.wfg".to_string()]
+    );
+
+    let windows_item = preview
+        .summary
+        .rule_breakdown
+        .iter()
+        .find(|item| item.rule_type == "windows")
+        .expect("windows breakdown");
+    assert_eq!(windows_item.files, vec!["windows.toml".to_string()]);
+
+    let _ = fs::remove_dir_all(source_dir);
 }

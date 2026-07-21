@@ -10,7 +10,10 @@ use crate::constants::project::{DIR_BUSINESS_D, DIR_SINKS, DIR_SOURCES, DIR_TOPO
 use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::RepoLayout;
-use crate::utils::config_templates::{display_name_from_file, list_config_templates_from_layout};
+use crate::utils::{
+    SystemKind,
+    config_templates::{display_name_from_file, list_config_templates_from_layout},
+};
 
 use super::detail::{
     ConnectorMeta, build_connector_detail, build_effective_params, infer_connector_type,
@@ -70,19 +73,17 @@ pub fn load_integration_runtime_overview_from_layout(
     let source_meta_map = build_connector_meta_map(layout, RuleType::Source)?;
     let sink_meta_map = build_connector_meta_map(layout, RuleType::Sink)?;
 
-    let source_file = layout
-        .infra_root
-        .join(DIR_TOPOLOGY)
-        .join(DIR_SOURCES)
-        .join(FILE_WPSRC);
+    let source_dir = layout.infra_root.join(DIR_TOPOLOGY).join(DIR_SOURCES);
     let sink_dir = layout
         .infra_root
         .join(DIR_TOPOLOGY)
         .join(DIR_SINKS)
         .join(DIR_BUSINESS_D);
 
+    let system = infer_system_from_layout(layout);
+
     Ok(IntegrationRuntimeOverview {
-        sources: summarize_sources(&source_file, &source_meta_map)?,
+        sources: summarize_sources(&source_dir, system, &source_meta_map)?,
         sinks: summarize_business_sinks(&sink_dir, &sink_meta_map)?,
         supported_source_type_count: source_meta_map.len(),
         supported_sink_type_count: sink_meta_map.len(),
@@ -128,42 +129,107 @@ fn build_connector_meta_map(
     Ok(meta_map)
 }
 
-/// 汇总 `wpsrc.toml` 中启用的输入源摘要。
+/// 汇总启用的输入源摘要。
 fn summarize_sources(
-    path: &Path,
+    source_dir: &Path,
+    system: SystemKind,
     meta_map: &HashMap<String, ConnectorMeta>,
 ) -> Result<Vec<IntegrationRuntimeItem>, AppError> {
-    let parsed = parse_toml_file::<SourceTopologyFile>(path)?;
-    let mut items = parsed
-        .sources
-        .into_iter()
-        .filter(|item| item.enable && !item.connect.trim().is_empty())
-        .map(|item| {
-            let title = preferred_non_empty(&[&item.key, &item.connect]).to_string();
-            let effective_params = build_effective_params(meta_map, &item.connect, &item.params);
-            let (type_key, type_label) = infer_connector_type(
-                meta_map.get(item.connect.as_str()),
-                &item.connect,
-                &effective_params,
-            );
-
-            IntegrationRuntimeItem {
-                key: title.clone(),
-                title,
-                connect: item.connect.clone(),
-                type_key: type_key.clone(),
-                type_label,
-                detail: build_connector_detail(&type_key, &effective_params),
-            }
-        })
-        .collect::<Vec<_>>();
+    let mut items = match system {
+        SystemKind::Wparse => summarize_wparse_sources(source_dir, meta_map)?,
+        SystemKind::Wfusion => summarize_wfusion_sources(source_dir, meta_map)?,
+    };
 
     items.sort_by(|left, right| {
         left.title
             .cmp(&right.title)
             .then_with(|| left.connect.cmp(&right.connect))
+            .then_with(|| left.key.cmp(&right.key))
     });
     Ok(items)
+}
+
+fn summarize_wparse_sources(
+    source_dir: &Path,
+    meta_map: &HashMap<String, ConnectorMeta>,
+) -> Result<Vec<IntegrationRuntimeItem>, AppError> {
+    let source_file = source_dir.join(FILE_WPSRC);
+    let parsed = parse_toml_file::<SourceTopologyFile>(&source_file)?;
+
+    Ok(parsed
+        .sources
+        .into_iter()
+        .filter(|item| item.enable && !item.connect.trim().is_empty())
+        .map(|item| build_source_runtime_item(item, meta_map, None))
+        .collect())
+}
+
+fn summarize_wfusion_sources(
+    source_dir: &Path,
+    meta_map: &HashMap<String, ConnectorMeta>,
+) -> Result<Vec<IntegrationRuntimeItem>, AppError> {
+    if !source_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut files = fs::read_dir(source_dir)
+        .map_err(AppError::internal)?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("toml"))
+        .collect::<Vec<_>>();
+    files.sort();
+
+    let mut items = Vec::new();
+    for path in files {
+        let parsed = parse_toml_file::<SourceTopologyItem>(&path)?;
+        if !parsed.enable || parsed.connect.trim().is_empty() {
+            continue;
+        }
+
+        let file_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .to_string();
+        items.push(build_source_runtime_item(
+            parsed,
+            meta_map,
+            Some(&file_name),
+        ));
+    }
+
+    Ok(items)
+}
+
+fn build_source_runtime_item(
+    item: SourceTopologyItem,
+    meta_map: &HashMap<String, ConnectorMeta>,
+    file_name: Option<&str>,
+) -> IntegrationRuntimeItem {
+    let title = file_name
+        .map(display_name_from_file)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| preferred_non_empty(&[&item.key, &item.connect]).to_string());
+    let effective_params = build_effective_params(meta_map, &item.connect, &item.params);
+    let (type_key, type_label) = infer_connector_type(
+        meta_map.get(item.connect.as_str()),
+        &item.connect,
+        &effective_params,
+    );
+
+    let identity = preferred_non_empty(&[&item.key, &item.connect]);
+    IntegrationRuntimeItem {
+        key: file_name
+            .map(|name| format!("{name}:{identity}"))
+            .unwrap_or_else(|| title.clone()),
+        title,
+        connect: item.connect.clone(),
+        type_key: type_key.clone(),
+        type_label,
+        detail: build_connector_detail(&type_key, &effective_params),
+    }
 }
 
 /// 汇总 `topology/sinks/business.d/*.toml` 中的业务输出摘要。
@@ -254,4 +320,13 @@ fn preferred_non_empty<'a>(values: &[&'a str]) -> &'a str {
         .map(|value| value.trim())
         .find(|value| !value.is_empty())
         .unwrap_or("")
+}
+
+fn infer_system_from_layout(layout: &RepoLayout) -> SystemKind {
+    let models_root = layout.models_root.to_string_lossy();
+    if models_root.contains("wfusion__models") {
+        SystemKind::Wfusion
+    } else {
+        SystemKind::Wparse
+    }
 }

@@ -106,8 +106,16 @@ pub(super) fn overwrite_repo_layout_from_partial_dir(
 
     for name in &scope.imported_dirs {
         match *name {
-            DIR_MODELS => copy_named_entry(source_dir, &layout.models_root, name)?,
-            DIR_CONNECTORS => copy_named_entry(source_dir, &layout.connectors_root, name)?,
+            DIR_MODELS => {
+                // models 仓库只承载 models 目录，导入时应整体覆盖，避免旧规则残留。
+                recreate_dir_preserving_git(&layout.models_root)?;
+                copy_named_entry(source_dir, &layout.models_root, name)?;
+            }
+            DIR_CONNECTORS => {
+                // 共享 connectors 仓库同样要求按导入内容整体覆盖。
+                recreate_dir_preserving_git(&layout.connectors_root)?;
+                copy_named_entry(source_dir, &layout.connectors_root, name)?;
+            }
             DIR_CONF | DIR_TOPOLOGY => copy_named_entry(source_dir, &layout.infra_root, name)?,
             _ => {}
         }
