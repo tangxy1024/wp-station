@@ -46,7 +46,9 @@ use crate::server::{
 };
 use crate::utils::knowledge::reload_knowledge;
 use crate::utils::project_check::{ProjectCheckTarget, validate_project_in_dir};
-use crate::utils::{ProjectSnapshot, SystemKind, layout_for_system};
+use crate::utils::{
+    ProjectSnapshot, SystemKind, layout_for_system, load_project_snapshot_from_repo_layout,
+};
 
 /// 归档或目录导入时解析得到的覆盖范围。
 #[derive(Debug, Clone)]
@@ -391,6 +393,7 @@ async fn import_project_dir(
     validate_project_in_dir(system, source_dir, ProjectCheckTarget::WholeProject)?;
     let scope = detect_import_scope(source_dir)?;
     let source_label = source_dir.to_string_lossy().to_string();
+    let previous_snapshot = load_project_snapshot_from_repo_layout(layout).ok();
     overwrite_repo_layout_from_legacy_dir(source_dir, layout)?;
 
     finalize_import_side_effects(system, layout).await?;
@@ -400,6 +403,7 @@ async fn import_project_dir(
         validation_message,
         &source_label,
         &scope,
+        previous_snapshot.as_ref(),
     )
 }
 
@@ -416,6 +420,7 @@ async fn import_project_archive_dir(
     let source_label = source_label
         .map(|value| value.to_string())
         .unwrap_or_else(|| source_dir.to_string_lossy().to_string());
+    let previous_snapshot = load_project_snapshot_from_repo_layout(layout).ok();
 
     if scope.is_full_import() {
         overwrite_repo_layout_from_legacy_dir(source_dir, layout)?;
@@ -430,6 +435,7 @@ async fn import_project_archive_dir(
         validation_message,
         &source_label,
         &scope,
+        previous_snapshot.as_ref(),
     )
 }
 

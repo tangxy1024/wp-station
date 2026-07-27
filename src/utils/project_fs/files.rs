@@ -146,23 +146,33 @@ pub fn delete_rule_from_project(
         return Ok(dir.to_string_lossy().to_string());
     }
 
-    let path = super::rule_target_path(&project_dir, rule_type, file_name)?;
-    if path.exists() {
-        if path.is_file() {
-            fs::remove_file(&path).map_err(AppError::internal)?;
-        } else if path.is_dir() {
-            fs::remove_dir_all(&path).map_err(AppError::internal)?;
-        }
-    }
+    let path = super::validation_target_path(&project_dir, rule_type, file_name)?;
+    remove_path_if_exists(&path)?;
 
     if matches!(
         rule_type,
         RuleType::Schema | RuleType::Rule | RuleType::Scenarios
-    ) {
-        cleanup_empty_parent_dirs(&project_dir, &path)?;
+    ) && let Some(legacy_path) =
+        super::legacy_wfusion_rule_delete_path(&project_dir, rule_type, file_name)?
+        && legacy_path != path
+    {
+        remove_path_if_exists(&legacy_path)?;
     }
 
+    cleanup_empty_parent_dirs(&project_dir, &path)?;
+
     Ok(path.to_string_lossy().to_string())
+}
+
+fn remove_path_if_exists(path: &Path) -> Result<(), AppError> {
+    if path.exists() {
+        if path.is_file() {
+            fs::remove_file(path).map_err(AppError::internal)?;
+        } else if path.is_dir() {
+            fs::remove_dir_all(path).map_err(AppError::internal)?;
+        }
+    }
+    Ok(())
 }
 
 fn cleanup_empty_parent_dirs(project_root: &Path, path: &Path) -> Result<(), AppError> {

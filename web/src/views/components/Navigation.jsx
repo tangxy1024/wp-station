@@ -34,7 +34,11 @@ function Navigation({ children, onLocaleChange }) {
   const { t } = useTranslation();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
-  const [versionInfo, setVersionInfo] = useState({ warpStation: '', warpParse: '' });
+  const [versionInfo, setVersionInfo] = useState({
+    warpStation: '',
+    wparse: '',
+    wfusion: '',
+  });
   const [runtimeMonitorUrl, setRuntimeMonitorUrl] = useState('');
   const [wechatModalOpen, setWechatModalOpen] = useState(false);
   const [githubModalOpen, setGithubModalOpen] = useState(false);
@@ -45,14 +49,15 @@ function Navigation({ children, onLocaleChange }) {
   const sessionUser = getSessionUser();
   const usernameLabel = sessionUser?.username || '';
 
-  // 获取版本信息：wp-station 与 warp-parse
+  // 获取 Station 及两个运行系统的版本信息
   useEffect(() => {
     const fetchVersion = async () => {
       try {
         const response = await httpRequest.get('/version');
         setVersionInfo({
           warpStation: response?.wp_station || '',
-          warpParse: response?.wp_parse || '',
+          wparse: response?.wp_parse || '',
+          wfusion: response?.wfusion || '',
         });
       } catch (_error) {
         // 忽略版本获取失败，不影响主流程
@@ -166,7 +171,9 @@ function Navigation({ children, onLocaleChange }) {
     return <>{children}</>;
   }
 
-  const hasVersionInfo = Boolean(versionInfo.warpStation || versionInfo.warpParse);
+  const hasVersionInfo = Boolean(
+    versionInfo.warpStation || versionInfo.wparse || versionInfo.wfusion,
+  );
 
   return (
     // 应用整体布局：头部固定在上方，下面内容区域单独滚动
@@ -178,6 +185,30 @@ function Navigation({ children, onLocaleChange }) {
             <img src="/assets/images/index.png" alt="WarpStation" className="logo" style={{ height: '70px' }} />
             <span className="divider">|</span>
             <span className="subtitle">{t('navigation.controlPlatform')}</span>
+            <div className="header-system-context">
+              <div
+                className="system-switcher"
+                role="tablist"
+                aria-label={t('navigation.switchSystem')}
+              >
+                {availableSystems.map((systemKey) => {
+                  const isActiveSystem = currentSystem === systemKey;
+                  return (
+                    <button
+                      key={systemKey}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActiveSystem}
+                      className={`system-switcher__item ${isActiveSystem ? 'is-active' : ''}`}
+                      onClick={() => switchSystem(systemKey)}
+                      disabled={isSwitchingSystem}
+                    >
+                      {t(`navigation.system.${systemKey}`)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             {hasVersionInfo ? (
               <span
                 className="version-info"
@@ -193,7 +224,8 @@ function Navigation({ children, onLocaleChange }) {
                 {versionInfo.warpStation && (
                   <span style={{ marginRight: 8 }}>wp-station: {versionInfo.warpStation}</span>
                 )}
-                {versionInfo.warpParse && <span>warp-parse: {versionInfo.warpParse}</span>}
+                {versionInfo.wparse && <span>wparse: {versionInfo.wparse}</span>}
+                {versionInfo.wfusion && <span>wfusion: {versionInfo.wfusion}</span>}
               </span>
             ) : null}
           </div>
@@ -285,33 +317,6 @@ function Navigation({ children, onLocaleChange }) {
             </div>
           </div>
         </div>
-        <div className="header-system-float">
-          <div className="header-system-context">
-            <span className="header-system-context__label">{t('navigation.switchSystem')}</span>
-            <div
-              className="system-switcher"
-              role="tablist"
-              aria-label={t('navigation.switchSystem')}
-            >
-              {availableSystems.map((systemKey) => {
-                const isActiveSystem = currentSystem === systemKey;
-                return (
-                  <button
-                    key={systemKey}
-                    type="button"
-                    role="tab"
-                    aria-selected={isActiveSystem}
-                    className={`system-switcher__item ${isActiveSystem ? 'is-active' : ''}`}
-                    onClick={() => switchSystem(systemKey)}
-                    disabled={isSwitchingSystem}
-                  >
-                    {t(`navigation.system.${systemKey}`)}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
         <div className="header-nav-row">
           <nav className="top-nav">
             {primaryMenuItems.map((menuItem) => (
@@ -341,7 +346,7 @@ function Navigation({ children, onLocaleChange }) {
       <div className="app-shell-body">
         <div
           className={
-            ['/system-release', '/integration-overview', '/wfusion-rule-editor'].some((path) =>
+            ['/system-release', '/integration-overview'].some((path) =>
               location.pathname === path || location.pathname.startsWith(`${path}/`)
             )
               ? 'main-content no-side-nav'

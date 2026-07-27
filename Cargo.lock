@@ -6355,7 +6355,7 @@ checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
 [[package]]
 name = "tree-sitter-oml"
 version = "0.2.0"
-source = "git+https://github.com/wp-labs/tree-sitter-oml.git?branch=main#e97032ae205bba23ee1583cd2bfbff5fa900f700"
+source = "git+https://github.com/wp-labs/tree-sitter-oml.git?branch=main#4c093c46d23f21ab86ebee8cecae725a82554e74"
 dependencies = [
  "cc",
  "tree-sitter",
@@ -6364,7 +6364,7 @@ dependencies = [
 [[package]]
 name = "tree-sitter-wfl"
 version = "0.0.1"
-source = "git+https://github.com/wp-labs/tree-sitter-wfl.git?branch=main#745910071197dc93d4bc81d4f7306341ac5fffdd"
+source = "git+https://github.com/wp-labs/tree-sitter-wfl.git?branch=main#9909051120e3591de05674ad904816d934f06d78"
 dependencies = [
  "cc",
  "tree-sitter",
@@ -6373,7 +6373,7 @@ dependencies = [
 [[package]]
 name = "tree-sitter-wpl"
 version = "0.0.1"
-source = "git+https://github.com/wp-labs/tree-sitter-wpl.git?branch=main#bcf75d6131581a15f70bf7f6cdedcf8a78cbaadb"
+source = "git+https://github.com/wp-labs/tree-sitter-wpl.git?branch=main#5876eece39cc5c9a619a92ca36901fd688452c70"
 dependencies = [
  "cc",
  "tree-sitter",
@@ -6693,9 +6693,10 @@ dependencies = [
 
 [[package]]
 name = "wf-config"
-version = "0.1.33"
-source = "git+https://github.com/wp-labs/wp-reactor.git?tag=v0.1.33#5ff5984c20758932184be41bafe0bd89bc0c5a88"
+version = "0.1.36"
+source = "git+https://github.com/wp-labs/wp-reactor.git?tag=v0.1.36#5b6bb90979f58b835460c4b2f9a381f84a6d8138"
 dependencies = [
+ "chrono",
  "glob",
  "moju-derive",
  "orion-error",
@@ -6720,8 +6721,8 @@ dependencies = [
 
 [[package]]
 name = "wf-engine"
-version = "0.1.33"
-source = "git+https://github.com/wp-labs/wp-reactor.git?tag=v0.1.33#5ff5984c20758932184be41bafe0bd89bc0c5a88"
+version = "0.1.36"
+source = "git+https://github.com/wp-labs/wp-reactor.git?tag=v0.1.36#5b6bb90979f58b835460c4b2f9a381f84a6d8138"
 dependencies = [
  "arrow 59.1.0",
  "async-trait",
@@ -6748,8 +6749,8 @@ dependencies = [
 
 [[package]]
 name = "wf-lang"
-version = "0.1.33"
-source = "git+https://github.com/wp-labs/wp-reactor.git?tag=v0.1.33#5ff5984c20758932184be41bafe0bd89bc0c5a88"
+version = "0.1.36"
+source = "git+https://github.com/wp-labs/wp-reactor.git?tag=v0.1.36#5b6bb90979f58b835460c4b2f9a381f84a6d8138"
 dependencies = [
  "moju-derive",
  "orion-error",
@@ -7685,7 +7686,7 @@ dependencies = [
 
 [[package]]
 name = "wp-station"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "actix-files",
  "actix-web",
@@ -7719,7 +7720,6 @@ dependencies = [
  "toml",
  "toml_edit",
  "tracing",
- "tree-sitter",
  "tree-sitter-oml",
  "tree-sitter-wfl",
  "tree-sitter-wpl",

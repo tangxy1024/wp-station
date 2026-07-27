@@ -60,7 +60,7 @@ pub struct KnowledgeFiles {
 }
 
 /// 项目整体快照。
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ProjectSnapshot {
     pub rules: Vec<ProjectRuleFile>,
     pub knowledge: Vec<KnowledgeFiles>,
@@ -152,7 +152,12 @@ pub fn compose_repo_layout_into(layout: &RepoLayout, target_dir: &Path) -> Resul
     Ok(())
 }
 
-/// 根据 rule_type 和 file_name 计算规则配置文件的目标路径。
+/// 根据 rule_type 和 file_name 计算规则配置文件的读取路径。
+///
+/// 对 `wfusion` 命名规则同时兼容：
+/// - 新布局：`rules/foo.wfl`
+/// - 旧布局：`rules/foo/foo.wfl`
+/// - 显式旧路径读取新布局：`foo/foo.wfl` -> `foo.wfl`
 fn rule_target_path(
     project_dir: &Path,
     rule_type: RuleType,
@@ -183,11 +188,27 @@ fn rule_target_path(
             .join(file_name)
             .join(FILE_OML_ADM)),
         RuleType::Windows => wfusion_windows_path(project_dir, file_name),
-        RuleType::Schema => schema_rule_path(project_dir, file_name),
-        RuleType::Rule => wfusion_rule_path(project_dir, file_name),
-        RuleType::Scenarios => wfusion_scenario_path(project_dir, file_name),
+        RuleType::Schema => wfusion_schema_read_path(project_dir, file_name),
+        RuleType::Rule => wfusion_rule_read_path(project_dir, file_name),
+        RuleType::Scenarios => wfusion_scenario_read_path(project_dir, file_name),
         RuleType::Knowledge => Err(AppError::validation("知识库配置请使用 knowledge 文件接口")),
         RuleType::All => Err(AppError::validation("all 类型不能映射到单个规则文件")),
+    }
+}
+
+/// 根据 rule_type 和 file_name 计算规则配置文件的写入路径。
+///
+/// `wfusion` 的 schema / rule / scenario 在写入时统一落到新布局，避免继续生成旧目录。
+fn storage_rule_target_path(
+    project_dir: &Path,
+    rule_type: RuleType,
+    file_name: &str,
+) -> Result<PathBuf, AppError> {
+    match rule_type {
+        RuleType::Schema => wfusion_schema_storage_path(project_dir, file_name),
+        RuleType::Rule => wfusion_rule_storage_path(project_dir, file_name),
+        RuleType::Scenarios => wfusion_scenario_storage_path(project_dir, file_name),
+        _ => rule_target_path(project_dir, rule_type, file_name),
     }
 }
 
@@ -213,7 +234,7 @@ fn validation_target_path(
         }
     }
 
-    rule_target_path(project_dir, rule_type, file_name)
+    storage_rule_target_path(project_dir, rule_type, file_name)
 }
 
 /// 计算 connectors/<folder>/<file_name>.toml 形式的路径。
@@ -228,8 +249,12 @@ fn connector_rule_path(
         .join(with_extension(file_name, ".toml")))
 }
 
-fn schema_rule_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
-    wfusion_model_rule_path(project_dir, DIR_SCHEMAS, file_name, ".wfs")
+fn wfusion_schema_read_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
+    wfusion_model_rule_read_path(project_dir, DIR_SCHEMAS, file_name, ".wfs")
+}
+
+fn wfusion_schema_storage_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
+    wfusion_model_rule_storage_path(project_dir, DIR_SCHEMAS, file_name, ".wfs")
 }
 
 fn wfusion_windows_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
@@ -249,45 +274,54 @@ fn wfusion_windows_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, 
     Ok(project_dir.join(DIR_MODELS).join(FILE_WINDOWS))
 }
 
-fn wfusion_rule_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
-    wfusion_model_rule_path(project_dir, DIR_RULES, file_name, ".wfl")
+fn wfusion_rule_read_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
+    wfusion_model_rule_read_path(project_dir, DIR_RULES, file_name, ".wfl")
 }
 
-fn wfusion_scenario_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
-    let trimmed = file_name.trim().trim_matches('/');
-    if trimmed.is_empty() {
-        return Err(AppError::validation("规则文件名不能为空"));
+fn wfusion_rule_storage_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
+    wfusion_model_rule_storage_path(project_dir, DIR_RULES, file_name, ".wfl")
+}
+
+fn wfusion_scenario_read_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
+    wfusion_model_rule_read_path(project_dir, DIR_SCENARIOS, file_name, ".wfg")
+}
+
+fn wfusion_scenario_storage_path(project_dir: &Path, file_name: &str) -> Result<PathBuf, AppError> {
+    wfusion_model_rule_storage_path(project_dir, DIR_SCENARIOS, file_name, ".wfg")
+}
+
+fn wfusion_model_rule_read_path(
+    project_dir: &Path,
+    category_dir: &str,
+    file_name: &str,
+    extension: &str,
+) -> Result<PathBuf, AppError> {
+    let root = project_dir.join(DIR_MODELS).join(category_dir);
+    let storage_path =
+        wfusion_model_rule_storage_path(project_dir, category_dir, file_name, extension)?;
+
+    if storage_path.exists() {
+        return Ok(storage_path);
     }
 
-    if trimmed.contains('/') {
-        let nested_path = project_dir
-            .join(DIR_MODELS)
-            .join(DIR_SCENARIOS)
-            .join(with_extension(trimmed, ".wfg"));
-        if nested_path.exists() {
-            return Ok(nested_path);
+    if let Some(flat_relative) = flat_wfusion_rule_virtual_file(file_name, extension)? {
+        let flat_path = root.join(flat_relative);
+        if flat_path.exists() {
+            return Ok(flat_path);
         }
-
-        let file = trimmed.rsplit('/').next().unwrap_or(trimmed);
-        let flat_path = project_dir
-            .join(DIR_MODELS)
-            .join(DIR_SCENARIOS)
-            .join(with_extension(file, ".wfg"));
-        return Ok(flat_path);
     }
 
-    let flat_path = project_dir
-        .join(DIR_MODELS)
-        .join(DIR_SCENARIOS)
-        .join(with_extension(trimmed, ".wfg"));
-    if flat_path.exists() {
-        return Ok(flat_path);
+    if let Some(legacy_relative) = legacy_wfusion_rule_virtual_file(file_name, extension)? {
+        let legacy_path = root.join(legacy_relative);
+        if legacy_path.exists() {
+            return Ok(legacy_path);
+        }
     }
 
-    wfusion_model_rule_path(project_dir, DIR_SCENARIOS, file_name, ".wfg")
+    Ok(storage_path)
 }
 
-fn wfusion_model_rule_path(
+fn wfusion_model_rule_storage_path(
     project_dir: &Path,
     category_dir: &str,
     file_name: &str,
@@ -295,22 +329,7 @@ fn wfusion_model_rule_path(
 ) -> Result<PathBuf, AppError> {
     let root = project_dir.join(DIR_MODELS).join(category_dir);
     let normalized = normalize_wfusion_rule_virtual_file(file_name, extension)?;
-    let flat_path = root.join(&normalized);
-
-    if flat_path.exists() {
-        return Ok(flat_path);
-    }
-
-    if !file_name.trim().trim_matches('/').contains('/')
-        && let Some(legacy_relative) = legacy_wfusion_rule_virtual_file(file_name, extension)?
-    {
-        let legacy_path = root.join(legacy_relative);
-        if legacy_path.exists() {
-            return Ok(legacy_path);
-        }
-    }
-
-    Ok(flat_path)
+    Ok(root.join(normalized))
 }
 
 fn normalize_wfusion_rule_virtual_file(
@@ -350,6 +369,54 @@ fn legacy_wfusion_rule_virtual_file(
     }
 
     Ok(Some(format!("{base}/{}{}", base, extension)))
+}
+
+fn flat_wfusion_rule_virtual_file(
+    file_name: &str,
+    extension: &str,
+) -> Result<Option<String>, AppError> {
+    let trimmed = file_name.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        return Err(AppError::validation("规则文件名不能为空"));
+    }
+    if !trimmed.contains('/') {
+        return Ok(None);
+    }
+
+    let file = trimmed
+        .rsplit('/')
+        .next()
+        .unwrap_or(trimmed)
+        .trim_matches('/');
+    if file.is_empty() {
+        return Err(AppError::validation("规则文件名不能为空"));
+    }
+
+    Ok(Some(with_extension(file, extension)))
+}
+
+fn legacy_wfusion_rule_delete_path(
+    project_dir: &Path,
+    rule_type: RuleType,
+    file_name: &str,
+) -> Result<Option<PathBuf>, AppError> {
+    let (category_dir, extension) = match rule_type {
+        RuleType::Schema => (DIR_SCHEMAS, ".wfs"),
+        RuleType::Rule => (DIR_RULES, ".wfl"),
+        RuleType::Scenarios => (DIR_SCENARIOS, ".wfg"),
+        _ => return Ok(None),
+    };
+
+    let Some(relative) = legacy_wfusion_rule_virtual_file(file_name, extension)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(
+        project_dir
+            .join(DIR_MODELS)
+            .join(category_dir)
+            .join(relative),
+    ))
 }
 
 fn resolve_parse_file_name(project_dir: &Path, file_name: &str) -> String {

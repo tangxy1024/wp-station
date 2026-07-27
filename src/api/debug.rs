@@ -7,11 +7,24 @@ use actix_web::{HttpResponse, get, post, web};
 use crate::error::AppError;
 use crate::server::{
     DebugKnowledgeQueryRequest, DebugKnowledgeStatusQuery, DebugParseRequest,
-    DebugTransformRequest, DebugWfusionRuleEditorParseRequest, SharedRecord, debug_examples_logic,
+    DebugTransformRequest, DebugWfusionRuleEditorParseRequest, SharedRecord,
     debug_knowledge_query_logic, debug_knowledge_status_logic, debug_parse_logic,
-    debug_transform_logic, debug_wfusion_rule_editor_parse_logic, oml_format_logic,
-    toml_format_logic, wfg_format_logic, wfl_format_logic, wfs_format_logic, wpl_format_logic,
+    debug_transform_logic, debug_wfusion_rule_editor_parse_logic, load_debug_examples,
+    oml_format_logic, toml_format_logic, wfg_format_logic, wfl_format_logic, wfs_format_logic,
+    wpl_format_logic,
 };
+use crate::utils::SystemKind;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+pub struct DebugExamplesQuery {
+    #[serde(default = "default_debug_examples_system")]
+    system: SystemKind,
+}
+
+fn default_debug_examples_system() -> SystemKind {
+    SystemKind::Wparse
+}
 
 #[post("/api/debug/parse")]
 /// 模拟调试：解析日志。
@@ -174,9 +187,11 @@ pub async fn toml_format(req: String) -> HttpResponse {
 
 #[get("/api/debug/examples")]
 /// 模拟调试：获取示例列表。
-pub async fn debug_examples() -> HttpResponse {
-    let resp = debug_examples_logic();
-    HttpResponse::Ok().json(resp)
+pub async fn debug_examples(
+    query: web::Query<DebugExamplesQuery>,
+) -> Result<HttpResponse, AppError> {
+    let resp = load_debug_examples(query.system)?;
+    Ok(HttpResponse::Ok().json(resp))
 }
 
 #[post("/api/debug/wfusion-editor/parse")]

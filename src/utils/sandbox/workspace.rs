@@ -970,50 +970,16 @@ fn patch_admin_api_enabled_false(content: &str) -> String {
     patch_section_enabled_false(content, "[admin_api]")
 }
 
-/// 将沙盒中的 admin_api 整体关闭，并移除不再需要的 auth 配置段。
+/// 将沙盒中的 admin_api 整体关闭。
+///
+/// 这里不再删除 `[admin_api.auth]` 段，避免沙盒文件和仓库原文件的行号错位。
 fn patch_admin_api_runtime_disabled(content: &str) -> String {
-    let without_auth = remove_toml_section(content, "[admin_api.auth]");
-    patch_admin_api_tls_enabled_false(&patch_admin_api_enabled_false(&without_auth))
+    patch_admin_api_tls_enabled_false(&patch_admin_api_enabled_false(content))
 }
 
 /// 将 admin_api.tls.enabled 设为 false，避免沙盒按 HTTPS 启动。
 fn patch_admin_api_tls_enabled_false(content: &str) -> String {
     patch_section_enabled_false(content, "[admin_api.tls]")
-}
-
-/// 删除指定 TOML 节及其内容，直到下一个节头为止。
-fn remove_toml_section(content: &str, section_name: &str) -> String {
-    let mut lines = Vec::new();
-    let mut in_target_section = false;
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-        let is_section = trimmed.starts_with('[') && trimmed.ends_with(']');
-
-        if is_section {
-            if in_target_section && trimmed != section_name {
-                in_target_section = false;
-            }
-            if trimmed == section_name {
-                in_target_section = true;
-                continue;
-            }
-        }
-
-        if !in_target_section {
-            lines.push(line.to_string());
-        }
-    }
-
-    while lines.last().is_some_and(|line| line.trim().is_empty()) {
-        lines.pop();
-    }
-
-    let mut output = lines.join("\n");
-    if content.ends_with('\n') {
-        output.push('\n');
-    }
-    output
 }
 
 /// 将指定 TOML 节中的 enabled 统一设为 false；若该节不存在则自动追加。

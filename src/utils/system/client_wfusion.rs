@@ -242,18 +242,16 @@ impl WfusionService {
             .is_some_and(|value| !value.trim().is_empty());
         let completed =
             accepted && !has_error && Self::publish_result_completed(result_text.as_deref());
-        let message = Self::publish_message(
-            PublishMessageParts {
-                message: parsed.message.clone(),
-                result: result_text.clone(),
-                warning: parsed.warning.clone(),
-                error: parsed.error.clone(),
-                update: parsed.update,
-                requested_version: parsed.requested_version.clone(),
-                current_version: parsed.current_version.clone(),
-                resolved_tag: parsed.resolved_tag.clone(),
-            },
-        );
+        let message = Self::publish_message(PublishMessageParts {
+            message: parsed.message.clone(),
+            result: result_text.clone(),
+            warning: parsed.warning.clone(),
+            error: parsed.error.clone(),
+            update: parsed.update,
+            requested_version: parsed.requested_version.clone(),
+            current_version: parsed.current_version.clone(),
+            resolved_tag: parsed.resolved_tag.clone(),
+        });
 
         info!(
             "wfusion 发布响应: accepted={}, request_id={:?}, result={:?}, completed={}, update={:?}, requested_version={:?}, current_version={:?}, resolved_tag={:?}, has_error={}",
@@ -490,13 +488,22 @@ impl WfusionService {
 
     fn publish_message(message_parts: PublishMessageParts) -> Option<String> {
         let mut segments = Vec::new();
-        if let Some(message) = message_parts.message.filter(|value| !value.trim().is_empty()) {
+        if let Some(message) = message_parts
+            .message
+            .filter(|value| !value.trim().is_empty())
+        {
             segments.push(message);
         }
-        if let Some(result) = message_parts.result.filter(|value| !value.trim().is_empty()) {
+        if let Some(result) = message_parts
+            .result
+            .filter(|value| !value.trim().is_empty())
+        {
             segments.push(format!("result={}", result));
         }
-        if let Some(warning) = message_parts.warning.filter(|value| !value.trim().is_empty()) {
+        if let Some(warning) = message_parts
+            .warning
+            .filter(|value| !value.trim().is_empty())
+        {
             segments.push(format!("warning={}", warning));
         }
         if let Some(error) = message_parts.error.filter(|value| !value.trim().is_empty()) {
@@ -505,17 +512,21 @@ impl WfusionService {
         if let Some(update) = message_parts.update {
             segments.push(format!("update={}", update));
         }
-        if let Some(requested_version) =
-            message_parts.requested_version.filter(|value| !value.trim().is_empty())
+        if let Some(requested_version) = message_parts
+            .requested_version
+            .filter(|value| !value.trim().is_empty())
         {
             segments.push(format!("requested_version={}", requested_version));
         }
-        if let Some(current_version) =
-            message_parts.current_version.filter(|value| !value.trim().is_empty())
+        if let Some(current_version) = message_parts
+            .current_version
+            .filter(|value| !value.trim().is_empty())
         {
             segments.push(format!("current_version={}", current_version));
         }
-        if let Some(resolved_tag) = message_parts.resolved_tag.filter(|value| !value.trim().is_empty())
+        if let Some(resolved_tag) = message_parts
+            .resolved_tag
+            .filter(|value| !value.trim().is_empty())
         {
             segments.push(format!("resolved_tag={}", resolved_tag));
         }

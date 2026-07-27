@@ -12,6 +12,7 @@ use crate::server::setting::default_data_collect_url;
 pub struct VersionResponse {
     pub wp_station: &'static str,
     pub wp_parse: &'static str,
+    pub wfusion: &'static str,
 }
 
 /// 前端特性配置响应体。
@@ -31,6 +32,7 @@ pub fn get_version_logic() -> VersionResponse {
     VersionResponse {
         wp_station: env!("WP_STATION_VERSION"),
         wp_parse: env!("WP_PARSE_VERSION"),
+        wfusion: env!("WFUSION_VERSION"),
     }
 }
 

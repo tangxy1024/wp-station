@@ -3,14 +3,15 @@
 //! 汇总解析调试、格式化和知识库调试等能力，
 //! 对外保持统一的调试业务入口。
 
+mod examples;
 mod knowledge;
 mod wfusion_replay;
 
+pub use self::examples::{DebugExample, load_debug_examples};
 use self::wfusion_replay::replay_events as replay_wfusion_events;
 use crate::error::AppError;
 use crate::utils::warp_check_record;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::io::BufReader;
 use std::path::Path;
 use std::sync::Arc;
@@ -410,13 +411,6 @@ fn preserve_value_suffix_and_reset_prefix(value: &mut toml_edit::Value) {
     if let Some(suffix) = suffix {
         value.decor_mut().set_suffix(suffix);
     }
-}
-
-/// 获取调试示例列表
-pub fn debug_examples_logic() -> BTreeMap<String, serde_json::Value> {
-    // wp-station 通过连接管理访问项目，示例应该从连接的项目中加载
-    // 目前返回空列表，让前端使用默认示例
-    BTreeMap::new()
 }
 
 fn build_rule_editor_failure(

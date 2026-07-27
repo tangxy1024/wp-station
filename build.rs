@@ -391,6 +391,7 @@ fn main() {
 
     let app_name = env!("CARGO_PKG_NAME");
     let wp_parse_pkg_name = "wp-engine";
+    let wfusion_pkg_name = "wf-engine";
 
     let packages = metadata
         .get("packages")
@@ -399,7 +400,9 @@ fn main() {
 
     let wp_station = get_package_version(packages, app_name);
     let wp_parse = get_package_version(packages, wp_parse_pkg_name);
+    let wfusion = get_package_version(packages, wfusion_pkg_name);
 
     println!("cargo:rustc-env=WP_STATION_VERSION={}", wp_station);
     println!("cargo:rustc-env=WP_PARSE_VERSION={}", wp_parse);
+    println!("cargo:rustc-env=WFUSION_VERSION={}", wfusion);
 }

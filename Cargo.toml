@@ -1,6 +1,6 @@
 [package]
 name = "wp-station"
-version = "0.3.3" #@gxl:set(version)
+version = "0.3.4" #@gxl:set(version)
 edition = "2024"
 build = "build.rs"
 
@@ -44,11 +44,11 @@ wp-knowledge  = "~0.14"
 wp-model-core = "~0.8"
 wp-parse-api = "~0.10"
 wp-data-fmt = "0.2"
-wf-engine = { git = "https://github.com/wp-labs/wp-reactor.git", tag = "v0.1.33" }
-wf-lang = { git = "https://github.com/wp-labs/wp-reactor.git", tag = "v0.1.33" }
+wf-engine = { git = "https://github.com/wp-labs/wp-reactor.git", tag = "v0.1.36" }
+wf-lang = { git = "https://github.com/wp-labs/wp-reactor.git", tag = "v0.1.36" }
 
 # Tree-sitter 支持（用于代码格式化）
-tree-sitter = "0.26.6"
+# tree-sitter = "0.26.6"
 # tree-sitter-wpl = { package = "tree-sitter-wpl", path = "../wp-tree-sitter/tree-sitter-wpl" }
 # tree-sitter-oml = { package = "tree-sitter-oml", path = "../wp-tree-sitter/tree-sitter-oml" }
 # tree-sitter-wfl = { package = "tree-sitter-wfl", path = "../wp-tree-sitter/tree-sitter-wfl" }

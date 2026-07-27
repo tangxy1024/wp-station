@@ -302,6 +302,21 @@ async fn test_delete_rule_file_logic_for_standard_rule() {
 }
 
 #[tokio::test]
+async fn test_wfusion_global_rule_cannot_be_deleted() {
+    setup_db().await;
+    let error = delete_rule_file_logic(
+        SystemKind::Wfusion,
+        RuleType::Rule,
+        "_global.wfl".to_string(),
+        None,
+    )
+    .await
+    .expect_err("global rule must be protected");
+
+    assert!(error.to_string().contains("全局规则文件不允许删除"));
+}
+
+#[tokio::test]
 async fn test_wpl_virtual_sample_round_trip() {
     setup_db().await;
     let file = format!("sample-{}", rand_suffix());

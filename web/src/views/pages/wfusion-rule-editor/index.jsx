@@ -5,15 +5,18 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import CodeEditor from '@/views/components/CodeEditor';
 import {
+  fetchDebugExamples,
   parseWfusionRuleEditor,
   wflCodeFormat,
   wfsCodeFormat,
 } from '@/services/debug';
+import { createDefaultInstance, useMultipleInstances } from '@/hooks/useMultipleInstances';
+import InstanceSelector from '@/views/components/InstanceSelector';
 
 const STORAGE_KEYS = {
-  events: 'wfusion-rule-editor.events',
-  wfs: 'wfusion-rule-editor.wfs',
-  wfl: 'wfusion-rule-editor.wfl',
+  events: 'wfusion-rule-editor.instances.events',
+  wfs: 'wfusion-rule-editor.instances.wfs',
+  wfl: 'wfusion-rule-editor.instances.wfl',
 };
 
 const SAMPLE_WFS = `window xy_system_ssh_log {
@@ -323,27 +326,28 @@ rule ssh_brute_force_alert {
 
 const SAMPLE_EVENTS = `{"_stream":"xy_system_ssh_log","event_id":"860446468382921265","tenant_id":"tenant01","log_id":"860446468382921265","occur_time":1783911991000000000,"event_type":"ssh_session","event_category":"auth","log_type":"xy_system_ssh_log","source_ip":"220.181.41.82","source_port":56928,"target_user":"wfusion","target_host":"ent-bas-zerotrust-01","target_ip":"","target_port":0,"target_domain":"","target_url":"","target_file_path":"","carrier_protocol":"tcp","http_method":"","carrier_process_name":"sshd","carrier_process_pid":"2982287","carrier_process_path":"","observer_product":"sshd","operation":"failed_login","outcome":"failed","http_status":0,"severity":"info","raw_log_ref":"journald:sshd","whitelist_hit":"false"}`;
 
-const readStorage = (key, fallback = '') => {
-  if (typeof window === 'undefined') {
-    return fallback;
-  }
-  try {
-    return window.localStorage.getItem(key) || fallback;
-  } catch (_error) {
-    return fallback;
-  }
-};
+const createWfusionEventInstance = (number, t) => ({
+  ...createDefaultInstance(number, t),
+  name: `${t('wfusionRuleEditor.eventInstance')} ${number}`,
+  wpl: '',
+  oml: '',
+});
 
-const persistStorage = (key, value) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  try {
-    window.localStorage.setItem(key, value || '');
-  } catch (_error) {
-    // 忽略浏览器存储失败，不影响主流程
-  }
-};
+const createWfusionWfsInstance = (number, t) => ({
+  ...createDefaultInstance(number, t),
+  name: `WFS ${number}`,
+  log: '',
+  wpl: '',
+  oml: '',
+});
+
+const createWfusionWflInstance = (number, t) => ({
+  ...createDefaultInstance(number, t),
+  name: `WFL ${number}`,
+  log: '',
+  wpl: '',
+  oml: '',
+});
 
 const prettyJson = (value) => {
   try {
@@ -588,26 +592,108 @@ function WfusionResultContent({ t, result, viewMode, showEmpty }) {
 export function WfusionRuleEditorContent() {
   const { t } = useTranslation();
   const { message } = AntdApp.useApp();
-  const [eventsNdjson, setEventsNdjson] = useState(() => readStorage(STORAGE_KEYS.events, ''));
-  const [wfsCode, setWfsCode] = useState(() => readStorage(STORAGE_KEYS.wfs, ''));
-  const [wflCode, setWflCode] = useState(() => readStorage(STORAGE_KEYS.wfl, ''));
-  const [result, setResult] = useState(null);
+  const eventWorkspace = useMultipleInstances({
+    storageKey: STORAGE_KEYS.events,
+    createDefaultInstance: createWfusionEventInstance,
+  });
+  const wfsWorkspace = useMultipleInstances({
+    storageKey: STORAGE_KEYS.wfs,
+    createDefaultInstance: createWfusionWfsInstance,
+  });
+  const wflWorkspace = useMultipleInstances({
+    storageKey: STORAGE_KEYS.wfl,
+    createDefaultInstance: createWfusionWflInstance,
+  });
+  const [workspaceMode, setWorkspaceMode] = useState('workspace');
+  const [examples, setExamples] = useState([]);
+  const [examplesLoading, setExamplesLoading] = useState(false);
+  const [selectedExample, setSelectedExample] = useState('');
+  const [exampleDraft, setExampleDraft] = useState({
+    eventsNdjson: '',
+    wfsCode: '',
+    wflCode: '',
+    result: null,
+  });
   const [activeRuleEditor, setActiveRuleEditor] = useState('wfs');
   const [resultViewMode, setResultViewMode] = useState('table');
   const [showEmpty, setShowEmpty] = useState(true);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    persistStorage(STORAGE_KEYS.events, eventsNdjson);
-  }, [eventsNdjson]);
+  const isExamplesMode = workspaceMode === 'examples';
+  const eventsNdjson = isExamplesMode
+    ? exampleDraft.eventsNdjson
+    : eventWorkspace.activeInstance?.log || '';
+  const wfsCode = isExamplesMode
+    ? exampleDraft.wfsCode
+    : wfsWorkspace.activeInstance?.wpl || '';
+  const wflCode = isExamplesMode
+    ? exampleDraft.wflCode
+    : wflWorkspace.activeInstance?.oml || '';
+  const result = isExamplesMode
+    ? exampleDraft.result
+    : wflWorkspace.activeInstance?.parseResult || null;
+
+  const setEventsNdjson = (value) => {
+    if (isExamplesMode) {
+      setExampleDraft((prev) => ({ ...prev, eventsNdjson: value }));
+      return;
+    }
+    eventWorkspace.updateActiveInstance({ log: value });
+  };
+
+  const setWfsCode = (value) => {
+    if (isExamplesMode) {
+      setExampleDraft((prev) => ({ ...prev, wfsCode: value }));
+      return;
+    }
+    wfsWorkspace.updateActiveInstance({ wpl: value });
+  };
+
+  const setWflCode = (value) => {
+    if (isExamplesMode) {
+      setExampleDraft((prev) => ({ ...prev, wflCode: value }));
+      return;
+    }
+    wflWorkspace.updateActiveInstance({ oml: value });
+  };
+
+  const setResult = (value) => {
+    if (isExamplesMode) {
+      setExampleDraft((prev) => ({ ...prev, result: value }));
+      return;
+    }
+    wflWorkspace.updateActiveInstance({
+      parseResult: value,
+      parseError: value?.success === false ? value : null,
+    });
+  };
 
   useEffect(() => {
-    persistStorage(STORAGE_KEYS.wfs, wfsCode);
-  }, [wfsCode]);
-
-  useEffect(() => {
-    persistStorage(STORAGE_KEYS.wfl, wflCode);
-  }, [wflCode]);
+    let cancelled = false;
+    const loadExamples = async () => {
+      setExamplesLoading(true);
+      try {
+        const data = await fetchDebugExamples('wfusion');
+        if (!cancelled) {
+          setExamples(Array.isArray(data) ? data : []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          message.error(
+            `${t('simulateDebug.examples.fetchError')}：${error?.message || error}`,
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setExamplesLoading(false);
+        }
+      }
+    };
+    loadExamples();
+    return () => {
+      cancelled = true;
+    };
+  }, [message, t]);
 
   const handleFormat = async (kind) => {
     const source = kind === 'wfs' ? wfsCode : wflCode;
@@ -665,25 +751,81 @@ export function WfusionRuleEditorContent() {
     }
   };
 
+  const handleApplyExample = (example) => {
+    if (!example) {
+      return;
+    }
+    setSelectedExample(example.name || '');
+    setExampleDraft({
+      eventsNdjson: example.sample_data || '',
+      wfsCode: example.wfs_code || '',
+      wflCode: example.wfl_code || '',
+      result: null,
+    });
+    setWorkspaceMode('examples');
+  };
+
   const handleLoadExample = () => {
-    setEventsNdjson(SAMPLE_EVENTS);
-    setWfsCode(SAMPLE_WFS);
-    setWflCode(SAMPLE_WFL);
-    setResult(null);
+    if (examples.length > 0) {
+      handleApplyExample(examples[0]);
+      return;
+    }
+    setExampleDraft({
+      eventsNdjson: SAMPLE_EVENTS,
+      wfsCode: SAMPLE_WFS,
+      wflCode: SAMPLE_WFL,
+      result: null,
+    });
+    setWorkspaceMode('examples');
+    setSelectedExample(t('wfusionRuleEditor.fallbackExample'));
+  };
+
+  const handleSwitchMode = (mode) => {
+    if (mode === workspaceMode) {
+      return;
+    }
+
+    if (workspaceMode === 'workspace' && mode === 'examples') {
+      eventWorkspace.saveToStorage();
+      wfsWorkspace.saveToStorage();
+      wflWorkspace.saveToStorage();
+      message.success(t('simulateDebug.workspace.autoSaved'));
+    }
+
+    if (mode === 'workspace') {
+      eventWorkspace.restoreFromStorage();
+      wfsWorkspace.restoreFromStorage();
+      wflWorkspace.restoreFromStorage();
+      message.success(t('simulateDebug.workspace.loadSuccess'));
+    }
+
+    setWorkspaceMode(mode);
+    if (mode === 'examples' && !selectedExample && examples.length > 0) {
+      handleApplyExample(examples[0]);
+    }
   };
 
   const handleClearAll = () => {
-    setEventsNdjson('');
-    setWfsCode('');
-    setWflCode('');
+    if (isExamplesMode) {
+      setExampleDraft({
+        eventsNdjson: '',
+        wfsCode: '',
+        wflCode: '',
+        result: null,
+      });
+      setSelectedExample('');
+      return;
+    }
+    eventWorkspace.clearAllInstances();
+    wfsWorkspace.clearAllInstances();
+    wflWorkspace.clearAllInstances();
     setResult(null);
   };
 
   const activeRuleCode = activeRuleEditor === 'wfs' ? wfsCode : wflCode;
   const activeRuleLanguage = activeRuleEditor === 'wfs' ? 'wfs' : 'wfl';
-  const activeRuleTitle =
-    activeRuleEditor === 'wfs' ? t('wfusionRuleEditor.wfsTitle') : t('wfusionRuleEditor.wflTitle');
   const resultSummary = result?.success ? result?.summary || null : null;
+  const activeRuleWorkspace = activeRuleEditor === 'wfs' ? wfsWorkspace : wflWorkspace;
 
   const handleActiveRuleChange = (value) => {
     if (activeRuleEditor === 'wfs') {
@@ -694,16 +836,99 @@ export function WfusionRuleEditorContent() {
   };
 
   return (
-    <div className="wfusion-rule-editor wfusion-rule-editor--compact">
+    <>
+      <aside className="side-nav" data-group="simulate-debug">
+        <h2>{t('wfusionRuleEditor.title')}</h2>
+        <button type="button" className="side-item is-active">
+          {t('wfusionRuleEditor.parse')}
+        </button>
+
+        <h2 style={{ marginTop: 20 }}>{t('simulateDebug.workspace.mode')}</h2>
+        <button
+          type="button"
+          className={`side-item ${workspaceMode === 'workspace' ? 'is-active' : ''}`}
+          onClick={() => handleSwitchMode('workspace')}
+        >
+          {t('simulateDebug.workspace.title')}
+        </button>
+        <button
+          type="button"
+          className={`side-item ${workspaceMode === 'examples' ? 'is-active' : ''}`}
+          onClick={() => handleSwitchMode('examples')}
+        >
+          {t('simulateDebug.examples.title')}
+        </button>
+
+        {workspaceMode === 'examples' ? (
+          <div className="example-list example-list--compact example-list--spaced">
+            <div className="example-list__header">
+              <div>
+                <h4 className="example-list__title">{t('simulateDebug.examples.title')}</h4>
+                <p className="example-list__desc">{t('simulateDebug.examples.desc')}</p>
+              </div>
+            </div>
+            {examplesLoading ? (
+              <div className="example-list__message">{t('simulateDebug.examples.loading')}</div>
+            ) : examples.length > 0 ? (
+              <div className="example-list__grid example-list__grid--small">
+                {examples.map((example) => (
+                  <button
+                    key={example.name}
+                    type="button"
+                    className={`example-list__item ${
+                      selectedExample === example.name ? 'is-active' : ''
+                    }`}
+                    onClick={() => handleApplyExample(example)}
+                  >
+                    {example.name}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="example-list__message">{t('simulateDebug.examples.noData')}</div>
+            )}
+          </div>
+        ) : null}
+      </aside>
+
+      <section className="page-panels wfusion-rule-editor-page">
+        <article className="panel is-visible">
+          <section className="panel-body">
+            <div className="wfusion-rule-editor wfusion-rule-editor--compact">
       <div className="panel-block wfusion-rule-editor__log-block">
         <div className="block-header" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
-          <div>
+          <div className="wfusion-rule-editor__editor-title">
             <h3>{t('wfusionRuleEditor.ndjsonTitle')}</h3>
+            {workspaceMode === 'workspace' ? (
+              <InstanceSelector
+                instances={eventWorkspace.instances}
+                activeIndex={eventWorkspace.activeInstanceIndex}
+                maxInstances={eventWorkspace.maxInstances}
+                onSwitch={eventWorkspace.switchInstance}
+                onAdd={eventWorkspace.addInstance}
+                onRemove={eventWorkspace.removeInstance}
+                onRename={eventWorkspace.renameInstance}
+                inline
+                showAddButton={false}
+                collapseThreshold={6}
+                disableMotion
+              />
+            ) : null}
           </div>
           <div
             className="block-actions"
             style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', minWidth: 0 }}
           >
+            {workspaceMode === 'workspace' ? (
+              <button
+                type="button"
+                className="btn primary"
+                onClick={eventWorkspace.addInstance}
+                disabled={!eventWorkspace.canAddInstance}
+              >
+                {t('multipleInstances.addInstance')}
+              </button>
+            ) : null}
             <button type="button" className="btn primary" onClick={handleLoadExample}>
               {t('wfusionRuleEditor.loadExample')}
             </button>
@@ -713,6 +938,7 @@ export function WfusionRuleEditorContent() {
           </div>
         </div>
         <CodeEditor
+          key={`wfusion-events-${workspaceMode}-${eventWorkspace.activeInstance?.id || selectedExample}`}
           className="code-area code-area--log-input wfusion-rule-editor__log-input"
           language="json"
           theme="vscodeDark"
@@ -726,7 +952,6 @@ export function WfusionRuleEditorContent() {
           <div className="panel-block panel-block--fill">
             <div className="block-header wfusion-rule-editor__editor-header">
               <div className="wfusion-rule-editor__editor-title">
-                <h3>{activeRuleTitle}</h3>
                 <div className="mode-toggle wfusion-rule-editor__editor-toggle">
                   <button
                     type="button"
@@ -743,8 +968,33 @@ export function WfusionRuleEditorContent() {
                     {t('wfusionRuleEditor.wflTitle')}
                   </button>
                 </div>
+                {workspaceMode === 'workspace' ? (
+                  <InstanceSelector
+                    instances={activeRuleWorkspace.instances}
+                    activeIndex={activeRuleWorkspace.activeInstanceIndex}
+                    maxInstances={activeRuleWorkspace.maxInstances}
+                    onSwitch={activeRuleWorkspace.switchInstance}
+                    onAdd={activeRuleWorkspace.addInstance}
+                    onRemove={activeRuleWorkspace.removeInstance}
+                    onRename={activeRuleWorkspace.renameInstance}
+                    inline
+                    showAddButton={false}
+                    collapseThreshold={6}
+                    disableMotion
+                  />
+                ) : null}
               </div>
               <div className="block-actions wfusion-rule-editor__editor-actions">
+                {workspaceMode === 'workspace' ? (
+                  <button
+                    type="button"
+                    className="btn primary"
+                    onClick={activeRuleWorkspace.addInstance}
+                    disabled={!activeRuleWorkspace.canAddInstance}
+                  >
+                    {t('multipleInstances.addInstance')}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="btn ghost"
@@ -763,6 +1013,9 @@ export function WfusionRuleEditorContent() {
               </div>
             </div>
             <CodeEditor
+              key={`wfusion-${activeRuleEditor}-${workspaceMode}-${
+                activeRuleWorkspace.activeInstance?.id || selectedExample
+              }`}
               className="code-area code-area--large wfusion-rule-editor__rule-input"
               language={activeRuleLanguage}
               theme="vscodeDark"
@@ -831,20 +1084,16 @@ export function WfusionRuleEditorContent() {
           </div>
         </div>
       </div>
-    </div>
+            </div>
+          </section>
+        </article>
+      </section>
+    </>
   );
 }
 
 function WfusionRuleEditorPage() {
-  return (
-    <section className="page-panels">
-      <article className="panel is-visible">
-        <section className="panel-body">
-          <WfusionRuleEditorContent />
-        </section>
-      </article>
-    </section>
-  );
+  return <WfusionRuleEditorContent />;
 }
 
 export default WfusionRuleEditorPage;

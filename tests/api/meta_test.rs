@@ -28,4 +28,5 @@ async fn test_meta_version_endpoint() {
     let payload: serde_json::Value = test::read_body_json(resp).await;
     assert!(payload.get("wp_station").is_some());
     assert!(payload.get("wp_parse").is_some());
+    assert!(payload.get("wfusion").is_some());
 }

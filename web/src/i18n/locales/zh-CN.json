@@ -9,7 +9,8 @@
     "version": {
       "wpEditor": "wp-editor",
       "warpEngine": "wp-motor",
-      "warpParse": "warp-parse"
+      "warpParse": "wparse",
+      "wfusion": "wfusion"
     }
   },
   "modal": {
@@ -154,12 +155,14 @@
     }
   },
   "wfusionRuleEditor": {
-    "title": "WFusion 规则编辑器",
+    "title": "规则编写器",
     "subtitle": "独立编写 WFS / WFL，并直接用标准化 NDJSON 做校验和试跑。",
     "parse": "解析",
     "parsing": "解析中...",
     "loadExample": "加载示例",
-    "clearAll": "全部清空",
+    "clearAll": "一键清空",
+    "eventInstance": "日志",
+    "fallbackExample": "内置示例",
     "ndjsonTitle": "标准化 NDJSON",
     "wfsTitle": "WFS Schema",
     "wflTitle": "WFL Rule",
@@ -332,6 +335,10 @@
     "coveredAssociationRules": "已接入关联分析规则",
     "supportedSourceTypes": "已支持输入源种类",
     "supportedSinkTypes": "已支持输出源种类",
+    "enabledSources": "已启用输入源",
+    "enabledSinks": "已启用业务输出源",
+    "category": "类别",
+    "count": "数量",
     "deviceType": "设备类型",
     "logTypeCount": "日志类型",
     "windowStructure": "窗口结构",

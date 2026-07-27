@@ -1,171 +1,26 @@
 use "auth.wfs"
 
+// 同一来源 IP 对同一账号连续登录失败 3 次，输出一条暴力破解告警。
 rule ssh_brute_force_alert {
   events {
-    s : xy_system_ssh_log
-      && event_category == "auth"
-      && event_type == "ssh_session"
-      && operation in ("failed_login", "authenticate")
+    failed : ssh_login
       && outcome == "failed"
-      && observer_product == "sshd"
-      && isnotnull(source_ip)
-      && is_blank(target_host) == false
   }
 
-  // 按租户、源 IP、目标主机、目标账号聚合；固定 1 分钟窗口内失败次数达到 3 次即输出告警。
-  match<tenant_id,source_ip,target_host,target_user:1m:fixed> {
-    on event { s | count >= 1; }
-  } -> score(
-    if count(s) >= 1000 then 100.0
-    else if count(s) >= 500 then 80.0
-    else if lower(default_if_blank(s.target_user, "unknown")) in ("root", "admin", "administrator") then 73.0
-    else 65.0
-  )
+  match<source_ip,target_user:1m:fixed> {
+    on event { failed | count >= 3; }
+  } -> score(80.0)
 
-  entity(ip, s.source_ip)
+  entity(ip, failed.source_ip)
 
   yield security_alerts (
-    alert_id = concat(
-      "alert_",
-      sha1(
-        fmt(
-          "{}|{}|{}|{}|{}|{}",
-          s.tenant_id,
-          "SDM-SSH-BRUTE-FORCE-001",
-          s.source_ip,
-          lower(s.target_host),
-          lower(default_if_blank(s.target_user, "unknown")),
-          strftime(now(), "%Y-%m-%d %H:%M:%S%.3f")
-        )
-      )
-    ),
-    alert_display_id = concat(
-      "ALERT-",
-      sha1(
-        fmt(
-          "{}|{}|{}|{}|{}|{}",
-          s.tenant_id,
-          "SDM-SSH-BRUTE-FORCE-001",
-          s.source_ip,
-          lower(s.target_host),
-          lower(default_if_blank(s.target_user, "unknown")),
-          strftime(now(), "%Y-%m-%d %H:%M:%S%.3f")
-        )
-      )
-    ),
-    tenant_id = s.tenant_id,
-    merge_id = concat(
-      "merge_",
-      sha1(
-        fmt(
-          "{}|{}|{}|{}|{}",
-            s.tenant_id,
-            "SDM-SSH-BRUTE-FORCE-001",
-            s.source_ip,
-            lower(s.target_host),
-            lower(default_if_blank(s.target_user, "unknown"))
-        )
-      )
-    ),
-    source_systems = split("sdm-rule-engine", ","),
-    alert_name = fmt(
-      "SSH 暴力破解/撞库 - {} -> {}@{}",
-      s.source_ip,
-      default_if_blank(s.target_user, "unknown"),
-      s.target_host
-    ),
-    description = fmt(
-      "{} 在 {} 命中 SSH 失败登录阈值，对 {} 的 {} 账号已达到 1 分钟 3 次及以上失败。",
-      s.source_ip,
-      strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-      s.target_host,
-      default_if_blank(s.target_user, "unknown")
-    ),
-    alert_type = "DETECTION",
-    category_code = "intrusion",
-    category_name = "intrusion",
-    subcategory_code = "ssh_bruteforce",
-    subcategory_name = "SSH 暴力破解/撞库",
-    summary = fmt(
-      "SSH 登录失败达到阈值，来源 {}，目标 {}@{}。",
-      s.source_ip,
-      default_if_blank(s.target_user, "unknown"),
-      s.target_host
-    ),
-    event_count = "3",
-    severity = if count(s) >= 1000 then "CRITICAL" else if count(s) >= 500 then "HIGH" else "MEDIUM",
-    risk_score = fmt("{}", if lower(default_if_blank(s.target_user, "unknown")) in ("root", "admin", "administrator") then @score + 8.0 else @score),
-    confidence = fmt("{}", if lower(default_if_blank(s.target_user, "unknown")) in ("root", "admin", "administrator") then 85.0 else 80.0),
-    workflow_status = "NEW",
-    disposition_status = "pending",
-    ticket_status = "",
-    verdict = "SUSPICIOUS",
-    compromise_status = "",
-    created_time = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-    updated_time = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-    first_seen = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-    last_seen = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-    evidence_start_time = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-    evidence_end_time = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-    duration_seconds = "0",
-    rule_id = "SDM-SSH-BRUTE-FORCE-001",
-    rule_version = "1.0.0",
-    rule_type = "THRESHOLD",
-    detection_engine = "sdm-rule-engine",
-    primary_entity_id = concat("host:", s.tenant_id, ":", sha1(lower(s.target_host))),
-    primary_entity_type = "host",
-    primary_entity_value = s.target_host,
-    dedup_key = fmt(
-      "{}|{}|{}|{}|{}|{}",
-      s.tenant_id,
-      "SDM-SSH-BRUTE-FORCE-001",
-      s.source_ip,
-      s.target_host,
-      default_if_blank(s.target_user, "unknown"),
-      strftime(now(), "%Y-%m-%d %H:%M:%S%.3f")
-    ),
-    correlation_id = "",
-    source_ip = s.source_ip,
-    target_host = s.target_host,
-    target_user = default_if_blank(s.target_user, "unknown"),
-    rule_window_start = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-    rule_window_end = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-    threshold = "3",
-    distinct_source_port_count = if s.source_port > 0 then "1" else "0",
-    whitelist_hit = default_if_blank(s.whitelist_hit, "false"),
-    source_alert_ref = "",
-    raw_alert_ref = "",
-    latest_analysis_conclusion = "suspicious",
-    latest_analysis_summary = "规则命中：来源 IP 在固定窗口内对同一目标账号产生大量 SSH 认证失败。",
-    latest_analysis_time = strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-    assignee_id = "",
-    ticket_id = "",
-    incident_ids = "[]",
-    detail = fmt(
-      "规则命中：{} 在 {} 对 {}@{} 达到 1 分钟 3 次及以上 SSH 失败登录阈值。",
-      s.source_ip,
-      strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-      default_if_blank(s.target_user, "unknown"),
-      s.target_host
-    ),
-    extensions = fmt(
-      "source_ip={};target_host={};target_user={};occur_time={};window_start={};window_end={};threshold={};event_count={};source_port={};whitelist_hit={}",
-      s.source_ip,
-      s.target_host,
-      default_if_blank(s.target_user, "unknown"),
-      strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-      strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-      strftime(now(), "%Y-%m-%d %H:%M:%S%.3f"),
-      3,
-      3,
-      s.source_port,
-      default_if_blank(s.whitelist_hit, "false")
-    )
+    alert_name = "SSH 暴力破解",
+    source_ip = failed.source_ip,
+    target_user = failed.target_user,
+    failed_count = count(failed)
   )
 
   limits {
-    max_memory = "64MB";
-    max_instances = 10000;
-    on_exceed = throttle;
+    max_instances = 1000;
   }
 }

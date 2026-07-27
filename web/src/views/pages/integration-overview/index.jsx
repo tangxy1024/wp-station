@@ -715,8 +715,6 @@ function IntegrationOverviewPage() {
   const [associationRuleItems, setAssociationRuleItems] = useState([]);
   const [sourceItems, setSourceItems] = useState([]);
   const [sinkItems, setSinkItems] = useState([]);
-  const [supportedSourceTypeCount, setSupportedSourceTypeCount] = useState(0);
-  const [supportedSinkTypeCount, setSupportedSinkTypeCount] = useState(0);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -742,8 +740,6 @@ function IntegrationOverviewPage() {
       );
       setSourceItems(Array.isArray(runtimeOverview?.sources) ? runtimeOverview.sources : []);
       setSinkItems(Array.isArray(runtimeOverview?.sinks) ? runtimeOverview.sinks : []);
-      setSupportedSourceTypeCount(runtimeOverview?.supportedSourceTypeCount || 0);
-      setSupportedSinkTypeCount(runtimeOverview?.supportedSinkTypeCount || 0);
     } catch (error) {
       message.error(t('integrationOverview.loadFailed', { message: error.message }));
     } finally {
@@ -761,18 +757,26 @@ function IntegrationOverviewPage() {
       logTypeCount: isWfusionSystem
         ? associationRuleItems.length
         : rows.reduce((total, item) => total + item.logTypes.length, 0),
+      sourceCount: sourceItems.length,
+      sinkCount: sinkItems.length,
     }),
-    [associationRuleItems.length, isWfusionSystem, rows, windowStructureItems.length],
+    [associationRuleItems.length, isWfusionSystem, rows, sinkItems.length, sourceItems.length, windowStructureItems.length],
   );
 
   const wfusionRows = useMemo(() => {
-    const length = Math.max(windowStructureItems.length, associationRuleItems.length);
-    return Array.from({ length }, (_, index) => ({
-      key: `wfusion-${index}`,
-      windowStructure: windowStructureItems[index]?.name || '-',
-      associationRule: associationRuleItems[index]?.name || '-',
-    }));
-  }, [associationRuleItems, windowStructureItems]);
+    return [
+      {
+        key: 'window-structures',
+        category: t('integrationOverview.windowStructure'),
+        count: windowStructureItems.length,
+      },
+      {
+        key: 'association-rules',
+        category: t('integrationOverview.associationRule'),
+        count: associationRuleItems.length,
+      },
+    ];
+  }, [associationRuleItems.length, t, windowStructureItems.length]);
 
   const columns = isWfusionSystem
     ? [
@@ -783,32 +787,21 @@ function IntegrationOverviewPage() {
           render: (_, __, index) => index + 1,
         },
         {
-          title: t('integrationOverview.windowStructure'),
-          dataIndex: 'windowStructure',
-          key: 'windowStructure',
-          width: 280,
-          render: (windowStructure) => (
+          title: t('integrationOverview.category'),
+          dataIndex: 'category',
+          key: 'category',
+          render: (category) => (
             <Tag className="integration-overview-device-tag" bordered={false}>
-              {windowStructure}
+              {category}
             </Tag>
           ),
         },
         {
-          title: t('integrationOverview.associationRule'),
-          dataIndex: 'associationRule',
-          key: 'associationRule',
-          width: 360,
-          render: (associationRule) => (
-            <div className="integration-overview-log-list">
-              <div
-                className={`integration-overview-log-item ${
-                  associationRule === '-' ? 'integration-overview-log-item--empty' : ''
-                }`}
-              >
-                {associationRule}
-              </div>
-            </div>
-          ),
+          title: t('integrationOverview.count'),
+          dataIndex: 'count',
+          key: 'count',
+          width: 120,
+          render: (count) => count,
         },
       ]
     : [
@@ -937,13 +930,13 @@ function IntegrationOverviewPage() {
     },
     {
       key: 'source',
-      label: t('integrationOverview.supportedSourceTypes'),
-      value: supportedSourceTypeCount,
+      label: t('integrationOverview.enabledSources'),
+      value: summary.sourceCount,
     },
     {
       key: 'sink',
-      label: t('integrationOverview.supportedSinkTypes'),
-      value: supportedSinkTypeCount,
+      label: t('integrationOverview.enabledSinks'),
+      value: summary.sinkCount,
     },
   ];
 

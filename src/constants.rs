@@ -38,6 +38,7 @@ pub mod project {
     pub const FILE_WFUSION: &str = "wfusion.toml";
     pub const FILE_WPGEN: &str = "wpgen.toml";
     pub const FILE_WINDOWS: &str = "windows.toml";
+    pub const FILE_WFUSION_GLOBAL_RULE: &str = "_global.wfl";
     pub const FILE_KNOWDB: &str = "knowdb.toml";
     pub const FILE_WPL_PARSE: &str = "parse.wpl";
     pub const FILE_WPL_SAMPLE: &str = "sample.dat";

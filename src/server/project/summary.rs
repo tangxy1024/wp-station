@@ -37,6 +37,7 @@ pub(super) fn validate_project_import_preview(
         source_dir.to_string_lossy().as_ref(),
         &layout,
         &scope,
+        None,
     )
 }
 
@@ -61,8 +62,15 @@ pub(super) fn build_import_response_from_source_dir(
     validation_message: &str,
     source_label: &str,
     scope: &ImportScope,
+    previous_snapshot: Option<&ProjectSnapshot>,
 ) -> Result<ProjectImportResponse, AppError> {
-    let summary = build_import_summary_from_source_dir(source_dir, source_label, layout, scope)?;
+    let summary = build_import_summary_from_source_dir(
+        source_dir,
+        source_label,
+        layout,
+        scope,
+        previous_snapshot,
+    )?;
     let validation = ProjectImportValidation {
         passed: true,
         message: scope.summary_message(validation_message),
@@ -80,10 +88,14 @@ fn build_import_summary_from_source_dir(
     source_label: &str,
     layout: &RepoLayout,
     scope: &ImportScope,
+    previous_snapshot: Option<&ProjectSnapshot>,
 ) -> Result<ProjectImportSummary, AppError> {
     let snapshot = load_snapshot_for_import_scope(source_dir, scope)?;
-    let current_snapshot =
-        filter_snapshot_by_import_scope(load_project_snapshot_from_repo_layout(layout)?, scope);
+    let current_snapshot = if let Some(snapshot) = previous_snapshot {
+        filter_snapshot_by_import_scope(snapshot.clone(), scope)
+    } else {
+        filter_snapshot_by_import_scope(load_project_snapshot_from_repo_layout(layout)?, scope)
+    };
     let (rules_deleted, knowledge_deleted) = build_deleted_counts(&snapshot, &current_snapshot);
     build_import_summary_from_snapshot(
         snapshot,

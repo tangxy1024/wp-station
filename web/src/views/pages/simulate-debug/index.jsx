@@ -477,8 +477,12 @@ function SimulateDebugPage() {
     // 拉取示例列表，供用户选择
     setExamplesLoading(true);
     try {
-      const data = await fetchDebugExamples();
-      const list = data && typeof data === 'object' ? Object.values(data) : [];
+      const data = await fetchDebugExamples('wparse');
+      const list = Array.isArray(data)
+        ? data
+        : data && typeof data === 'object'
+          ? Object.values(data)
+          : [];
       if (Array.isArray(list) && list.length > 0) {
         setExamples(list);
         setExamplesLoaded(true);
@@ -1319,10 +1323,8 @@ function SimulateDebugPage() {
                               onRemove={removeWplInstance}
                               onRename={renameWplInstance}
                               inline
-                              inlineMaxWidth="400px"
                               showAddButton={false}
                               collapseThreshold={6}
-                              forceSelect
                             />
                           )}
                         </div>
@@ -1512,10 +1514,8 @@ function SimulateDebugPage() {
                             onRemove={removeOmlInstance}
                             onRename={renameOmlInstance}
                             inline
-                            inlineMaxWidth="400px"
                             showAddButton={false}
                             collapseThreshold={6}
-                            forceSelect
                           />
                         )}
                       </div>

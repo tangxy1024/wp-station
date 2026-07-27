@@ -9,7 +9,8 @@
     "version": {
       "wpEditor": "wp-editor",
       "warpEngine": "wp-motor",
-      "warpParse": "warp-parse"
+      "warpParse": "wparse",
+      "wfusion": "wfusion"
     }
   },
   "modal": {
@@ -154,12 +155,14 @@
     }
   },
   "wfusionRuleEditor": {
-    "title": "WFusion Rule Editor",
+    "title": "WFusion Rule Writer",
     "subtitle": "Write WFS / WFL independently and validate them directly with normalized NDJSON replay.",
     "parse": "Parse",
     "parsing": "Parsing...",
     "loadExample": "Load Example",
     "clearAll": "Clear All",
+    "eventInstance": "Log",
+    "fallbackExample": "Built-in Example",
     "ndjsonTitle": "Normalized NDJSON",
     "wfsTitle": "WFS Schema",
     "wflTitle": "WFL Rule",
@@ -219,6 +222,10 @@
     "coveredAssociationRules": "Covered Correlation Rules",
     "supportedSourceTypes": "Supported Source Types",
     "supportedSinkTypes": "Supported Sink Types",
+    "enabledSources": "Enabled Sources",
+    "enabledSinks": "Enabled Business Sinks",
+    "category": "Category",
+    "count": "Count",
     "deviceType": "Device Type",
     "logTypeCount": "Log Type",
     "windowStructure": "Window Structure",

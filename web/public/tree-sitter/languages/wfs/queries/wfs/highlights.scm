@@ -1,5 +1,7 @@
 ; WFS Syntax Highlighting (tree-sitter native)
 
+(identifier) @variable
+
 [
   "window"
   "stream"
@@ -12,6 +14,10 @@
 (comment) @comment
 (string) @string
 (duration) @number
+
+[ "{" "}" "[" "]" ] @punctuation.bracket
+[ ":" "," "/" ] @punctuation.delimiter
+"=" @operator
 
 [
   "array"
@@ -28,8 +34,7 @@
 
 (window_declaration name: (identifier) @function.definition)
 (field_declaration name: (_) @property)
-(field_declaration type: (_) @type)
+(field_declaration type: (_) @type.builtin)
 (time_attribute (identifier) @property)
+(stream_attribute (string) @string.special)
 (quoted_identifier) @string.special
-
-(identifier) @variable

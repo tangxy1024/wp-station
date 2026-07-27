@@ -125,9 +125,11 @@ async function postTextFormat(path, code, fallbackMessage) {
  * 获取调试示例列表
  * @returns {Promise<Record<string, {name: string, wpl_code: string, oml_code: string, sample_data: string}>>}
  */
-export async function fetchDebugExamples() {
+export async function fetchDebugExamples(system = 'wparse') {
   try {
-    const response = await httpRequest.get('/debug/examples');
+    const response = await httpRequest.get('/debug/examples', {
+      params: { system },
+    });
     const data = response && typeof response === 'object' && 'data' in response ? response.data : response;
     if (data && data.success === false) {
       const errorMessage = data.error?.message || '获取示例失败，请稍后重试';
