@@ -11,6 +11,22 @@ Note:
 - 每条只记录提交里能直接看到的事实，不依赖 `README.md` 或 `AGENTS.md` 的补充描述。
 - `0.3.x` 为当前未发布的大版本更新线，与下方 `0.2.x` 历史版本分开记录。
 
+## [0.3.5] - 2026-07-31
+Commit: `20e7f0b`
+
+### Added
+- 登录页新增本地验证码校验：验证码在前端随机生成并展示，用户输入匹配后才发起登录请求，验证码支持点击刷新；补充对应的中英文 i18n 文案与验证码按钮的焦点、禁用态样式
+
+### Changed
+- `Cargo.toml`: version `0.3.4` -> `0.3.5`
+- 沙盒任务 ID 格式从 `sandbox-<timestamp>-<suffix>` 调整为 `sandbox-<system>-<timestamp>-<suffix>`，在任务标识中显式区分 `wparse` 与 `wfusion`
+- `SandboxRun::new` 新增 `system: SystemKind` 参数，用于构造带系统前缀的任务 ID
+- `WFusion` 沙盒生成阶段新增 `--no-oracle` 参数，跳过场景期望输出（oracle）校验，避免 oracle 编译失败阻断事件进入已启动的 wfusion 运行时
+- 沙盒历史清理策略调整：旧任务的 project 目录整体删除（不再保留合并后的配置目录），所有任务的阶段日志长期保留
+- 前端路由鉴权层级调整：`RequireAuth` 提升至 `SystemProvider` 外层，避免系统 URL 同步覆盖登录跳转
+- `SystemContext` 默认系统行为收敛：直接访问不带 `system` 参数的地址时始终从 WParse 开始，移除自动向 URL 追加系统参数的副作用导航
+- 登录页表单字段从“可选”改为必填（用户名、密码）或本地校验（验证码），placeholder 与标签文案同步更新
+
 ## [0.3.4] - 2026-07-27
 Commit: `pending`
 

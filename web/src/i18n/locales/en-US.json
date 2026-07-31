@@ -919,6 +919,8 @@
       "preflight_check": "Preflight check",
       "start_daemon": "Start wparse service",
       "run_wpgen": "Start wpgen service",
+      "start_daemon_wfusion": "Start wfusion service",
+      "run_wpgen_wfusion": "Start wfgen service",
       "analyse_runtime_output": "Analyze runtime output",
       "finalize_result": "Finalize result"
     },
