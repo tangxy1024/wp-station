@@ -380,12 +380,12 @@ fn cleanup_after_run_keeps_recent_workspace_outputs() {
 }
 
 #[test]
-fn cleanup_after_run_prunes_old_runtime_artifacts_but_keeps_merged_config() {
+fn cleanup_after_run_prunes_old_projects_but_keeps_all_logs() {
     let task_ids = [
-        "sandbox-9000000000201-oldest",
-        "sandbox-9000000000202-middle-a",
-        "sandbox-9000000000203-middle-b",
-        "sandbox-9000000000204-latest",
+        "sandbox-wparse-9000000000201-oldest",
+        "sandbox-wfusion-9000000000202-middle-a",
+        "sandbox-wparse-9000000000203-middle-b",
+        "sandbox-wfusion-9000000000204-latest",
     ];
 
     for task_id in task_ids {
@@ -401,12 +401,8 @@ fn cleanup_after_run_prunes_old_runtime_artifacts_but_keeps_merged_config() {
         .cleanup_after_run(false)
         .expect("cleanup sandbox history");
 
-    assert!(oldest.project_dir.join("conf").is_dir());
-    assert!(oldest.project_dir.join("connectors").is_dir());
-    assert!(oldest.project_dir.join("models").is_dir());
-    assert!(oldest.project_dir.join("topology").is_dir());
-    assert!(!oldest.project_dir.join("data").exists());
-    assert!(!oldest.logs_dir.exists());
+    assert!(!oldest.project_dir.exists());
+    assert!(oldest.logs_dir.join("analysis.log").is_file());
 
     assert!(middle_a.project_dir.join("data/out_dat/miss.dat").is_file());
     assert!(middle_a.logs_dir.join("analysis.log").is_file());

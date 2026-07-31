@@ -88,11 +88,11 @@ function App() {
           <Route
             path="/*"
             element={
-              // AssistTaskProvider 在路由层内部，可安全使用 useNavigate
-              <SystemProvider>
-                <AssistTaskProvider>
-                  <Navigation onLocaleChange={handleLocaleChange}>
-                    <RequireAuth>
+              <RequireAuth>
+                {/* 鉴权通过后再初始化系统和页面框架，避免系统 URL 同步覆盖登录跳转。 */}
+                <SystemProvider>
+                  <AssistTaskProvider>
+                    <Navigation onLocaleChange={handleLocaleChange}>
                       <Routes>
                         <Route path="/" element={<Navigate to="/rule-manage" replace />} />
                         <Route path="/features" element={<FeaturesPage />} />
@@ -112,10 +112,10 @@ function App() {
                       </Routes>
                       {/* 全局任务中心悬浮按钮，在所有认证页面可见 */}
                       <AssistTaskCenter />
-                    </RequireAuth>
-                  </Navigation>
-                </AssistTaskProvider>
-              </SystemProvider>
+                    </Navigation>
+                  </AssistTaskProvider>
+                </SystemProvider>
+              </RequireAuth>
             }
           />
         </Routes>

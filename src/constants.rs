@@ -164,7 +164,7 @@ pub mod sandbox {
     pub const DEFAULT_HISTORY_LIMIT: u64 = 20;
     /// 单个阶段日志返回给前端时允许展示的最大行数，避免日志过长拖慢页面。
     pub const MAX_LOG_LINES: usize = 500;
-    /// 沙盒执行产物仅保留最近 3 次；更早任务只保留合并后的配置目录，便于排查配置问题。
+    /// 沙盒项目目录仅保留最近 3 次；所有任务的阶段日志长期保留。
     pub const RUNTIME_ARTIFACT_RETENTION_RUNS: usize = 3;
 
     /// WParse 沙盒运行产物中重点关注的异常输出文件及其对应的人类可读说明。

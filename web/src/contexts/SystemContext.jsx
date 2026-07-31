@@ -11,6 +11,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AVAILABLE_SYSTEMS,
+  DEFAULT_SYSTEM,
   buildSystemSearch,
   ensureSystemInitialized,
   getSharedSystem,
@@ -44,7 +45,8 @@ export function SystemProvider({ children }) {
   const navigate = useNavigate();
   const [currentSystem, setCurrentSystem] = useState(() => {
     const searchParams = new URLSearchParams(location.search || '');
-    return ensureSystemInitialized(searchParams.get('system'));
+    // 直接访问不带 system 的地址时始终从 WParse 开始，只有显式 query 才恢复其他系统。
+    return ensureSystemInitialized(searchParams.get('system') || DEFAULT_SYSTEM);
   });
   const [isSwitchingSystem, setIsSwitchingSystem] = useState(false);
   const switchTimerRef = useRef(null);
@@ -74,16 +76,6 @@ export function SystemProvider({ children }) {
       return;
     }
 
-    if (!querySystem) {
-      const nextSearch = buildSystemSearch(location.search, currentSystem);
-      navigate(
-        {
-          pathname: location.pathname,
-          search: nextSearch ? `?${nextSearch}` : '',
-        },
-        { replace: true },
-      );
-    }
   }, [currentSystem, location.pathname, location.search, navigate]);
 
   useEffect(() => {

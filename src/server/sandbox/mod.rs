@@ -315,7 +315,12 @@ pub struct SandboxRun {
 
 impl SandboxRun {
     /// 构造新的运行记录，并根据阶段顺序初始化等待状态。
-    pub fn new(release_id: i32, overrides: Vec<FileOverride>, options: RunOptions) -> Self {
+    pub fn new(
+        release_id: i32,
+        system: SystemKind,
+        overrides: Vec<FileOverride>,
+        options: RunOptions,
+    ) -> Self {
         let created_at = Utc::now();
         let random_suffix: String = (&mut rand::rng())
             .sample_iter(Alphanumeric)
@@ -323,7 +328,8 @@ impl SandboxRun {
             .map(char::from)
             .collect();
         let task_id = format!(
-            "sandbox-{}-{}",
+            "sandbox-{}-{}-{}",
+            system.as_ref(),
             created_at.timestamp_millis(),
             random_suffix
         );

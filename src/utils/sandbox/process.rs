@@ -158,7 +158,7 @@ pub async fn run_generator(
         SystemKind::Wfusion => {
             let scenario = find_wfusion_scenario(project_dir)?;
             format!(
-                "{} gen --scenario {} --out /tmp/wfgen-out --send --addr 127.0.0.1:{}",
+                "{} gen --scenario {} --out /tmp/wfgen-out --send --addr 127.0.0.1:{} --no-oracle",
                 binary.display(),
                 scenario.display(),
                 WFUSION_RUNTIME_TCP_PORT
@@ -192,7 +192,10 @@ pub async fn run_generator(
                 .arg("/tmp/wfgen-out")
                 .arg("--send")
                 .arg("--addr")
-                .arg(&runtime_addr);
+                .arg(&runtime_addr)
+                // 沙盒生成阶段只负责发送事件，关闭场景期望输出（oracle）校验，
+                // 避免 oracle 编译失败阻断事件进入已启动的 wfusion。
+                .arg("--no-oracle");
         }
     }
     cmd.current_dir(project_dir).stdout(stdout).stderr(stderr);

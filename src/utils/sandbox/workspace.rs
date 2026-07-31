@@ -6,8 +6,8 @@ use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use crate::constants::project::{
-    DIR_BUSINESS_D, DIR_CONF, DIR_CONNECTORS, DIR_INFRA_D, DIR_MODELS, DIR_RUNTIME, DIR_SINKS,
-    DIR_SOURCES, DIR_TOPOLOGY, FILE_WFUSION,
+    DIR_BUSINESS_D, DIR_CONF, DIR_INFRA_D, DIR_MODELS, DIR_RUNTIME, DIR_SINKS, DIR_SOURCES,
+    DIR_TOPOLOGY, FILE_WFUSION,
 };
 use crate::constants::sandbox::{
     OUTPUT_PATHS, RUNTIME_ARTIFACT_RETENTION_RUNS, RUNTIME_HEADER_MODE, RUNTIME_OUTPUT_ADDR,
@@ -20,15 +20,6 @@ use crate::server::{FileOverride, Setting, sandbox::OutputFileStatus};
 use crate::utils::{
     SystemKind, compose_repo_layout_into, layout_for_system, runtime_default_configs_dir,
 };
-
-/// 仅保留最近几次运行的完整执行产物，其余历史任务只保留合并后的项目目录。
-const SANDBOX_PROJECT_PERSISTED_DIRS: [&str; 5] = [
-    DIR_CONF,
-    DIR_CONNECTORS,
-    DIR_MODELS,
-    DIR_RUNTIME,
-    DIR_TOPOLOGY,
-];
 
 /// 管理沙盒运行时的临时项目目录与日志目录。
 ///
@@ -102,8 +93,7 @@ impl SandboxWorkspace {
         Ok(target)
     }
 
-    /// 任务完成后清理由工具生成的 project 目录。
-    /// 当前会保留合并后的配置目录，并仅对历史运行裁剪 `data/logs` 等执行产物。
+    /// 任务完成后裁剪历史 project 目录，所有阶段日志均保留。
     pub fn cleanup_after_run(&self, _keep_workspace: bool) -> Result<(), AppError> {
         if let Some(sandbox_root) = self.root.parent() {
             prune_sandbox_runtime_artifacts(sandbox_root)?;
@@ -1446,7 +1436,7 @@ fn relative_to_workspace_root(path: &Path) -> Option<PathBuf> {
         .ok()
 }
 
-/// 历史沙盒仅保留最近 3 次的运行产物，旧任务只保留合并后的配置目录。
+/// 历史沙盒仅保留最近 3 次的 project 目录，所有任务的 logs 目录均保留。
 fn prune_sandbox_runtime_artifacts(sandbox_root: &Path) -> Result<(), AppError> {
     if !sandbox_root.exists() {
         return Ok(());
@@ -1503,47 +1493,25 @@ fn sandbox_workspace_sort_key(
     })
 }
 
-/// 从 `sandbox-<timestamp>-<suffix>` 任务 ID 中提取时间戳。
+/// 从新格式 `sandbox-<system>-<timestamp>-<suffix>` 或旧格式
+/// `sandbox-<timestamp>-<suffix>` 的任务 ID 中提取时间戳。
 fn parse_sandbox_task_timestamp(task_id: &str) -> Option<i64> {
     let mut segments = task_id.split('-');
     if segments.next()? != "sandbox" {
         return None;
     }
+    let second = segments.next()?;
+    if let Ok(timestamp) = second.parse::<i64>() {
+        return Some(timestamp);
+    }
     segments.next()?.parse::<i64>().ok()
 }
 
-/// 删除历史工作区中的运行产物，只保留合并后的项目配置目录。
+/// 删除历史工作区中的 project 目录，保留所有阶段日志供长期回看。
 fn prune_workspace_runtime_artifacts(workspace_dir: &Path) -> Result<(), AppError> {
     let project_dir = workspace_dir.join("project");
-    if project_dir.is_dir() {
-        for entry in fs::read_dir(&project_dir).map_err(AppError::internal)? {
-            let entry = entry.map_err(AppError::internal)?;
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
-            if SANDBOX_PROJECT_PERSISTED_DIRS
-                .iter()
-                .any(|dir| *dir == name)
-            {
-                continue;
-            }
-            remove_path(&path)?;
-        }
-    }
-
-    let logs_dir = workspace_dir.join("logs");
-    if logs_dir.exists() {
-        fs::remove_dir_all(&logs_dir).map_err(AppError::internal)?;
-    }
-
-    Ok(())
-}
-
-/// 删除单个文件或目录。
-fn remove_path(path: &Path) -> Result<(), AppError> {
-    if path.is_dir() {
-        fs::remove_dir_all(path).map_err(AppError::internal)?;
-    } else if path.exists() {
-        fs::remove_file(path).map_err(AppError::internal)?;
+    if project_dir.exists() {
+        fs::remove_dir_all(&project_dir).map_err(AppError::internal)?;
     }
     Ok(())
 }

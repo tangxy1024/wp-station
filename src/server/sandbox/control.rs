@@ -42,7 +42,7 @@ pub async fn create_sandbox_run_logic(
     let overrides_len = overrides.len();
 
     let result = async {
-        let run = SandboxRun::new(release_id, overrides, sanitized_options);
+        let run = SandboxRun::new(release_id, release_system, overrides, sanitized_options);
         insert_sandbox_run_record(&run)
             .await
             .map_err(AppError::from)?;
