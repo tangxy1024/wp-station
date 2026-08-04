@@ -2995,6 +2995,7 @@ mark.diff-highlight {
 .main-content {
   display: grid;
   grid-template-columns: 240px 1fr;
+  grid-template-rows: minmax(0, 1fr);
   gap: 24px;
   padding: 30px 36px 48px;
   /* 防止内部内容横向撑出，避免出现不必要的横向滚动条 */
@@ -3002,6 +3003,43 @@ mark.diff-highlight {
   /* 让主内容区域在 app-shell-body 内撑满高度 */
   flex: 1 1 auto;
   min-height: 0;
+}
+
+/* 中等宽度（含放大场景）：缩小侧边栏，避免内容区被挤爆 */
+@media (max-width: 1100px) {
+  .main-content {
+    grid-template-columns: 180px 1fr;
+    gap: 16px;
+  }
+}
+
+/* 窄屏 / 高倍放大：侧边栏与内容区上下堆叠 */
+@media (max-width: 800px) {
+  .main-content {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 14px;
+    padding: 16px 12px 24px;
+  }
+
+  .main-content > .side-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 14px 16px;
+  }
+
+  .main-content > .side-nav h2 {
+    margin: 0;
+    font-size: 15px;
+  }
+
+  .main-content > .side-nav .side-item {
+    width: auto;
+    padding: 8px 14px;
+    font-size: 13px;
+  }
 }
 
 .main-content.no-side-nav {
@@ -3019,6 +3057,8 @@ mark.diff-highlight {
   /* 右侧内容区域在 main-content 内撑满高度 */
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 /* 侧边栏导航样式（与旧版本一致） */
@@ -4793,6 +4833,79 @@ mark.diff-highlight {
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.json-result-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.json-result-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.json-result-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.json-result-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.json-result-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* CodeMirror 内部滚动条美化 */
+.wfusion-rule-editor .cm-scroller {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.wfusion-rule-editor .cm-scroller::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.wfusion-rule-editor .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.wfusion-rule-editor .cm-scroller::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.wfusion-rule-editor .cm-scroller::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* Ant Table 内部滚动条美化 */
+.wfusion-rule-editor .ant-table-body {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 128, 128, 0.35) transparent;
+}
+
+.wfusion-rule-editor .ant-table-body::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.wfusion-rule-editor .ant-table-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.wfusion-rule-editor .ant-table-body::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.35);
+  border-radius: 3px;
+}
+
+.wfusion-rule-editor .ant-table-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.55);
 }
 
 /* 分页样式 */
@@ -4991,6 +5104,13 @@ mark.diff-highlight {
 .wfusion-rule-editor--compact {
   gap: 14px;
   height: 100%;
+  overflow: hidden;
+}
+
+/* 防止内容溢出触发页面级滚动，确保各面板独立滚动 */
+.wfusion-rule-editor-page > .panel.is-visible,
+.wfusion-rule-editor-page > .panel.is-visible > .panel-body {
+  overflow: hidden;
 }
 
 .wfusion-rule-editor__title {
@@ -5022,34 +5142,42 @@ mark.diff-highlight {
 }
 
 .wfusion-rule-editor__log-input {
-  height: clamp(140px, 22vh, 220px);
-  min-height: clamp(140px, 22vh, 220px);
-  max-height: clamp(140px, 22vh, 220px);
+  height: clamp(120px, 18vh, 50vh);
+  min-height: 120px;
+  max-height: 50vh;
+  overflow: hidden;
 }
 
 .wfusion-rule-editor__workspace {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  flex-wrap: nowrap;
   gap: 16px;
 }
 
 .wfusion-rule-editor__editor-col {
   flex: 1.05 1 560px;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .wfusion-rule-editor__result-col {
   flex: 0.95 1 420px;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .wfusion-rule-editor__editor-header {
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .wfusion-rule-editor__editor-title {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   flex: 1 1 auto;
   gap: 10px;
   min-width: 0;
@@ -5058,10 +5186,11 @@ mark.diff-highlight {
 
 .wfusion-rule-editor__editor-toggle {
   width: fit-content;
+  flex-shrink: 0;
 }
 
 .wfusion-rule-editor__editor-actions {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .wfusion-rule-editor__result-panel {
@@ -5071,9 +5200,31 @@ mark.diff-highlight {
 .wfusion-rule-editor__result-body {
   flex: 1 1 auto;
   min-height: 0;
-  height: clamp(300px, calc(100vh - 430px), 500px);
-  max-height: clamp(300px, calc(100vh - 430px), 500px);
-  overflow: hidden;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 128, 128, 0.35) transparent;
+}
+
+.wfusion-rule-editor__result-body::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.wfusion-rule-editor__result-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.wfusion-rule-editor__result-body::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.35);
+  border-radius: 3px;
+}
+
+.wfusion-rule-editor__result-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.55);
+}
+
+.wfusion-rule-editor__result-body::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .wfusion-rule-editor__workspace .panel-block,
@@ -5082,9 +5233,8 @@ mark.diff-highlight {
 }
 
 .wfusion-rule-editor__rule-input {
-  height: clamp(320px, calc(100vh - 410px), 520px) !important;
-  min-height: clamp(320px, calc(100vh - 410px), 520px) !important;
-  max-height: clamp(320px, calc(100vh - 410px), 520px) !important;
+  height: clamp(260px, 45vh, 65vh) !important;
+  min-height: 260px;
 }
 
 .wfusion-rule-editor__result {
@@ -5245,9 +5395,8 @@ mark.diff-highlight {
 
 @media (max-width: 960px) {
   .wfusion-rule-editor__log-input {
-    height: 200px;
-    min-height: 200px;
-    max-height: 200px;
+    min-height: 120px;
+    max-height: 40vh;
   }
 
   .wfusion-rule-editor__workspace {
@@ -5263,14 +5412,12 @@ mark.diff-highlight {
   }
 
   .wfusion-rule-editor__rule-input {
-    height: 360px !important;
-    min-height: 360px !important;
-    max-height: 360px !important;
+    height: clamp(240px, 40vh, 55vh) !important;
+    min-height: 240px;
   }
 
   .wfusion-rule-editor__result-body {
-    height: 360px;
-    max-height: 360px;
+    min-height: 200px;
   }
 
   .wfusion-rule-editor__stats {
