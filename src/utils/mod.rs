@@ -29,13 +29,14 @@ pub use config_templates::{
 };
 pub use health_check::check_device_health;
 pub use integration_overview::{
-    IntegrationRuntimeItem, IntegrationRuntimeOverview,
+    IntegrationRuleItem, IntegrationRuleLogType, IntegrationRuleOverview, IntegrationRuntimeItem,
+    IntegrationRuntimeOverview, load_integration_rule_overview_from_layout,
     load_integration_runtime_overview_from_layout,
 };
 pub use knowledge::{
     configured_provider_name, is_knowledge_loaded, load_knowledge, load_sqlite_knowledge,
-    reload_knowledge, reload_sqlite_knowledge, sql_knowdb_list, sql_query, sql_query_rows,
-    unload_knowledge,
+    reload_knowledge, reload_sqlite_knowledge, should_reload_knowledge_source, sql_knowdb_list,
+    sql_query, sql_query_rows, unload_knowledge,
 };
 pub use oml::OmlFormatter;
 pub use pagination::{MemoryPaginate, PageQuery, PageResponse};

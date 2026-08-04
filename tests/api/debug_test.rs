@@ -86,13 +86,13 @@ max = 10
     let status_resp = test::call_service(&app, status_req).await;
     assert_eq!(status_resp.status(), StatusCode::OK);
     let status_body: serde_json::Value = test::read_body_json(status_resp).await;
-    assert!(
-        status_body
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item.get("tag_name").and_then(|n| n.as_str()) == Some(know_file.as_str()))
-    );
+    assert!(status_body.as_array().unwrap().iter().any(|item| {
+        item.get("tag_name").and_then(|n| n.as_str()) == Some(know_file.as_str())
+            && item.get("label").and_then(|n| n.as_str()) == Some(know_file.as_str())
+            && item.get("suggested_sql").and_then(|n| n.as_str())
+                == Some(format!("select * from {know_file} limit 20;").as_str())
+            && item.get("source_kind").and_then(|n| n.as_str()) == Some("local")
+    }));
 
     // 再执行本地 knowledge SQL；此前 status 查询会误删 authority.sqlite，导致这里 connect db 失败。
     let query_req = test::TestRequest::post()
@@ -115,6 +115,27 @@ max = 10
         serde_json::from_slice(&query_body_bytes).expect("parse query body");
     assert_eq!(query_body["success"], true);
     assert_eq!(query_body["columns"], serde_json::json!(["value"]));
+
+    let actual_table_req = test::TestRequest::post()
+        .uri("/api/debug/knowledge/query")
+        .set_json(serde_json::json!({
+            "table": know_file,
+            "source_kind": "local",
+            "sql": format!("SELECT * FROM {know_file} LIMIT 20")
+        }))
+        .to_request();
+    let actual_table_resp = test::call_service(&app, actual_table_req).await;
+    let actual_table_status = actual_table_resp.status();
+    let actual_table_body_bytes = test::read_body(actual_table_resp).await;
+    let actual_table_body_text = String::from_utf8_lossy(&actual_table_body_bytes).to_string();
+    assert_eq!(
+        actual_table_status,
+        StatusCode::OK,
+        "actual table body: {actual_table_body_text}"
+    );
+    let actual_table_body: serde_json::Value =
+        serde_json::from_slice(&actual_table_body_bytes).expect("parse actual table body");
+    assert_eq!(actual_table_body["success"], true);
 
     // start a performance task and fetch it back
     let run_req = test::TestRequest::post()

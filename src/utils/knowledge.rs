@@ -12,7 +12,7 @@ use std::sync::RwLock;
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
 use wp_knowledge::facade;
-use wp_knowledge::loader::{self, ProviderKind};
+use wp_knowledge::loader::{self, SqlProviderKind};
 use wp_knowledge::mem::RowData;
 use wp_model_core::model::DataField;
 
@@ -28,6 +28,8 @@ struct KnowledgeContext {
     auth_path: PathBuf,
     auth_uri: String,
 }
+
+const LEGACY_PROVIDER_FORMAT_MESSAGE: &str = "knowdb.toml 使用了旧版 [provider] 配置格式；升级到 wp-knowledge 0.14+ 后，请改为 [provider.sqldb] 或 [provider.redis]。当前旧格式会回退到本地 authority，无法查询远程数据库。";
 
 lazy_static! {
     /// 当前知识库运行时已加载的数据源类型。
@@ -80,6 +82,10 @@ fn is_loaded_source(source: KnowledgeLoadedSource) -> bool {
     *KNOWLEDGE_LOADED.read().unwrap() == Some(source)
 }
 
+fn current_loaded_source() -> Option<KnowledgeLoadedSource> {
+    *KNOWLEDGE_LOADED.read().unwrap()
+}
+
 fn set_loaded_source(source: KnowledgeLoadedSource) {
     *KNOWLEDGE_LOADED.write().unwrap() = Some(source);
 }
@@ -90,6 +96,8 @@ pub fn configured_provider_name(layout: &ProjectLayout) -> Result<Option<String>
         return Ok(None);
     };
 
+    ensure_supported_provider_format(&context)?;
+
     let dict = Default::default();
     let (conf, _, _) = loader::parse_knowdb_conf(&context.root, &context.knowdb_path, &dict)
         .map_err(|e| {
@@ -97,10 +105,20 @@ pub fn configured_provider_name(layout: &ProjectLayout) -> Result<Option<String>
             AppError::internal(e)
         })?;
 
-    Ok(conf.provider.map(|provider| match provider.kind {
-        ProviderKind::Postgres => "postgres".to_string(),
-        ProviderKind::Mysql => "mysql".to_string(),
-        ProviderKind::SqliteAuthority => "sqlite".to_string(),
+    Ok(conf.provider().and_then(|provider| {
+        if let Some(sqldb) = provider.sqldb {
+            let name = match sqldb.kind {
+                SqlProviderKind::Postgres => "postgres",
+                SqlProviderKind::Mysql => "mysql",
+            };
+            return Some(name.to_string());
+        }
+
+        if provider.redis.is_some() {
+            return Some("redis".to_string());
+        }
+
+        None
     }))
 }
 
@@ -114,6 +132,8 @@ pub fn load_knowledge(layout: &ProjectLayout) -> anyhow::Result<()> {
     let Some(context) = build_knowledge_context(layout)? else {
         return Ok(());
     };
+
+    ensure_supported_provider_format(&context).map_err(|err| anyhow::anyhow!(err.to_string()))?;
 
     info!(
         "初始化知识库: root={}, knowdb={}",
@@ -192,10 +212,18 @@ pub fn load_sqlite_knowledge(layout: &ProjectLayout) -> anyhow::Result<()> {
     })?;
 
     let ro_uri = format!("file:{}?mode=ro&uri=true", context.auth_path.display());
-    facade::init_thread_cloned_from_authority(&ro_uri).map_err(|e| {
-        error!("初始化本地知识库 authority 失败: {}", e);
-        AppError::internal(e)
-    })?;
+    match facade::init_thread_cloned_from_authority(&ro_uri) {
+        Ok(_) => {}
+        Err(e) => {
+            let error_msg = format!("{:?}", e);
+            if error_msg.contains("already initialized") {
+                info!("本地知识库 authority 已初始化（全局单例），继续使用");
+            } else {
+                error!("初始化本地知识库 authority 失败: {}", e);
+                return Err(AppError::internal(e).into());
+            }
+        }
+    }
 
     wp_knowledge::runtime::runtime().configure_result_cache(
         conf.cache.enabled,
@@ -228,6 +256,15 @@ pub fn reload_knowledge(layout: &ProjectLayout) -> anyhow::Result<()> {
 pub fn reload_sqlite_knowledge(layout: &ProjectLayout) -> anyhow::Result<()> {
     unload_knowledge();
     load_sqlite_knowledge(layout)
+}
+
+pub fn should_reload_knowledge_source(source: &str) -> bool {
+    match (source, current_loaded_source()) {
+        ("configured", Some(KnowledgeLoadedSource::Configured)) => false,
+        ("sqlite", Some(KnowledgeLoadedSource::SqliteAuthority)) => false,
+        (_, Some(_)) => true,
+        _ => false,
+    }
 }
 
 fn build_knowledge_context(layout: &ProjectLayout) -> Result<Option<KnowledgeContext>, AppError> {
@@ -280,4 +317,33 @@ fn ensure_models_root_exists(root: &Path) -> Result<Option<PathBuf>, AppError> {
 
     let canonical = root.canonicalize().map_err(AppError::internal)?;
     Ok(Some(canonical))
+}
+
+fn ensure_supported_provider_format(context: &KnowledgeContext) -> Result<(), AppError> {
+    let knowdb_content = fs::read_to_string(&context.knowdb_path).map_err(AppError::internal)?;
+    if has_legacy_provider_format(&knowdb_content) {
+        error!(
+            "检测到旧版知识库 provider 配置格式: path={}",
+            context.knowdb_path.display()
+        );
+        return Err(AppError::validation(LEGACY_PROVIDER_FORMAT_MESSAGE));
+    }
+    Ok(())
+}
+
+fn has_legacy_provider_format(knowdb_content: &str) -> bool {
+    let normalized = knowdb_content.replace("\r\n", "\n");
+    let has_nested_provider =
+        normalized.contains("[provider.sqldb]") || normalized.contains("[provider.redis]");
+    if has_nested_provider || !normalized.contains("[provider]") {
+        return false;
+    }
+
+    normalized.contains("\nkind =")
+        || normalized.contains("\nconnection_uri =")
+        || normalized.contains("\npool_size =")
+        || normalized.contains("\nmin_connections =")
+        || normalized.contains("\nacquire_timeout_ms =")
+        || normalized.contains("\nidle_timeout_ms =")
+        || normalized.contains("\nmax_lifetime_ms =")
 }

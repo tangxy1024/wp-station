@@ -3,13 +3,17 @@
 //! 负责扫描当前项目中的输入源与业务输出源配置，并结合 connectors 模板提取
 //! 页面展示所需的关键信息，避免前端重复解析 TOML 与 connector 类型。
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::Path;
 
+use regex::Regex;
 use serde::Deserialize;
 
-use crate::constants::project::{DIR_BUSINESS_D, DIR_SINKS, DIR_SOURCES, DIR_TOPOLOGY, FILE_WPSRC};
+use crate::constants::project::{
+    DIR_BUSINESS_D, DIR_MODELS, DIR_SINKS, DIR_SOURCES, DIR_TOPOLOGY, DIR_WPL, FILE_WPL_PARSE,
+    FILE_WPSRC,
+};
 use crate::db::RuleType;
 use crate::error::AppError;
 use crate::server::ProjectLayout;
@@ -32,6 +36,25 @@ pub struct IntegrationRuntimeOverview {
     pub sinks: Vec<IntegrationRuntimeItem>,
     pub supported_source_type_count: usize,
     pub supported_sink_type_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntegrationRuleLogType {
+    pub key: String,
+    pub log_type_name: String,
+    pub rule_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntegrationRuleItem {
+    pub key: String,
+    pub device_type: String,
+    pub log_types: Vec<IntegrationRuleLogType>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntegrationRuleOverview {
+    pub items: Vec<IntegrationRuleItem>,
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +128,50 @@ pub fn load_integration_runtime_overview_from_layout(
         supported_source_type_count: source_meta_map.len(),
         supported_sink_type_count: sink_meta_map.len(),
     })
+}
+
+/// 扫描项目中的 WPL 规则包，并提取接入概览页面展示所需的设备类型与日志类型摘要。
+pub fn load_integration_rule_overview_from_layout(
+    layout: &ProjectLayout,
+) -> Result<IntegrationRuleOverview, AppError> {
+    let wpl_root = layout.models_root.join(DIR_MODELS).join(DIR_WPL);
+    if !wpl_root.exists() {
+        return Ok(IntegrationRuleOverview { items: Vec::new() });
+    }
+
+    let mut package_dirs = fs::read_dir(&wpl_root)
+        .map_err(AppError::internal)?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+    package_dirs.sort();
+
+    let mut items = Vec::new();
+    for package_dir in package_dirs {
+        let package_key = package_dir
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if package_key.is_empty() || is_ignored_wpl_identifier(&package_key) {
+            continue;
+        }
+
+        let parse_file = package_dir.join(FILE_WPL_PARSE);
+        if !parse_file.exists() {
+            continue;
+        }
+
+        let content = fs::read_to_string(&parse_file).map_err(AppError::internal)?;
+        if let Some(item) = extract_wpl_rule_overview(&content, &package_key) {
+            items.push(item);
+        }
+    }
+
+    items.sort_by(|left, right| left.device_type.cmp(&right.device_type));
+    Ok(IntegrationRuleOverview { items })
 }
 
 fn build_connector_meta_map(
@@ -278,6 +345,142 @@ fn build_effective_params(
     }
 
     merged
+}
+
+fn is_ignored_wpl_identifier(value: &str) -> bool {
+    value.trim().to_ascii_lowercase().starts_with("ignore")
+}
+
+fn parse_tag_attributes(raw_tag: &str) -> HashMap<String, String> {
+    let mut attributes = HashMap::new();
+    let pattern = Regex::new(r#"([a-zA-Z0-9_]+)\s*:\s*"([^"]*)""#).expect("valid tag regex");
+
+    for capture in pattern.captures_iter(raw_tag) {
+        let key = capture
+            .get(1)
+            .map(|value| value.as_str())
+            .unwrap_or_default();
+        let value = capture
+            .get(2)
+            .map(|value| value.as_str())
+            .unwrap_or_default();
+        if !key.is_empty() {
+            attributes.insert(key.to_string(), value.to_string());
+        }
+    }
+
+    attributes
+}
+
+fn extract_tag_payload(raw_annotation: &str) -> &str {
+    let pattern = Regex::new(r#"tag\((.*?)\)"#).expect("valid tag wrapper regex");
+    pattern
+        .captures(raw_annotation)
+        .and_then(|capture| capture.get(1).map(|value| value.as_str()))
+        .unwrap_or(raw_annotation)
+}
+
+fn extract_decl_name(line: &str, keyword: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    let remainder = trimmed.strip_prefix(keyword)?.trim_start();
+    let name = remainder
+        .chars()
+        .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+        .collect::<String>();
+
+    if name.is_empty() { None } else { Some(name) }
+}
+
+fn extract_wpl_rule_overview(content: &str, fallback_package: &str) -> Option<IntegrationRuleItem> {
+    let mut package_key = fallback_package.trim().to_string();
+    let mut package_tag_attributes = HashMap::new();
+    let mut grouped = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut pending_annotation = String::new();
+
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        if line.starts_with("#[") && line.ends_with(']') {
+            pending_annotation = line
+                .trim_start_matches("#[")
+                .trim_end_matches(']')
+                .trim()
+                .to_string();
+            continue;
+        }
+
+        if let Some(name) = extract_decl_name(line, "package") {
+            package_key = name;
+            package_tag_attributes =
+                parse_tag_attributes(extract_tag_payload(pending_annotation.as_str()));
+            pending_annotation.clear();
+            continue;
+        }
+
+        if let Some(rule_key) = extract_decl_name(line, "rule") {
+            if rule_key.is_empty() || is_ignored_wpl_identifier(&rule_key) {
+                pending_annotation.clear();
+                continue;
+            }
+
+            let rule_tag_attributes =
+                parse_tag_attributes(extract_tag_payload(pending_annotation.as_str()));
+            let log_type_name = rule_tag_attributes
+                .get("log_desc")
+                .map(String::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(rule_key.as_str())
+                .trim()
+                .to_string();
+
+            grouped.entry(log_type_name).or_default().insert(rule_key);
+            pending_annotation.clear();
+            continue;
+        }
+
+        pending_annotation.clear();
+    }
+
+    if package_key.is_empty() || is_ignored_wpl_identifier(&package_key) {
+        return None;
+    }
+
+    let device_type = package_tag_attributes
+        .get("dev_name")
+        .map(String::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            package_tag_attributes
+                .get("dev_type")
+                .map(String::as_str)
+                .filter(|value| !value.trim().is_empty())
+        })
+        .unwrap_or(package_key.as_str())
+        .trim()
+        .to_string();
+
+    let log_types = grouped
+        .into_iter()
+        .map(|(log_type_name, rule_keys)| {
+            let rule_keys = rule_keys.into_iter().collect::<Vec<_>>();
+            let key = format!("{log_type_name}-{}", rule_keys.join("|"));
+
+            IntegrationRuleLogType {
+                key,
+                log_type_name,
+                rule_keys,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Some(IntegrationRuleItem {
+        key: package_key,
+        device_type,
+        log_types,
+    })
 }
 
 fn infer_connector_type(

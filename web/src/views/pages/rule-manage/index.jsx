@@ -356,6 +356,11 @@ function RuleManagePage() {
     wplSampleFile: '',
     knowledgeConfigFile: '',
   });
+  const ruleFilesMetaRef = React.useRef({
+    wplParseFile: '',
+    wplSampleFile: '',
+    knowledgeConfigFile: '',
+  });
   const activeWplFileRef = React.useRef('');
   const activeOmlFileRef = React.useRef('');
   const wplOverviewCacheRef = React.useRef(new Map());
@@ -375,49 +380,17 @@ function RuleManagePage() {
   }, [activeOmlFile]);
 
   const applyRuleFilesMeta = useCallback((meta) => {
-    setRuleFilesMeta((prev) => ({
-      wplParseFile: meta?.wplParseFile || prev.wplParseFile,
-      wplSampleFile: meta?.wplSampleFile || prev.wplSampleFile,
-      knowledgeConfigFile: meta?.knowledgeConfigFile || prev.knowledgeConfigFile,
-    }));
+    setRuleFilesMeta((prev) => {
+      const next = {
+        wplParseFile: meta?.wplParseFile || prev.wplParseFile,
+        wplSampleFile: meta?.wplSampleFile || prev.wplSampleFile,
+        knowledgeConfigFile: meta?.knowledgeConfigFile || prev.knowledgeConfigFile,
+      };
+      ruleFilesMetaRef.current = next;
+      return next;
+    });
   }, []);
   
-  useEffect(() => {
-    const initRuleLists = async () => {
-      try {
-        // 首次仅预加载 knowledge 列表，wpl/oml 在点击菜单时再懒加载
-        const result = await fetchRuleFiles({
-          type: 'knowledge',
-          page: 1,
-          pageSize: KNOWLEDGE_PAGE_SIZE,
-        });
-        applyRuleFilesMeta(result?.meta);
-        const knowledgeList = Array.isArray(result?.items) ? result.items : [];
-        const normalizedList = knowledgeList.filter(
-          (item) => item !== (result?.meta?.knowledgeConfigFile || ruleFilesMeta.knowledgeConfigFile),
-        );
-        setKnowledgeDatasets(normalizedList);
-        setKnowledgeTotal(result?.total || normalizedList.length);
-        setActiveKnowledgeDataset(
-          (prev) => prev || result?.meta?.knowledgeConfigFile || ruleFilesMeta.knowledgeConfigFile,
-        );
-        setKnowledgePage(result?.page || 1);
-      } catch (error) {
-        message.error('加载规则列表失败：' + error.message);
-      }
-
-      try {
-        const resp = await fetchKnowdbConfig();
-        const content = resp?.content || '';
-        setKnowdbConfig(content);
-        setOriginalKnowdbConfig(content);
-      } catch (error) {
-        message.warn('加载 knowdb 配置失败：' + (error.message || ''));
-      }
-    };
-    initRuleLists();
-  }, [applyRuleFilesMeta, ruleFilesMeta.knowledgeConfigFile]);
-
   const totalKnowledgePages = Math.max(
     1,
     Math.ceil(Math.max(knowledgeTotal, 1) / KNOWLEDGE_PAGE_SIZE),
@@ -532,8 +505,8 @@ function RuleManagePage() {
   const applyWplListState = useCallback(
     (rawItems, options = {}) => {
       const { preferredActive, preserveActive, page, total, meta } = options;
-      const parseFileName = meta?.wplParseFile || ruleFilesMeta.wplParseFile;
-      const sampleFileName = meta?.wplSampleFile || ruleFilesMeta.wplSampleFile;
+      const parseFileName = meta?.wplParseFile || ruleFilesMetaRef.current.wplParseFile;
+      const sampleFileName = meta?.wplSampleFile || ruleFilesMetaRef.current.wplSampleFile;
       const normalizedList = normalizeWplList(rawItems, parseFileName);
       setAllWplFiles(normalizedList);
       const treeData = buildWplTreeData(normalizedList, parseFileName, sampleFileName);
@@ -581,7 +554,7 @@ function RuleManagePage() {
           : expandedRules,
       );
     },
-    [ruleFilesMeta.wplParseFile, ruleFilesMeta.wplSampleFile],
+    [],
   );
 
   const applyOmlListState = useCallback(
@@ -651,7 +624,10 @@ function RuleManagePage() {
       const rawItems = Array.isArray(result?.items) ? result.items : [];
       const items =
         type === RuleType.WPL
-          ? normalizeWplList(rawItems, result?.meta?.wplParseFile || ruleFilesMeta.wplParseFile)
+          ? normalizeWplList(
+              rawItems,
+              result?.meta?.wplParseFile || ruleFilesMetaRef.current.wplParseFile,
+            )
           : normalizeOmlList(rawItems);
       const pageSize =
         typeof result?.pageSize === 'number' && result.pageSize > 0
@@ -678,7 +654,7 @@ function RuleManagePage() {
     }
 
     return collected;
-  }, [applyRuleFilesMeta, ruleFilesMeta.wplParseFile]);
+  }, [applyRuleFilesMeta]);
 
   const refreshWplFiles = useCallback(
     async (options = {}) => {
@@ -1411,21 +1387,21 @@ function RuleManagePage() {
               });
               applyRuleFilesMeta(result?.meta);
               const datasets = Array.isArray(result?.items) ? result.items : [];
-              const normalizedDatasets = datasets.filter((item) => item !== knowledgeConfigFile);
+              const nextKnowledgeConfigFile =
+                result?.meta?.knowledgeConfigFile || knowledgeConfigFile;
+              const normalizedDatasets = datasets.filter(
+                (item) => item !== nextKnowledgeConfigFile,
+              );
               setKnowledgeDatasets(normalizedDatasets);
               setKnowledgeTotal(result?.total || normalizedDatasets.length);
               const nextActive = normalizedDatasets.includes(activeKnowledgeDataset)
                 ? activeKnowledgeDataset
-                : knowledgeConfigFile;
+                : nextKnowledgeConfigFile;
               setActiveKnowledgeDataset(nextActive);
-              if (nextActive !== knowledgeConfigFile && !normalizedDatasets.length) {
+              if (nextActive !== nextKnowledgeConfigFile && !normalizedDatasets.length) {
                 setKnowledgeDatasetConfig({ ...EMPTY_KNOWLEDGE_DATASET });
               }
               setKnowledgePage(result?.page || 1);
-              const knowdbResp = await fetchKnowdbConfig();
-              const content = knowdbResp?.content || '';
-              setKnowdbConfig(content);
-              setOriginalKnowdbConfig(content);
             } catch (error) {
               message.error(t('ruleManage.loadKnowledgeFailed', { message: error.message }));
             }

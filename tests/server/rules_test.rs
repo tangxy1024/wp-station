@@ -1,13 +1,13 @@
 use crate::common::{rand_suffix, remove_project_path, setup_db, test_project_layout};
 use wp_station::db::RuleType;
 use wp_station::server::rules::{
-    RuleFilesQuery, create_rule_file_logic, delete_rule_file_logic, get_rule_content_logic,
-    get_rule_files_logic, save_rule_logic, validate_rule_logic,
+    RuleFilesQuery, create_rule_file_logic, delete_rule_file_logic, get_knowdb_config_logic,
+    get_rule_content_logic, get_rule_files_logic, save_rule_logic, validate_rule_logic,
 };
 use wp_station::utils::pagination::PageQuery;
 use wp_station::utils::{
-    read_knowledge_files, read_rule_content, write_knowdb_config, write_knowledge_files,
-    write_rule_content, write_wpl_sample_content,
+    read_knowledge_files, read_rule_content, unload_knowledge, write_knowdb_config,
+    write_knowledge_files, write_rule_content, write_wpl_sample_content,
 };
 fn cleanup_knowledge(file: &str) {
     remove_project_path(format!("models/knowledge/{file}"));
@@ -63,6 +63,52 @@ async fn test_get_rule_files_and_content_for_knowledge() {
         Some(file.as_str())
     );
 
+    cleanup_knowledge(&file);
+}
+
+#[tokio::test]
+async fn test_get_knowdb_config_logic_returns_config_content() {
+    setup_db().await;
+    unload_knowledge();
+
+    let file = format!("autoload-{}", rand_suffix());
+    let layout = test_project_layout();
+    let updated_knowdb = format!(
+        r#"version = 2
+
+[[tables]]
+enabled = true
+name = "{file}"
+[tables.columns]
+by_index = [0]
+[tables.csv]
+has_header = false
+[tables.expected_rows]
+min = 0
+max = 10
+"#
+    );
+    write_knowdb_config(&layout, &updated_knowdb).expect("write knowdb");
+    write_knowledge_files(
+        &layout,
+        &file,
+        Some("CREATE TABLE IF NOT EXISTS {table} (id INTEGER);".to_string()),
+        Some("INSERT INTO {table} (id) VALUES (?1);".to_string()),
+        Some("1\n".to_string()),
+    )
+    .expect("write knowledge files");
+
+    let response = get_knowdb_config_logic().await.expect("get knowdb config");
+    assert_eq!(response.file, "knowdb.toml");
+    assert!(
+        response
+            .content
+            .as_deref()
+            .is_some_and(|content| content.contains(&format!("name = \"{file}\""))),
+        "expected knowdb content to be returned after runtime autoload attempt"
+    );
+
+    unload_knowledge();
     cleanup_knowledge(&file);
 }
 

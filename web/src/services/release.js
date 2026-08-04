@@ -115,10 +115,19 @@ export async function publishRelease(releaseId, releaseGroup, deviceIds = [], no
 /**
  * 获取发布版本差异（git diff）
  * @param {number|string} releaseId - 发布 ID
- * @returns {Promise<Object>} 差异结果 { files: [], stats: {} }
+ * @param {Object} [options]
+ * @param {number} [options.offset=0]
+ * @param {number} [options.limit=10]
+ * @returns {Promise<Object>} 差异结果
  */
-export async function fetchReleaseDiff(releaseId) {
-  const response = await httpRequest.get(`/releases/${releaseId}/diff`);
+export async function fetchReleaseDiff(releaseId, options = {}) {
+  const { offset = 0, limit = 10 } = options;
+  const response = await httpRequest.get(`/releases/${releaseId}/diff`, {
+    params: {
+      offset,
+      limit,
+    },
+  });
   return response?.files ? response : response?.data || response;
 }
 

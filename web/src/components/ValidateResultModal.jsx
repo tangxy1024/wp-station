@@ -44,6 +44,8 @@ function getStatusInfo(checkResult, t) {
  *   onClose: func - 关闭回调
  *   result: {
  *     filename: string,
+ *     subjectLabel?: string,
+ *     subjectValue?: string,
  *     valid: bool,
  *     message: string?,
  *     details: string[],
@@ -55,7 +57,7 @@ export default function ValidateResultModal({ open, onClose, result }) {
 
   if (!result) return null;
 
-  const { filename, valid, message, details, type } = result;
+  const { filename, subjectLabel, subjectValue, valid, message, details, type } = result;
   const errorMessage = message || (details && details.length > 0 ? details.join('\n') : '');
   const checkResults = analyzeCheckResults(valid, errorMessage);
 
@@ -63,6 +65,8 @@ export default function ValidateResultModal({ open, onClose, result }) {
   const statusIcon = hasError ? '✗' : '✓';
   const statusText = hasError ? t('validation.failed') : t('validation.success');
   const typeLabel = type || '';
+  const primaryLabel = subjectLabel || t('validation.fileName');
+  const primaryValue = subjectValue || filename || '—';
 
   const syntaxInfo = getStatusInfo(checkResults.syntax, t);
   const formatInfo = getStatusInfo(checkResults.format, t);
@@ -100,12 +104,12 @@ export default function ValidateResultModal({ open, onClose, result }) {
               </div>
             ) : null}
           </div>
-        </div>
+          </div>
 
         <div className="validate-result-grid">
           <div className="validate-result-item">
-            <div className="validate-result-item-label">{t('validation.fileName')}</div>
-            <div className="validate-result-item-value">{filename || '—'}</div>
+            <div className="validate-result-item-label">{primaryLabel}</div>
+            <div className="validate-result-item-value">{primaryValue}</div>
           </div>
           <div className="validate-result-item">
             <div className="validate-result-item-label">{t('validation.validationTime')}</div>

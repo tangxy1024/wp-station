@@ -27,7 +27,7 @@ pub use device::{
     create_device, delete_device, list_devices, list_online_devices, refresh_device_status,
     update_device,
 };
-pub use integration_overview::get_integration_runtime_overview;
+pub use integration_overview::{get_integration_rule_overview, get_integration_runtime_overview};
 pub use knowledge::{get_db_list, query};
 pub use operation_log::list_operation_logs;
 pub use project::{

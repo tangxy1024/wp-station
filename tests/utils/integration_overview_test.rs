@@ -1,7 +1,9 @@
 use std::fs;
 
 use wp_station::server::ProjectLayout;
-use wp_station::utils::load_integration_runtime_overview_from_layout;
+use wp_station::utils::{
+    load_integration_rule_overview_from_layout, load_integration_runtime_overview_from_layout,
+};
 
 fn write_file(path: &std::path::Path, content: &str) {
     if let Some(parent) = path.parent() {
@@ -106,4 +108,60 @@ file = "all.json"
     assert_eq!(sink.title, "sink.toml");
     assert_eq!(sink.type_key, "file");
     assert_eq!(sink.detail, "文件路径 ./data/out_dat/all.json");
+}
+
+#[test]
+fn test_load_integration_rule_overview_extracts_device_and_log_types() {
+    let temp_dir = tempfile::tempdir().expect("create temp dir");
+    let layout = ProjectLayout {
+        models_root: temp_dir.path().join("project_models"),
+        infra_root: temp_dir.path().join("project_infra"),
+    };
+
+    write_file(
+        &layout.models_root.join("models/wpl/nginx/parse.wpl"),
+        r#"
+#[copy_raw(name:"raw_msg"), tag(dev_type: "Nginx设备", dev_name: "Nginx设备名称")]
+package nginx {
+  #[tag(log_desc: "访问日志")]
+  rule access {
+  }
+
+  #[tag(log_desc: "访问日志")]
+  rule access_detail {
+  }
+
+  #[tag(log_desc: "错误日志")]
+  rule error {
+  }
+
+  rule ignore_login {
+  }
+}
+"#,
+    );
+    write_file(
+        &layout.models_root.join("models/wpl/ignore_pkg/parse.wpl"),
+        r#"
+package ignore_pkg {
+  rule test {
+  }
+}
+"#,
+    );
+
+    let overview = load_integration_rule_overview_from_layout(&layout).expect("load rule overview");
+
+    assert_eq!(overview.items.len(), 1);
+    let item = &overview.items[0];
+    assert_eq!(item.key, "nginx");
+    assert_eq!(item.device_type, "Nginx设备名称");
+    assert_eq!(item.log_types.len(), 2);
+    assert_eq!(item.log_types[0].log_type_name, "访问日志");
+    assert_eq!(
+        item.log_types[0].rule_keys,
+        vec!["access".to_string(), "access_detail".to_string()]
+    );
+    assert_eq!(item.log_types[1].log_type_name, "错误日志");
+    assert_eq!(item.log_types[1].rule_keys, vec!["error".to_string()]);
 }

@@ -846,7 +846,7 @@ export async function saveKnowdbConfig(content) {
 
 /**
  * 获取调试页知识库数据源列表。
- * @returns {Promise<string[]>} 知识库表或外部 provider 名称
+ * @returns {Promise<Array<{tagName: string, sourceKind: string, label: string, suggestedSql: string}>>} 知识库表或外部 provider 信息
  */
 export async function fetchDebugKnowledgeDatasets() {
   const response = await httpRequest.get('/debug/knowledge/status');
@@ -855,8 +855,25 @@ export async function fetchDebugKnowledgeDatasets() {
   }
 
   return response
-    .filter((item) => item?.is_active !== false)
-    .map((item) => item?.tag_name)
+    .filter((item) => item && typeof item === 'object' && item?.is_active !== false)
+    .map((item) => {
+      const tagName = item?.tag_name;
+      if (!tagName) {
+        return null;
+      }
+
+      const sourceKind = String(item?.source_kind || '').trim().toLowerCase();
+      if (sourceKind !== 'provider' && sourceKind !== 'local') {
+        return null;
+      }
+
+      return {
+        tagName,
+        sourceKind,
+        label: String(item?.label || tagName),
+        suggestedSql: String(item?.suggested_sql || ''),
+      };
+    })
     .filter(Boolean);
 }
 
@@ -886,15 +903,20 @@ const extractBackendErrorMessage = (error, fallbackMessage = '查询失败') => 
 
 /**
  * 执行知识库 SQL 查询
- * @param {string} table - 当前选择的数据源名称，provider 时为 postgres/mysql，本地时为知识库目录名
+ * @param {string|{tagName: string, sourceKind?: string}} table - 当前选择的数据源信息
  * @param {string} sql - SQL 查询语句
  * @returns {Promise<{fields: Array, columns: Array}>} 处理后的查询结果
  */
 export async function executeKnowledgeSql(table, sql) {
+  const tableName =
+    (table && typeof table === 'object' ? table.tagName || table.value : table) || '';
+  const sourceKind =
+    table && typeof table === 'object' ? table.sourceKind || '' : '';
   let response;
   try {
     response = await httpRequest.post('/debug/knowledge/query', {
-      table: table || '',
+      table: tableName,
+      source_kind: sourceKind,
       sql,
     });
   } catch (error) {

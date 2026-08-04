@@ -1,10 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Modal } from 'antd';
-import { fetchReleaseDetail, rollbackRelease } from '@/services/release';
+import { fetchReleaseDetail, fetchReleaseDiff, rollbackRelease } from '@/services/release';
 import DiffViewer from '@/components/diff/DiffViewer';
 import { parseDiffText } from '@/components/diff/diffUtils';
+
+const DIFF_BATCH_SIZE = 10;
+const RELEASE_DETAIL_COLLAPSED_LINE_THRESHOLD = 100;
 
 function sanitizeAnchorSegment(value = '') {
   return String(value)
@@ -20,16 +23,21 @@ function buildDiffAnchorId(releaseGroup, filePath, index) {
   return `release-diff-${sanitizeAnchorSegment(releaseGroup)}-${index}-${sanitizeAnchorSegment(filePath)}`;
 }
 
-function adaptDiffFiles(files = [], releaseGroup = 'draft') {
+function adaptDiffFiles(files = [], startIndex = 0) {
   return files.map((file, index) => {
     const parsedFiles = file.diff_text ? parseDiffText(file.diff_text) : [];
     return {
+      release_group: file.release_group || 'draft',
       file_path: file.file_path,
       old_path: file.old_path,
       change_type: file.change_type || 'modify',
       diff_text: file.diff_text,
       parsedDiff: parsedFiles?.[0] || null,
-      diff_anchor_id: buildDiffAnchorId(releaseGroup, file.file_path, index),
+      diff_anchor_id: buildDiffAnchorId(
+        file.release_group || 'draft',
+        file.file_path,
+        startIndex + index,
+      ),
     };
   });
 }
@@ -44,15 +52,12 @@ function normalizeChangeBucket(changeType) {
   return 'modified';
 }
 
-function buildDiffOverviewBuckets(files = []) {
-  return files.reduce(
-    (buckets, file) => {
-      const key = normalizeChangeBucket(file.change_type);
-      buckets[key].push(file);
-      return buckets;
-    },
-    { modified: [], deleted: [], added: [] },
-  );
+function buildDiffOverviewBucketsFromStats(files = []) {
+  return files.reduce((buckets, file) => {
+    const key = normalizeChangeBucket(file.change_type);
+    buckets[key] += 1;
+    return buckets;
+  }, { modified: 0, deleted: 0, added: 0 });
 }
 
 function getFileChangeCode(changeType) {
@@ -95,6 +100,20 @@ function ReleaseDetailPage() {
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState(null);
   const [focusedDiffAnchorId, setFocusedDiffAnchorId] = useState('');
+  const [diffState, setDiffState] = useState({
+    groups: [],
+    files: [],
+    stats: null,
+    totalFiles: 0,
+    hasMore: false,
+    loading: false,
+    loadingMore: false,
+    initialized: false,
+    error: null,
+  });
+  const loadMoreSentinelRef = useRef(null);
+  const diffRequestPendingRef = useRef(false);
+  const deferredDiffFiles = useDeferredValue(diffState.files);
 
   const loadDetail = async () => {
     setLoading(true);
@@ -108,6 +127,54 @@ function ReleaseDetailPage() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadDiffPage = async ({ append, offset }) => {
+    if (diffRequestPendingRef.current) {
+      return;
+    }
+
+    diffRequestPendingRef.current = true;
+    setDiffState((prev) => ({
+      ...prev,
+      loading: append ? prev.loading : true,
+      loadingMore: append,
+      error: append ? prev.error : null,
+    }));
+
+    try {
+      const response = await fetchReleaseDiff(releaseId, {
+        offset,
+        limit: DIFF_BATCH_SIZE,
+      });
+      const nextFiles = adaptDiffFiles(response?.files || [], offset);
+
+      startTransition(() => {
+        setDiffState((prev) => ({
+          groups: Array.isArray(response?.groups) ? response.groups : prev.groups,
+          files: append ? [...prev.files, ...nextFiles] : nextFiles,
+          stats: response?.stats || prev.stats,
+          totalFiles: response?.total_files ?? prev.totalFiles,
+          hasMore: Boolean(response?.has_more),
+          loading: false,
+          loadingMore: false,
+          initialized: true,
+          error: null,
+        }));
+      });
+    } catch (diffError) {
+      setDiffState((prev) => ({
+        ...prev,
+        loading: false,
+        loadingMore: false,
+        initialized: true,
+        error: {
+          message: diffError.message || t('systemRelease.diffLoadFailed'),
+        },
+      }));
+    } finally {
+      diffRequestPendingRef.current = false;
     }
   };
 
@@ -138,6 +205,21 @@ function ReleaseDetailPage() {
     loadDetail();
   }, [releaseId]);
 
+  useEffect(() => {
+    setDiffState({
+      groups: [],
+      files: [],
+      stats: null,
+      totalFiles: 0,
+      hasMore: false,
+      loading: false,
+      loadingMore: false,
+      initialized: false,
+      error: null,
+    });
+    loadDiffPage({ append: false, offset: 0 });
+  }, [releaseId]);
+
   const getReleaseGroupTitle = (releaseGroup) => {
     if (releaseGroup === 'models') {
       return t('systemRelease.groupModels');
@@ -151,16 +233,47 @@ function ReleaseDetailPage() {
     return t('systemRelease.draftLabel');
   };
 
-  const diffGroups = useMemo(
-    () =>
-      Array.isArray(detail?.diff_groups)
-        ? detail.diff_groups.map((group) => ({
-            ...group,
-            adaptedFiles: adaptDiffFiles(group.files || [], group.release_group),
-          }))
-        : [],
-    [detail],
-  );
+  const diffGroups = useMemo(() => {
+    const loadedByGroup = diffState.files.reduce((accumulator, file) => {
+      const key = file.release_group || 'draft';
+      if (!accumulator[key]) {
+        accumulator[key] = [];
+      }
+      accumulator[key].push(file);
+      return accumulator;
+    }, {});
+
+    return Array.isArray(diffState.groups)
+      ? diffState.groups.map((group) => ({
+          ...group,
+          loadedFiles: loadedByGroup[group.release_group] || [],
+          loadedCount: (loadedByGroup[group.release_group] || []).length,
+          changeBuckets: buildDiffOverviewBucketsFromStats(loadedByGroup[group.release_group] || []),
+        }))
+      : [];
+  }, [diffState.files, diffState.groups]);
+
+  useEffect(() => {
+    if (!loadMoreSentinelRef.current || !diffState.hasMore || diffState.loading || diffState.loadingMore) {
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (!entry?.isIntersecting || diffRequestPendingRef.current) {
+          return;
+        }
+        loadDiffPage({ append: true, offset: diffState.files.length });
+      },
+      {
+        rootMargin: '240px 0px',
+      },
+    );
+
+    observer.observe(loadMoreSentinelRef.current);
+    return () => observer.disconnect();
+  }, [diffState.files.length, diffState.hasMore, diffState.loading, diffState.loadingMore]);
 
   const getReleaseStatusMeta = () => {
     const normalizedStatus = String(detail?.status || '').toUpperCase();
@@ -280,6 +393,10 @@ function ReleaseDetailPage() {
         : detail.release_group === 'all'
           ? t('systemRelease.groupAll')
           : t('systemRelease.draftLabel');
+  const totalDiffStats = diffState.stats || { files_changed: 0, insertions: 0, deletions: 0 };
+  const loadedDiffFileCount = diffState.files.length;
+  const totalDiffFileCount = diffState.totalFiles || 0;
+  const hasDiffFiles = totalDiffFileCount > 0;
 
   return (
     <div className="panel is-visible">
@@ -390,188 +507,130 @@ function ReleaseDetailPage() {
               <h4 style={{ marginBottom: 4 }}>
                 {t(detail.status === 'WAIT' ? 'systemRelease.draftVersionDiff' : 'systemRelease.versionDiff')}
               </h4>
+              <div className="release-diff-hint">
+                {t('systemRelease.diffLoadedProgress', {
+                  loaded: loadedDiffFileCount,
+                  total: totalDiffFileCount,
+                })}
+              </div>
+            </div>
+            <div className="release-diff-totals">
+              <span className="release-diff-total-chip">
+                {t('systemRelease.changedFilesSummary')}: {totalDiffStats.files_changed}
+              </span>
+              <span className="release-diff-total-chip is-add">
+                +{totalDiffStats.insertions}
+              </span>
+              <span className="release-diff-total-chip is-delete">
+                -{totalDiffStats.deletions}
+              </span>
             </div>
           </header>
-          <div style={{ marginTop: '24px', display: 'grid', gap: '20px' }}>
-            {diffGroups.map((group) => {
-              const title = getReleaseGroupTitle(group.release_group);
-              const subtitle = group.previous_version
-                ? t('systemRelease.diffGroupVersionVsPrevious', {
-                    current: group.current_version,
-                    previous: group.previous_version,
-                  })
-                : t('systemRelease.diffGroupVersionVsInitial', {
-                    current: group.current_version === 'draft'
-                      ? t('systemRelease.draftLabel')
-                      : group.current_version,
-                  });
-              const overviewBuckets = buildDiffOverviewBuckets(group.adaptedFiles);
-              const changeStats = [
-                {
-                  key: 'modified',
-                  label: `M ${t('systemRelease.changedFilesSummary')}`,
-                  count: overviewBuckets.modified.length,
-                  color: '#f79009',
-                  background: 'rgba(247, 144, 9, 0.08)',
-                },
-                {
-                  key: 'deleted',
-                  label: `D ${t('systemRelease.deletedFilesSummary')}`,
-                  count: overviewBuckets.deleted.length,
-                  color: '#f1554c',
-                  background: 'rgba(241, 85, 76, 0.08)',
-                },
-                {
-                  key: 'added',
-                  label: `A ${t('systemRelease.addedFilesSummary')}`,
-                  count: overviewBuckets.added.length,
-                  color: '#17b26a',
-                  background: 'rgba(23, 178, 106, 0.08)',
-                },
-              ];
+          <div className="release-diff-shell">
+            <aside className="release-diff-sidebar">
+              <div className="release-diff-sidebar-summary">
+                {diffGroups.map((group) => {
+                  const title = getReleaseGroupTitle(group.release_group);
+                  const subtitle = group.previous_version
+                    ? t('systemRelease.diffGroupVersionVsPrevious', {
+                        current: group.current_version,
+                        previous: group.previous_version,
+                      })
+                    : t('systemRelease.diffGroupVersionVsInitial', {
+                        current: group.current_version === 'draft'
+                          ? t('systemRelease.draftLabel')
+                          : group.current_version,
+                      });
 
-              return (
-                <section
-                  key={group.release_group}
-                  style={{
-                    border: '1px solid #eceff5',
-                    borderRadius: '12px',
-                    padding: '16px',
-                    background: '#fff',
-                  }}
-                >
-                  <header style={{ marginBottom: '12px' }}>
-                    <h4 style={{ margin: 0 }}>{title}</h4>
-                    <div style={{ marginTop: '4px', fontSize: '12px', color: '#667085' }}>
-                      {subtitle}
-                    </div>
-                  </header>
-                  <section
-                    style={{
-                      marginBottom: '16px',
-                      padding: '14px',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '12px',
-                      background: '#f8fafc',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '12px',
-                        marginBottom: '10px',
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <div style={{ fontSize: '13px', fontWeight: 600, color: '#344054' }}>
-                        {t('systemRelease.fileChangeSummary')}
+                  return (
+                    <section key={group.release_group} className="release-diff-sidebar-group">
+                      <header className="release-diff-sidebar-group-header">
+                        <div>
+                          <h5>{title}</h5>
+                          <p>{subtitle}</p>
+                        </div>
+                        <span className="release-diff-sidebar-group-count">
+                          {group.total_files}
+                        </span>
+                      </header>
+                      <div className="release-diff-sidebar-group-stats">
+                        <span>M {group.changeBuckets.modified}</span>
+                        <span>D {group.changeBuckets.deleted}</span>
+                        <span>A {group.changeBuckets.added}</span>
+                        <span>{t('systemRelease.diffFileCount', { count: group.total_files })}</span>
                       </div>
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        {changeStats.map((item) => (
-                          <span
-                            key={item.key}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '4px 10px',
-                              borderRadius: '999px',
-                              background: item.background,
-                              color: item.color,
-                              fontSize: '12px',
-                              fontWeight: 700,
-                            }}
-                          >
-                            <span>{item.label}</span>
-                            <span>{item.count}</span>
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                        gap: '12px',
-                        alignItems: 'stretch',
-                      }}
-                    >
-                      {group.adaptedFiles.length > 0 ? (
-                        group.adaptedFiles.map((file) => {
+                      <div className="release-diff-sidebar-files">
+                        {group.loadedFiles.map((file) => {
                           const codeStyle = getFileChangeCodeStyle(file.change_type);
                           return (
                             <button
                               key={file.diff_anchor_id}
                               type="button"
+                              className="release-diff-file-item"
                               onClick={() => handleJumpToDiff(file.diff_anchor_id)}
-                              style={{
-                                width: '100%',
-                                minHeight: '56px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                gap: '12px',
-                                padding: '12px 14px',
-                                border: '1px solid #e5e7eb',
-                                borderRadius: '12px',
-                                background: '#fff',
-                                color: '#1f2937',
-                                textAlign: 'left',
-                                cursor: 'pointer',
-                              }}
                               title={t('systemRelease.jumpToDiff')}
                             >
+                              <span className="release-diff-file-item-path">{file.file_path}</span>
                               <span
+                                className="release-diff-file-item-code"
                                 style={{
-                                  flex: 1,
-                                  minWidth: 0,
-                                  fontFamily:
-                                    "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, ui-monospace, monospace",
-                                  fontSize: '12px',
-                                  lineHeight: 1.5,
-                                  overflowWrap: 'anywhere',
-                                }}
-                              >
-                                {file.file_path}
-                              </span>
-                              <span
-                                style={{
-                                  flexShrink: 0,
-                                  minWidth: '28px',
-                                  padding: '4px 8px',
-                                  border: `1px solid ${codeStyle.borderColor}`,
-                                  borderRadius: '999px',
+                                  borderColor: codeStyle.borderColor,
                                   background: codeStyle.background,
                                   color: codeStyle.color,
-                                  fontSize: '12px',
-                                  fontWeight: 800,
-                                  textAlign: 'center',
                                 }}
                               >
                                 {getFileChangeCode(file.change_type)}
                               </span>
                             </button>
                           );
-                        })
-                      ) : (
-                        <div style={{ padding: '14px', fontSize: '12px', color: '#98a2b3' }}>
-                          {t('systemRelease.noFileChangesInCategory')}
-                        </div>
-                      )}
-                    </div>
-                  </section>
-                  <DiffViewer
-                    files={group.adaptedFiles}
-                    viewType="split"
-                    loading={false}
-                    getFileAnchorId={(file) => file.diff_anchor_id}
-                    focusedFileAnchorId={focusedDiffAnchorId}
-                  />
-                </section>
-              );
-            })}
+                        })}
+                        {!group.loadedFiles.length && group.total_files === 0 ? (
+                          <div className="release-diff-file-item-empty">
+                            {t('systemRelease.noFileChangesInCategory')}
+                          </div>
+                        ) : null}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+            </aside>
+
+            <section className="release-diff-content-panel">
+              {diffState.loading ? (
+                <div className="release-diff-placeholder">{t('common.loading')}</div>
+              ) : null}
+
+              {!diffState.loading && diffState.error && !deferredDiffFiles.length ? (
+                <div className="release-error-content">{diffState.error.message}</div>
+              ) : null}
+
+              {!diffState.loading && diffState.initialized && !hasDiffFiles ? (
+                <div className="release-diff-placeholder">{t('systemRelease.noFileChangesInCategory')}</div>
+              ) : null}
+
+              {deferredDiffFiles.length > 0 ? (
+                <DiffViewer
+                  files={deferredDiffFiles}
+                  viewType="split"
+                  loading={false}
+                  collapsedLineThreshold={RELEASE_DETAIL_COLLAPSED_LINE_THRESHOLD}
+                  getFileAnchorId={(file) => file.diff_anchor_id}
+                  focusedFileAnchorId={focusedDiffAnchorId}
+                />
+              ) : null}
+
+              {diffState.error && deferredDiffFiles.length > 0 ? (
+                <div className="release-error-content">{diffState.error.message}</div>
+              ) : null}
+
+              <div ref={loadMoreSentinelRef} className="release-diff-loader">
+                {diffState.loadingMore ? t('systemRelease.diffLoadingMore') : null}
+                {!diffState.hasMore && hasDiffFiles && loadedDiffFileCount >= totalDiffFileCount
+                  ? t('systemRelease.diffLoadedAll')
+                  : null}
+              </div>
+            </section>
           </div>
         </div>
       </div>

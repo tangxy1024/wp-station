@@ -61,7 +61,9 @@ pub async fn debug_knowledge_query(
     req: web::Json<DebugKnowledgeQueryRequest>,
 ) -> Result<HttpResponse, AppError> {
     // 执行知识库 SQL 查询
-    let resp = debug_knowledge_query_logic(req.table.clone(), req.sql.clone()).await?;
+    let resp =
+        debug_knowledge_query_logic(req.table.clone(), req.source_kind.clone(), req.sql.clone())
+            .await?;
 
     Ok(HttpResponse::Ok().json(resp))
 }
