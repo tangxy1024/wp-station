@@ -35,7 +35,16 @@ function SandboxStageTimeline({
   t,
   formatStageDuration,
   visibleStages,
+  system,
 }) {
+  const isWfusion = system === 'wfusion';
+
+  const stageKeyFor = (key) => {
+    if (isWfusion && (key === 'start_daemon' || key === 'run_wpgen')) {
+      return `${key}_wfusion`;
+    }
+    return key;
+  };
   const filteredStages = Array.isArray(stages)
     ? stages.filter((stage) => !visibleStages || visibleStages.includes(stage.stage))
     : [];
@@ -84,7 +93,7 @@ function SandboxStageTimeline({
                 }}
               >
                 <Text strong style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
-                  {t(`sandbox.stage.${stageKey}`, {
+                  {t(`sandbox.stage.${stageKeyFor(stageKey)}`, {
                     defaultValue: stageKey,
                   })}
                 </Text>

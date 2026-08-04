@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dayjs from 'dayjs';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Button, Card, Col, Form, InputNumber, Row, Space, Tag, Typography, message } from 'antd';
 import { ArrowLeftOutlined, PauseCircleOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -77,6 +77,8 @@ const EMPTY_STAGE_LOG_META = {
 
 function PrepublishPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const system = searchParams.get('system') || undefined;
   const releaseId = Number(id);
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -611,6 +613,7 @@ function PrepublishPage() {
               formatDisplayTime={formatDisplayTime}
               failureSummary={failureSummary}
               cardStyle={{ width: '100%', height: '100%' }}
+              system={system}
             />
           </Col>
         </Row>
@@ -629,6 +632,7 @@ function PrepublishPage() {
                 t={t}
                 formatStageDuration={formatStageDuration}
                 visibleStages={VISIBLE_STAGE_KEYS}
+                system={system}
               />
             </Card>
           </Col>

@@ -12,7 +12,16 @@ function SandboxResultPanel({
   formatDisplayTime,
   failureSummary,
   cardStyle,
+  system,
 }) {
+  const isWfusion = system === 'wfusion';
+
+  const stageKeyFor = (key) => {
+    if (isWfusion && (key === 'start_daemon' || key === 'run_wpgen')) {
+      return `${key}_wfusion`;
+    }
+    return key;
+  };
   const status = runData?.status || 'queued';
   const passed = conclusion?.passed === true;
   const displayStatus =
@@ -35,7 +44,7 @@ function SandboxResultPanel({
   }, [runData?.started_at, runData?.ended_at]);
 
   const failedStageLabel = conclusion?.failed_stage
-    ? t(`sandbox.stage.${conclusion.failed_stage}`, {
+    ? t(`sandbox.stage.${stageKeyFor(conclusion.failed_stage)}`, {
         defaultValue: conclusion.failed_stage,
       })
     : '-';

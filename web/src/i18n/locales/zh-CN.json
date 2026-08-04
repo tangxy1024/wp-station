@@ -296,6 +296,8 @@
       "preflight_check": "预检查",
       "start_daemon": "启动 wparse 服务",
       "run_wpgen": "启动 wpgen 服务",
+      "start_daemon_wfusion": "启动 wfusion 服务",
+      "run_wpgen_wfusion": "启动 wfgen 服务",
       "analyse_runtime_output": "运行输出分析",
       "finalize_result": "生成结论"
     },
