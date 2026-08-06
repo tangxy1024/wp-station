@@ -651,6 +651,7 @@ function PrepublishPage() {
                 formatStageDuration={formatStageDuration}
                 formatDisplayTime={formatDisplayTime}
                 cardStyle={{ width: '100%', height: '100%' }}
+                system={system}
                 cardId="sandbox-log-viewer"
               />
             </div>

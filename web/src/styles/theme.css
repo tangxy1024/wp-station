@@ -3334,6 +3334,8 @@ mark.diff-highlight {
 
 .code-area--large {
   height: 100%;
+  resize: none;
+  overflow: hidden;
 }
 
 .code-area--full {
@@ -3910,6 +3912,7 @@ mark.diff-highlight {
   padding: 16px 18px;
   background: #ffffff;
   min-height: 0;
+  overflow: hidden;
 }
 
 .repo-overview {
@@ -4122,6 +4125,13 @@ mark.diff-highlight {
 
 .repo-doc.is-visible {
   display: block;
+}
+
+/* CodeEditor 组件依赖 flex 布局保持高度约束，
+   .repo-doc.is-visible 的 display:block 会覆盖
+   CodeEditor.module.css 的 display:flex，导致高度解析失败 */
+.code-area.repo-doc.is-visible {
+  display: flex;
 }
 
 .repo-pagination {

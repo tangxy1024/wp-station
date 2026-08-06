@@ -186,9 +186,7 @@ fn resolve_wfusion_reference(
     relative_path: &str,
 ) -> PathBuf {
     let referenced = Path::new(relative_path);
-    let file_name = referenced
-        .file_name()
-        .unwrap_or_else(|| referenced.as_os_str());
+    let file_name = referenced.file_name().unwrap_or(referenced.as_os_str());
     let category = match referenced.extension().and_then(|value| value.to_str()) {
         Some("wfs") => "schemas",
         Some("wfl") => "rules",
@@ -336,10 +334,10 @@ fn parse_scalar(value: &str) -> Value {
     if let Ok(number) = value.parse::<i64>() {
         return Value::Number(number.into());
     }
-    if let Ok(number) = value.parse::<f64>() {
-        if let Some(number) = serde_json::Number::from_f64(number) {
-            return Value::Number(number);
-        }
+    if let Ok(number) = value.parse::<f64>()
+        && let Some(number) = serde_json::Number::from_f64(number)
+    {
+        return Value::Number(number);
     }
     if let Ok(boolean) = value.parse::<bool>() {
         return Value::Bool(boolean);

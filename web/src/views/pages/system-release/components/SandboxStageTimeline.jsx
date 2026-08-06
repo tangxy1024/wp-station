@@ -118,7 +118,7 @@ function SandboxStageTimeline({
                 </div>
               </div>
               {shouldShowSummary && (
-                <Paragraph style={{ marginBottom: 4, overflowWrap: 'anywhere' }}>
+                <Paragraph style={{ marginBottom: 4, overflowWrap: 'anywhere', whiteSpace: 'pre-line' }}>
                   {stage.summary}
                 </Paragraph>
               )}
