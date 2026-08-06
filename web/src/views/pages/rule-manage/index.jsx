@@ -2774,7 +2774,7 @@ function RuleManagePage() {
         cancelText={t('common.cancel')}
         onOk={handleAddConfirm}
         onCancel={closeAddModal}
-        destroyOnClose
+        destroyOnHidden
         centered
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

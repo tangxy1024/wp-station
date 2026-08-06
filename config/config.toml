@@ -9,7 +9,7 @@ port = 8081
 
 [database]
 # 默认示例使用 SQLite，本地持久化到数据目录
-url = "sqlite:///Users/wensiwei/Projects/wp-station/db/station.db"
+url = "sqlite://db/station.db"
 # PostgreSQL 配置
 # host = "localhost"
 # port = 5432
@@ -25,7 +25,7 @@ url = "sqlite:///Users/wensiwei/Projects/wp-station/db/station.db"
 [gitea]
 base_url = "http://localhost:3000"
 username = "gitea"
-password = "123456"
+password = "12345678"
 # 启动时双仓库同步策略：gitea / local
 # gitea: 容器内不存在时，以 Gitea 为准覆盖本地
 # local: 当本地仓库存在，以本地为准覆盖 Gitea

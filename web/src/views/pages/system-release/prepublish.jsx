@@ -549,7 +549,7 @@ function PrepublishPage() {
           />
         )}
 
-        <Row gutter={[16, 16]}>
+        <Row gutter={[16, 16]} style={{ minWidth: 0, overflow: 'hidden' }}>
           <Col xs={24} lg={8} style={{ display: 'flex' }}>
             <SandboxHistoryList
               history={historyItems}
@@ -618,7 +618,7 @@ function PrepublishPage() {
           </Col>
         </Row>
 
-        <Row gutter={[16, 16]} wrap style={{ minWidth: 0 }}>
+        <Row gutter={[16, 16]} wrap style={{ minWidth: 0, overflow: 'hidden' }}>
           <Col xs={24} lg={12} style={{ display: 'flex', minWidth: 0, overflow: 'hidden' }}>
             <Card
               title={t('sandbox.executionStages')}

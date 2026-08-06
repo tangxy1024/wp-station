@@ -19,6 +19,7 @@ const initRuntime = async () => {
 };
 
 const classForCapture = (prefix, name) => {
+  if (!name) return null;
   if (name.startsWith('keyword')) return `${prefix}-keyword`;
   if (name.startsWith('type')) return `${prefix}-type`;
   if (name.startsWith('function')) return `${prefix}-function`;
@@ -31,7 +32,8 @@ const classForCapture = (prefix, name) => {
   if (name.startsWith('variable')) return `${prefix}-variable`;
   if (name.startsWith('property')) return `${prefix}-property`;
   if (name.startsWith('constant')) return `${prefix}-special`;
-  return null;
+  if (name === 'ref' || name.startsWith('attribute')) return `${prefix}-property`;
+  return `${prefix}-variable`;
 };
 
 const splitQueryBlocks = (queryText) =>
@@ -194,6 +196,7 @@ export const createTreeSitterHighlightExtension = (languageId) => {
             return;
           }
 
+          console.error(`[tree-sitter] highlight error for "${languageId}":`, error?.message || error);
           view.dispatch({
             effects: setDecorations.of(Decoration.none),
           });

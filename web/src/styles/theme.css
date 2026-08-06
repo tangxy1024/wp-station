@@ -3044,6 +3044,7 @@ mark.diff-highlight {
 
 .main-content.no-side-nav {
   grid-template-columns: 1fr;
+  grid-template-rows: auto;
 }
 
 .main-content.no-side-nav .page-panels {
