@@ -896,7 +896,7 @@ export function WfusionRuleEditorContent() {
           <section className="panel-body">
             <div className="wfusion-rule-editor wfusion-rule-editor--compact">
       <div className="panel-block wfusion-rule-editor__log-block">
-        <div className="block-header" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
+        <div className="block-header" style={{ alignItems: 'center' }}>
           <div className="wfusion-rule-editor__editor-title">
             <h3>{t('wfusionRuleEditor.ndjsonTitle')}</h3>
             {workspaceMode === 'workspace' ? (
@@ -917,7 +917,7 @@ export function WfusionRuleEditorContent() {
           </div>
           <div
             className="block-actions"
-            style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', minWidth: 0 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
           >
             {workspaceMode === 'workspace' ? (
               <button

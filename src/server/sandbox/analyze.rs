@@ -75,29 +75,31 @@ pub fn analyse_generator_result(
         std::fs::read_to_string(log_path).map_err(|err| StageError::new(err.to_string()))?;
     let generated_re = match system {
         SystemKind::Wparse => Regex::new(r"generated\s*=\s*(\d+)").unwrap(),
-        SystemKind::Wfusion => Regex::new(r"(?i)generated\s+(\d+)\s+events").unwrap(),
+        // wfgen 使用 --send 时输出 "Sent X events"，使用 --out 时输出 "Generated X events"，
+        // 此处同时匹配两种格式，并对多场景的条数求和。
+        SystemKind::Wfusion => Regex::new(r"(?i)(?:generated|sent)\s+(\d+)\s+events").unwrap(),
     };
-    if let Some(caps) = generated_re.captures(&content) {
-        let count: usize = caps
-            .get(1)
-            .and_then(|m| m.as_str().parse().ok())
-            .unwrap_or(0);
-        if count == 0 {
-            return Err(StageError::with_code(
-                format!("{} 未生成任何样本", generator_name(system)),
-                "GENERATOR_ZERO_SAMPLE",
-            ));
-        }
-        Ok((
-            count,
-            format!("{} 生成 {} 条样本", generator_name(system), count),
-        ))
-    } else {
-        Err(StageError::with_code(
+    if !generated_re.is_match(&content) {
+        return Err(StageError::with_code(
             format!("未能解析 {} 输出中的生成条数", generator_name(system)),
             "GENERATOR_PARSE_FAILED",
-        ))
+        ));
     }
+    let count: usize = generated_re
+        .captures_iter(&content)
+        .filter_map(|caps| caps.get(1))
+        .filter_map(|m| m.as_str().parse::<usize>().ok())
+        .sum();
+    if count == 0 {
+        return Err(StageError::with_code(
+            format!("{} 未生成任何样本", generator_name(system)),
+            "GENERATOR_ZERO_SAMPLE",
+        ));
+    }
+    Ok((
+        count,
+        format!("{} 生成 {} 条样本", generator_name(system), count),
+    ))
 }
 
 /// 汇总 daemon 输出结果，包括输出文件与日志指标。

@@ -15,9 +15,15 @@ function SandboxLogViewer({
   formatDisplayTime,
   cardStyle,
   cardId,
+  system,
 }) {
+  const isWfusion = system === 'wfusion';
+  const stageKeyFor = (key) =>
+    isWfusion && (key === 'start_daemon' || key === 'run_wpgen') ? `${key}_wfusion` : key;
   const stageName = selectedStageInfo
-    ? t(`sandbox.stage.${selectedStageInfo.stage}`, { defaultValue: selectedStageInfo.stage })
+    ? t(`sandbox.stage.${stageKeyFor(selectedStageInfo.stage)}`, {
+        defaultValue: selectedStageInfo.stage,
+      })
     : t('sandbox.logViewer');
   const statusText = selectedStageInfo
     ? t(`sandbox.stageStatusLabel.${selectedStageInfo.status}`, {

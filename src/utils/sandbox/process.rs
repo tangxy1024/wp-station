@@ -36,12 +36,12 @@ pub struct DaemonProcess {
 
 /// 生成器命令执行的输出摘要。
 pub struct GeneratorOutput {
-    /// 进程退出码，正常退出为 Some(0)。
+    /// 进程退出码，正常退出为 Some(0)。多场景时为首个非零退出码。
     pub exit_code: Option<i32>,
     /// 输出日志文件路径。
     pub log_path: PathBuf,
-    /// 实际执行命令，供阶段日志展示。
-    pub command_line: String,
+    /// 实际执行的所有命令，供阶段日志展示。
+    pub command_lines: Vec<String>,
 }
 
 impl DaemonProcess {
@@ -140,6 +140,9 @@ pub async fn spawn_daemon(
 
 /// 执行系统对应的生成器，并将输出写入日志文件。
 /// 支持超时控制，超时后返回错误。
+///
+/// 对于 Wfusion：遍历 `models/scenarios` 下所有 `.wfg` 场景文件，
+/// 对每个场景依次执行 wfgen，输出追加到同一日志。
 pub async fn run_generator(
     system: SystemKind,
     project_dir: &Path,
@@ -149,55 +152,63 @@ pub async fn run_generator(
 ) -> Result<GeneratorOutput, AppError> {
     let generator_cmd = generator_command(system);
     let binary = resolve_toolchain_command(generator_cmd);
-    let command_line = match system {
-        SystemKind::Wparse => format!(
-            "{} sample -w . -n {} --print_stat",
-            binary.display(),
-            sample_count
-        ),
-        SystemKind::Wfusion => {
-            let scenario = find_wfusion_scenario(project_dir)?;
-            format!(
-                "{} gen --scenario {} --out /tmp/wfgen-out --send --addr 127.0.0.1:{} --no-oracle",
-                binary.display(),
-                scenario.display(),
-                WFUSION_RUNTIME_TCP_PORT
+
+    match system {
+        SystemKind::Wparse => {
+            run_generator_wparse(
+                &binary,
+                generator_cmd,
+                project_dir,
+                log_path,
+                sample_count,
+                timeout,
             )
+            .await
         }
-    };
-    let mut cmd = Command::new(&binary);
+        SystemKind::Wfusion => {
+            let scenarios = collect_wfusion_scenarios(project_dir)?;
+            run_generator_wfusion(
+                &binary,
+                generator_cmd,
+                project_dir,
+                log_path,
+                &scenarios,
+                timeout,
+            )
+            .await
+        }
+    }
+}
+
+/// 执行 wpgen 采样生成。
+async fn run_generator_wparse(
+    binary: &Path,
+    generator_cmd: &str,
+    project_dir: &Path,
+    log_path: &Path,
+    sample_count: u32,
+    timeout: Duration,
+) -> Result<GeneratorOutput, AppError> {
+    let command_line = format!(
+        "{} sample -w . -n {} --print_stat",
+        binary.display(),
+        sample_count
+    );
     let log_file = File::create(log_path).map_err(AppError::internal)?;
     writeln!(&log_file, "执行命令: {}", command_line).map_err(AppError::internal)?;
     writeln!(&log_file).map_err(AppError::internal)?;
     let stdout = log_file.try_clone().map_err(AppError::internal)?;
     let stderr = log_file.try_clone().map_err(AppError::internal)?;
-    match system {
-        SystemKind::Wparse => {
-            cmd.args([
-                "sample",
-                "-w",
-                ".",
-                "-n",
-                &sample_count.to_string(),
-                "--print_stat",
-            ]);
-        }
-        SystemKind::Wfusion => {
-            let scenario = find_wfusion_scenario(project_dir)?;
-            let runtime_addr = format!("127.0.0.1:{WFUSION_RUNTIME_TCP_PORT}");
-            cmd.arg("gen")
-                .arg("--scenario")
-                .arg(&scenario)
-                .arg("--out")
-                .arg("/tmp/wfgen-out")
-                .arg("--send")
-                .arg("--addr")
-                .arg(&runtime_addr)
-                // 沙盒生成阶段只负责发送事件，关闭场景期望输出（oracle）校验，
-                // 避免 oracle 编译失败阻断事件进入已启动的 wfusion。
-                .arg("--no-oracle");
-        }
-    }
+
+    let mut cmd = Command::new(binary);
+    cmd.args([
+        "sample",
+        "-w",
+        ".",
+        "-n",
+        &sample_count.to_string(),
+        "--print_stat",
+    ]);
     cmd.current_dir(project_dir).stdout(stdout).stderr(stderr);
 
     let mut child = cmd.spawn().map_err(|err| {
@@ -217,7 +228,82 @@ pub async fn run_generator(
     Ok(GeneratorOutput {
         exit_code: status.code(),
         log_path: log_path.to_path_buf(),
-        command_line,
+        command_lines: vec![command_line],
+    })
+}
+
+/// 对每个场景文件依次执行 wfgen，输出追加到同一日志。
+async fn run_generator_wfusion(
+    binary: &Path,
+    generator_cmd: &str,
+    project_dir: &Path,
+    log_path: &Path,
+    scenarios: &[PathBuf],
+    timeout: Duration,
+) -> Result<GeneratorOutput, AppError> {
+    let log_file = File::create(log_path).map_err(AppError::internal)?;
+    let runtime_addr = format!("127.0.0.1:{WFUSION_RUNTIME_TCP_PORT}");
+
+    let mut command_lines = Vec::with_capacity(scenarios.len());
+    let mut final_exit_code: Option<i32> = None;
+
+    for scenario in scenarios {
+        let command_line = format!(
+            "{} gen --scenario {} --send --addr 127.0.0.1:{} --no-oracle",
+            binary.display(),
+            scenario.display(),
+            WFUSION_RUNTIME_TCP_PORT
+        );
+        command_lines.push(command_line.clone());
+
+        // 场景之间的分隔，便于日志分析。
+        writeln!(&log_file, "--- 场景: {}", scenario.display()).map_err(AppError::internal)?;
+        writeln!(&log_file, "执行命令: {}", command_line).map_err(AppError::internal)?;
+        writeln!(&log_file).map_err(AppError::internal)?;
+
+        let stdout = log_file.try_clone().map_err(AppError::internal)?;
+        let stderr = log_file.try_clone().map_err(AppError::internal)?;
+
+        let mut cmd = Command::new(binary);
+        cmd.arg("gen")
+            .arg("--scenario")
+            .arg(scenario)
+            .arg("--send")
+            .arg("--addr")
+            .arg(&runtime_addr)
+            .arg("--no-oracle");
+        cmd.current_dir(project_dir).stdout(stdout).stderr(stderr);
+
+        let mut child = cmd.spawn().map_err(|err| {
+            AppError::internal(format!(
+                "执行 {} 失败: {}。请确认可执行文件 {} 是否可用",
+                generator_cmd,
+                err,
+                binary.display()
+            ))
+        })?;
+
+        let status = tokio::time::timeout(timeout, child.wait())
+            .await
+            .map_err(|_| AppError::internal(format!("{} 运行超时", generator_cmd)))?
+            .map_err(AppError::internal)?;
+
+        // 记录首个非零退出码，否则使用最后一次的状态。
+        let code = status.code();
+        if code.unwrap_or(0) != 0 && final_exit_code.is_none() {
+            final_exit_code = code;
+        }
+        if final_exit_code.is_none() {
+            final_exit_code = code;
+        }
+
+        writeln!(&log_file).map_err(AppError::internal)?;
+    }
+
+    Ok(GeneratorOutput {
+        exit_code: final_exit_code,
+        log_path: log_path.to_path_buf(),
+        command_lines,
     })
 }
 
@@ -354,15 +440,25 @@ pub fn daemon_ready_marker(system: SystemKind) -> &'static str {
     }
 }
 
-/// 查找沙盒内首个可用的 `.wfg` 场景文件。
-pub fn find_wfusion_scenario(project_dir: &Path) -> Result<PathBuf, AppError> {
+/// 查找沙盒内所有 `.wfg` 场景文件，按文件名排序。
+pub fn collect_wfusion_scenarios(project_dir: &Path) -> Result<Vec<PathBuf>, AppError> {
     let scenarios_dir = project_dir.join("models/scenarios");
     let mut files = Vec::new();
     collect_scenario_files(&scenarios_dir, &mut files)?;
     files.sort();
-    files.into_iter().next().ok_or_else(|| {
-        AppError::validation("未找到 wfusion 场景文件，请在 models/scenarios 下提供 .wfg 文件")
-    })
+    if files.is_empty() {
+        return Err(AppError::validation(
+            "未找到 wfusion 场景文件，请在 models/scenarios 下提供 .wfg 文件",
+        ));
+    }
+    Ok(files)
+}
+
+/// 查找沙盒内首个可用的 `.wfg` 场景文件。
+pub fn find_wfusion_scenario(project_dir: &Path) -> Result<PathBuf, AppError> {
+    let mut files = collect_wfusion_scenarios(project_dir)?;
+    // `collect_wfusion_scenarios` 已保证至少有一个文件，且已排序。
+    Ok(files.swap_remove(0))
 }
 
 fn collect_scenario_files(dir: &Path, acc: &mut Vec<PathBuf>) -> Result<(), AppError> {

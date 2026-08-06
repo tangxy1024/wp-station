@@ -58,7 +58,7 @@ function SandboxStageTimeline({
   }
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+    <Space direction="vertical" size="middle" style={{ width: '100%', minWidth: 0, overflow: 'hidden' }}>
       {filteredStages.map((stage) => {
         const stageKey = stage.stage;
         const isActive = selectedStage === stageKey;
@@ -81,7 +81,7 @@ function SandboxStageTimeline({
             }}
             bodyStyle={{ padding: 16, minWidth: 0, overflow: 'hidden' }}
           >
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <Space direction="vertical" size="small" style={{ width: '100%', minWidth: 0, overflow: 'hidden' }}>
               <div
                 style={{
                   display: 'flex',
@@ -118,7 +118,7 @@ function SandboxStageTimeline({
                 </div>
               </div>
               {shouldShowSummary && (
-                <Paragraph style={{ marginBottom: 4, overflowWrap: 'anywhere' }}>
+                <Paragraph style={{ marginBottom: 4, overflowWrap: 'anywhere', whiteSpace: 'pre-line' }}>
                   {stage.summary}
                 </Paragraph>
               )}

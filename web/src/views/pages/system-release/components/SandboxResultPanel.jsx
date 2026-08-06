@@ -101,7 +101,7 @@ function SandboxResultPanel({
 
   return (
     <Card title={t('sandbox.resultOverview')} style={{ width: '100%', ...cardStyle }}>
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space direction="vertical" size="middle" style={{ width: '100%', minWidth: 0, overflow: 'hidden' }}>
         <Space align="center" size="small">
           <Text type="secondary">{t('sandbox.statusLabelTitle')}</Text>
           <Tag color={statusColor || 'default'}>
@@ -141,7 +141,7 @@ function SandboxResultPanel({
         <Divider />
         <div>
           <Text strong>{t('sandbox.executionResult')}</Text>
-          <Space direction="vertical" size="small" style={{ width: '100%', marginTop: 8 }}>
+          <Space direction="vertical" size="small" style={{ width: '100%', marginTop: 8, minWidth: 0, overflow: 'hidden' }}>
             {executionMessages.map((msg, index) => (
               <Paragraph key={`execution-msg-${index}`} style={{ marginBottom: 0 }}>
                 {msg}

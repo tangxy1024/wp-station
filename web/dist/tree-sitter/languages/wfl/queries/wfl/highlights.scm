@@ -130,7 +130,7 @@
 (each_clause alias: (identifier) @variable)
 (join_clause window: (identifier) @type)
 (yield_target target: (identifier) @type)
-(yield_clause base: (identifier) @type)
+(yield_clause preset: (preset_ref base: (identifier) @type))
 (entity_clause type: (identifier) @type)
 (entity_clause type: (string) @type)
 

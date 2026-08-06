@@ -92,6 +92,10 @@
   color: #f8fafc;
 }
 
+.editor :global(.cm-oml-property) {
+  color: #fda4af;
+}
+
 .editor :global(.cm-oml-special) {
   color: #fda4af;
 }

@@ -43,8 +43,8 @@
 (string) @string
 (number) @number
 (duration) @number
-(percent) @number
-(rate_constant) @number
+(percentage) @number
+(rate) @number
 (boolean) @constant.builtin
 (comparison_operator) @operator
 
@@ -54,15 +54,13 @@
 ".." @operator
 
 (scenario_declaration name: (identifier) @function.definition)
-(annotation_item key: (identifier) @attribute)
-(stream_statement stream: (identifier) @type)
+(attribute key: (identifier) @attribute)
+(traffic_stream stream: (identifier) @type)
 (injection_case rule: (identifier) @function)
 (injection_case stream: (identifier) @type)
-(sequence_block entity: (identifier) @variable.parameter)
-(predicate key: (identifier) @property)
-(expect_statement rule: (identifier) @function)
-(wave_shape) @constant
-(mode_keyword) @constant
-(expect_function) @function.builtin
+(seq_block entity: (identifier) @variable.parameter)
+(field_predicate field: (identifier) @property)
+(scenario_expect_statement rule: (identifier) @function)
+(wave_rate) @constant
 
 (identifier) @variable
