@@ -9,4 +9,5 @@ connect = "file_json_sink"
 name = "default_out"
 
 [sink_group.sinks.params]
+base = "./data/out_dat/"
 file = "default.ndjson"

@@ -33,7 +33,7 @@ lazy_static! {
 }
 
 pub use lifecycle::{
-    configured_provider_name, is_knowledge_loaded, load_knowledge, load_sqlite_knowledge,
+    configured_provider_names, is_knowledge_loaded, load_knowledge, load_sqlite_knowledge,
     reload_knowledge, reload_sqlite_knowledge, should_reload_knowledge_source, unload_knowledge,
 };
-pub use query::{db_init, sql_knowdb_list, sql_query, sql_query_rows};
+pub use query::{db_init, sql_knowdb_list, sql_query, sql_query_rows, sql_query_rows_for};

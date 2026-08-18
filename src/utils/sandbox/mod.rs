@@ -11,8 +11,8 @@ mod process;
 mod workspace;
 
 pub use self::process::{
-    DaemonProcess, GeneratorOutput, command_version_output, daemon_command, daemon_ready_marker,
-    ensure_tcp_port_available, ensure_udp_port_available, collect_wfusion_scenarios,
+    DaemonProcess, GeneratorOutput, collect_wfusion_scenarios, command_version_output,
+    daemon_command, daemon_ready_marker, ensure_tcp_port_available, ensure_udp_port_available,
     find_wfusion_scenario, generator_command, run_generator, run_wfadm_check, run_wpadm_check,
     spawn_daemon,
 };

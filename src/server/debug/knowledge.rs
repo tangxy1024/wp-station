@@ -4,16 +4,18 @@ use crate::error::AppError;
 use crate::server::RepoLayout;
 use crate::server::Setting;
 use crate::utils::{
-    configured_provider_name, list_knowledge_dirs, load_knowledge, load_sqlite_knowledge,
+    configured_provider_names, list_knowledge_dirs, load_knowledge, load_sqlite_knowledge,
     reload_knowledge, reload_sqlite_knowledge, should_reload_knowledge_source, sql_query_rows,
+    sql_query_rows_for,
 };
 
 use super::{DebugKnowledgeQueryResponse, DebugKnowledgeStatusItem};
 
 /// 知识库调试查询的数据源类型。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum KnowledgeQuerySource {
-    ConfiguredProvider,
+    /// `None` 保留旧请求的默认远程 provider 回退；新页面始终传入具体名称。
+    ConfiguredProvider(Option<String>),
     LocalSqlite,
 }
 
@@ -21,44 +23,34 @@ enum KnowledgeQuerySource {
 pub async fn debug_knowledge_status_logic() -> Result<Vec<DebugKnowledgeStatusItem>, AppError> {
     let setting = Setting::load();
     let layout = setting.wparse_layout();
-    let provider_name = configured_provider_name(&layout)?;
+    let provider_names = configured_provider_names(&layout)?;
     let local_tables = list_knowledge_dirs(&layout)?;
-    let provider_name_ref = provider_name.as_deref().map(str::to_string);
 
-    if provider_name.is_some() {
+    if !provider_names.is_empty() {
         reload_knowledge(&layout).map_err(AppError::internal)?;
     } else if !local_tables.is_empty() {
         reload_sqlite_knowledge(&layout).map_err(AppError::internal)?;
     }
 
-    let mut list = Vec::new();
-    if let Some(provider_name) = provider_name {
-        list.push(provider_name);
-    }
-    list.extend(local_tables);
-
-    let items: Vec<DebugKnowledgeStatusItem> = list
+    let provider_items = provider_names
         .into_iter()
-        .map(|file_name| {
-            let source_kind = if provider_name_ref.as_deref() == Some(file_name.as_str()) {
-                "provider"
-            } else {
-                "local"
-            };
-            let suggested_sql = if source_kind == "provider" {
-                "select * from your_table limit 20;".to_string()
-            } else {
-                format!("select * from {file_name} limit 20;")
-            };
-            DebugKnowledgeStatusItem {
-                tag_name: file_name.clone(),
-                label: file_name.clone(),
-                suggested_sql,
-                source_kind: source_kind.to_string(),
-                is_active: true,
-            }
-        })
-        .collect();
+        .map(|provider_name| DebugKnowledgeStatusItem {
+            tag_name: provider_name.clone(),
+            label: provider_name,
+            suggested_sql: "select * from your_table limit 20;".to_string(),
+            source_kind: "provider".to_string(),
+            is_active: true,
+        });
+    let local_items = local_tables
+        .into_iter()
+        .map(|file_name| DebugKnowledgeStatusItem {
+            tag_name: file_name.clone(),
+            label: file_name.clone(),
+            suggested_sql: format!("select * from {file_name} limit 20;"),
+            source_kind: "local".to_string(),
+            is_active: true,
+        });
+    let items = provider_items.chain(local_items).collect();
 
     Ok(items)
 }
@@ -119,51 +111,57 @@ pub async fn debug_knowledge_query_fields_logic(
 fn resolve_knowledge_query_source(
     selected_kind: Option<&str>,
     selected: Option<&str>,
-    provider_name: Option<&str>,
-) -> KnowledgeQuerySource {
+    provider_names: &[String],
+) -> Result<KnowledgeQuerySource, AppError> {
+    let selected = selected.map(str::trim).filter(|value| !value.is_empty());
+    let selected_provider = selected.filter(|name| provider_names.iter().any(|item| item == name));
+
     if let Some(kind) = selected_kind
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
         if kind.eq_ignore_ascii_case("provider") {
-            return KnowledgeQuerySource::ConfiguredProvider;
+            return Ok(KnowledgeQuerySource::ConfiguredProvider(
+                selected_provider.map(str::to_string),
+            ));
         }
         if kind.eq_ignore_ascii_case("local") {
-            return KnowledgeQuerySource::LocalSqlite;
+            return Ok(KnowledgeQuerySource::LocalSqlite);
         }
     }
 
-    if let Some(selected) = selected.map(str::trim).filter(|value| !value.is_empty()) {
-        if provider_name.is_some_and(|provider| provider == selected) {
-            return KnowledgeQuerySource::ConfiguredProvider;
-        }
-        return KnowledgeQuerySource::LocalSqlite;
+    if let Some(provider_name) = selected_provider {
+        return Ok(KnowledgeQuerySource::ConfiguredProvider(Some(
+            provider_name.to_string(),
+        )));
     }
-
-    if provider_name.is_some() {
-        KnowledgeQuerySource::ConfiguredProvider
-    } else {
-        KnowledgeQuerySource::LocalSqlite
+    if selected.is_some() {
+        return Ok(KnowledgeQuerySource::LocalSqlite);
     }
+    // 交给 wp-knowledge 使用默认 provider”。
+    if !provider_names.is_empty() {
+        return Ok(KnowledgeQuerySource::ConfiguredProvider(None));
+    }
+    Ok(KnowledgeQuerySource::LocalSqlite)
 }
 
 /// 按来源加载知识库，必要时执行 reload。
 fn ensure_knowledge_source_loaded(
     layout: &RepoLayout,
-    source: KnowledgeQuerySource,
+    source: &KnowledgeQuerySource,
     force_reload: bool,
 ) -> Result<(), AppError> {
     let should_reload = force_reload
         || match source {
-            KnowledgeQuerySource::ConfiguredProvider => {
+            KnowledgeQuerySource::ConfiguredProvider(_) => {
                 should_reload_knowledge_source("configured")
             }
             KnowledgeQuerySource::LocalSqlite => should_reload_knowledge_source("sqlite"),
         };
 
     let result = match (source, should_reload) {
-        (KnowledgeQuerySource::ConfiguredProvider, true) => reload_knowledge(layout),
-        (KnowledgeQuerySource::ConfiguredProvider, false) => load_knowledge(layout),
+        (KnowledgeQuerySource::ConfiguredProvider(_), true) => reload_knowledge(layout),
+        (KnowledgeQuerySource::ConfiguredProvider(_), false) => load_knowledge(layout),
         (KnowledgeQuerySource::LocalSqlite, true) => reload_sqlite_knowledge(layout),
         (KnowledgeQuerySource::LocalSqlite, false) => load_sqlite_knowledge(layout),
     };
@@ -184,16 +182,18 @@ async fn debug_knowledge_query_rows_for_source_logic(
 
     let setting = Setting::load();
     let layout = setting.wparse_layout();
-    let provider_name = configured_provider_name(&layout)?;
-    let source = resolve_knowledge_query_source(
-        source_kind.as_deref(),
-        table.as_deref(),
-        provider_name.as_deref(),
-    );
+    let provider_names = configured_provider_names(&layout)?;
+    let source =
+        resolve_knowledge_query_source(source_kind.as_deref(), table.as_deref(), &provider_names)?;
 
-    ensure_knowledge_source_loaded(&layout, source, false)?;
+    ensure_knowledge_source_loaded(&layout, &source, false)?;
 
-    sql_query_rows(&sql)
-        .await
-        .map_err(|e| AppError::validation(format!("执行知识库 SQL 失败: {}", e)))
+    match source {
+        KnowledgeQuerySource::ConfiguredProvider(Some(provider_name)) => {
+            sql_query_rows_for(Some(&provider_name), &sql).await
+        }
+        KnowledgeQuerySource::ConfiguredProvider(None) => sql_query_rows(&sql).await,
+        KnowledgeQuerySource::LocalSqlite => sql_query_rows(&sql).await,
+    }
+    .map_err(|e| AppError::validation(format!("执行知识库 SQL 失败: {}", e)))
 }

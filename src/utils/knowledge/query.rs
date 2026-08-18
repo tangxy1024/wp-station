@@ -21,10 +21,21 @@ pub async fn sql_query(sql: &str) -> Result<Vec<DataField>> {
 
 /// 直接通过 `wp-knowledge` provider 执行 SQL，支持真实数据库配置。
 pub async fn sql_query_rows(sql: &str) -> Result<Vec<RowData>> {
-    let rows: Vec<RowData> = facade::query_async(sql)
-        .await
-        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
-    debug!("知识库工具执行 SQL 查询完成: rows={}", rows.len());
+    sql_query_rows_for(None, sql).await
+}
+
+/// 通过指定的命名 provider 执行 SQL；未指定时使用当前默认 provider。
+pub async fn sql_query_rows_for(provider_name: Option<&str>, sql: &str) -> Result<Vec<RowData>> {
+    let rows: Vec<RowData> = match provider_name {
+        Some(provider_name) => facade::query_async_for(provider_name, sql).await,
+        None => facade::query_async(sql).await,
+    }
+    .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    debug!(
+        "知识库工具执行 SQL 查询完成: provider={}, rows={}",
+        provider_name.unwrap_or("default"),
+        rows.len()
+    );
     Ok(rows)
 }
 

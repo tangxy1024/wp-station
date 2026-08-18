@@ -11,17 +11,20 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tracing::{error, info, warn};
 use wp_knowledge::facade;
-use wp_knowledge::loader::{self, SqlProviderKind};
+use wp_knowledge::loader;
 
 /// 检查 Station 当前进程是否已经加载了任意知识库来源。
 pub fn is_knowledge_loaded() -> bool {
     KNOWLEDGE_LOADED.read().unwrap().is_some()
 }
 
-/// 读取 `knowdb.toml` 中声明的 provider 类型名称。
-pub fn configured_provider_name(layout: &RepoLayout) -> Result<Option<String>, AppError> {
+/// 读取 `knowdb.toml` 中声明的 provider 生效名称。
+///
+/// SQL provider 未配置 `name` 时使用 `wp-knowledge` 的默认名称 `default`。
+/// 多数据库模式下调用方必须基于此列表显式选择查询目标，避免误落到默认连接。
+pub fn configured_provider_names(layout: &RepoLayout) -> Result<Vec<String>, AppError> {
     let Some(context) = build_knowledge_context(layout)? else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
 
     ensure_supported_provider_format(&context)?;
@@ -33,20 +36,19 @@ pub fn configured_provider_name(layout: &RepoLayout) -> Result<Option<String>, A
             AppError::internal(e)
         })?;
 
-    Ok(conf.provider().and_then(|provider| {
+    Ok(conf.provider().map_or_else(Vec::new, |provider| {
         if let Some(sqldb) = provider.sqldb {
-            let name = match sqldb.kind {
-                SqlProviderKind::Postgres => "postgres",
-                SqlProviderKind::Mysql => "mysql",
-            };
-            return Some(name.to_string());
+            return sqldb
+                .iter()
+                .map(|spec| spec.effective_name().to_string())
+                .collect();
         }
 
         if provider.redis.is_some() {
-            return Some("redis".to_string());
+            return vec!["redis".to_string()];
         }
 
-        None
+        Vec::new()
     }))
 }
 
