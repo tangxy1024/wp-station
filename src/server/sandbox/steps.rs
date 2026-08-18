@@ -472,7 +472,9 @@ pub(super) async fn stage_run_wpgen(
     Ok(match system {
         crate::utils::SystemKind::Wparse => format!(
             "wparse 监听稳定等待{}ms后，wpgen 已启动，已发送{}条消息。命令: {}",
-            DAEMON_READY_BEFORE_WPGEN_WAIT_MS, count, output.command_lines.join("\n")
+            DAEMON_READY_BEFORE_WPGEN_WAIT_MS,
+            count,
+            output.command_lines.join("\n")
         ),
         crate::utils::SystemKind::Wfusion => {
             let cmds = output.command_lines.join("\n");
@@ -483,7 +485,7 @@ pub(super) async fn stage_run_wpgen(
                 count,
                 cmds,
             )
-        },
+        }
     })
 }
 
