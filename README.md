@@ -129,6 +129,9 @@ npm run dev
 npm run build
 ```
 
+前端依赖统一使用 npm 和 `web/package-lock.json`。Tree-sitter 语言资产固定来自
+`Cargo.lock` 锁定的依赖，不读取同级目录中的本地仓库。
+
 ## 配置管理最新变化
 
 - `来源配置` 页新增 `新增输入源` 按钮，编辑的是 `project_infra/topology/sources/wpsrc.toml`。

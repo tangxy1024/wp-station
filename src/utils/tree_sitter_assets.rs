@@ -87,13 +87,6 @@ fn is_asset_root_usable(
     read_editor_asset_manifest(crate_root, source)
 }
 
-fn resolve_local_override_root(source: &TreeSitterAssetSource) -> Option<PathBuf> {
-    source
-        .local_override_root
-        .map(|relative| repo_root().join(relative))
-        .filter(|path| path.exists())
-}
-
 fn get_cargo_metadata() -> Result<serde_json::Value, String> {
     let output = std::process::Command::new("cargo")
         .args(["metadata", "--format-version", "1"])
@@ -124,25 +117,6 @@ fn get_package_root(packages: &[serde_json::Value], name: &str) -> Option<PathBu
         .and_then(|manifest_path| Path::new(manifest_path).parent().map(Path::to_path_buf))
 }
 
-fn resolve_local_asset_root(
-    source: &TreeSitterAssetSource,
-    local_root: Option<PathBuf>,
-) -> Option<(PathBuf, EditorAssetManifest)> {
-    let root = local_root?;
-    match is_asset_root_usable(&root, source) {
-        Ok(manifest) => Some((root, manifest)),
-        Err(err) => {
-            tracing::warn!(
-                "本地覆盖 tree-sitter 资产不可用: package={}, manifest={}, error={}",
-                source.package_name,
-                source.manifest_relative,
-                err
-            );
-            None
-        }
-    }
-}
-
 fn resolve_package_asset_root(
     source: &TreeSitterAssetSource,
     package_root: Option<PathBuf>,
@@ -160,22 +134,6 @@ fn resolve_package_asset_root(
             None
         }
     }
-}
-
-fn select_asset_root(
-    source: &TreeSitterAssetSource,
-    local_root: Option<PathBuf>,
-    package_root: Option<PathBuf>,
-) -> Option<(PathBuf, EditorAssetManifest)> {
-    if let Some(local) = resolve_local_asset_root(source, local_root) {
-        return Some(local);
-    }
-
-    if let Some(pkg) = resolve_package_asset_root(source, package_root) {
-        return Some(pkg);
-    }
-
-    None
 }
 
 fn export_language_assets(
@@ -263,11 +221,9 @@ pub fn sync_tree_sitter_assets_for_dev_start() -> Result<(), String> {
         .ok_or_else(|| "cargo metadata 缺少 packages".to_string())?;
 
     for source in TREE_SITTER_ASSET_SOURCES {
-        let local_root = resolve_local_override_root(source);
         let package_root = get_package_root(packages, source.package_name);
 
-        let Some((crate_root, manifest)) = select_asset_root(source, local_root, package_root)
-        else {
+        let Some((crate_root, manifest)) = resolve_package_asset_root(source, package_root) else {
             tracing::warn!(
                 "未找到可用的 tree-sitter 资产目录，跳过导出: package={}",
                 source.package_name

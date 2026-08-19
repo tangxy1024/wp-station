@@ -125,25 +125,7 @@ fn is_asset_root_usable(
     read_editor_asset_manifest(crate_root, source)
 }
 
-/// 优先尝试本地 override 仓库作为语言资产来源。
-fn resolve_local_asset_root(
-    source: &TreeSitterAssetSource,
-    local_root: Option<PathBuf>,
-) -> Option<(PathBuf, EditorAssetManifest)> {
-    let root = local_root?;
-    match is_asset_root_usable(&root, source) {
-        Ok(manifest) => Some((root, manifest)),
-        Err(err) => {
-            println!(
-                "cargo:warning=本地覆盖 tree-sitter 资产不可用: package={}, manifest={}, error={}",
-                source.package_name, source.manifest_relative, err
-            );
-            None
-        }
-    }
-}
-
-/// 当没有本地 override 时，尝试使用 Cargo 已解析到的依赖目录。
+/// 使用 Cargo 已解析到的依赖目录。
 fn resolve_package_asset_root(
     source: &TreeSitterAssetSource,
     package_root: Option<PathBuf>,
@@ -161,23 +143,6 @@ fn resolve_package_asset_root(
     }
 }
 
-/// 为单个语言选择最终资产来源，优先本地 override，其次 Cargo 依赖目录。
-fn select_asset_root(
-    source: &TreeSitterAssetSource,
-    local_root: Option<PathBuf>,
-    package_root: Option<PathBuf>,
-) -> Option<(PathBuf, EditorAssetManifest)> {
-    if let Some(local) = resolve_local_asset_root(source, local_root) {
-        return Some(local);
-    }
-
-    if let Some(pkg) = resolve_package_asset_root(source, package_root) {
-        return Some(pkg);
-    }
-
-    None
-}
-
 /// 注册 tree-sitter 语言源目录的变更监听，保证资源变更时重新执行 build.rs。
 fn register_tree_sitter_inputs(crate_root: &Path) {
     for relative in ["editor", "queries", "completions"] {
@@ -193,7 +158,7 @@ fn register_tree_sitter_inputs(crate_root: &Path) {
 /// 约束：
 /// - 不在 build 阶段拉取远端仓库；
 /// - 语言依赖由 Cargo 在解析 `Cargo.toml` 时准备；
-/// - 这里只从本地 override 仓库或 Cargo 已解析到的依赖目录复制/覆盖资源。
+/// - 这里只从 Cargo.lock 锁定且 Cargo 已解析到的依赖目录复制资源。
 fn export_tree_sitter_assets(metadata: &Value) {
     let packages = metadata
         .get("packages")
@@ -204,17 +169,10 @@ fn export_tree_sitter_assets(metadata: &Value) {
     let languages_root = public_root.join("languages");
     fs::create_dir_all(&languages_root).expect("Failed to create tree-sitter public directory");
     let mut exported_manifests = Vec::new();
-
     for source in TREE_SITTER_ASSET_SOURCES {
-        let local_root = source
-            .local_override_root
-            .map(PathBuf::from)
-            .filter(|path| path.exists());
         let package_root = get_package_root(packages, source.package_name);
 
-        if let Some((crate_root, manifest)) = resolve_local_asset_root(source, local_root.clone())
-            .or_else(|| resolve_package_asset_root(source, package_root.clone()))
-        {
+        if let Some((crate_root, manifest)) = resolve_package_asset_root(source, package_root) {
             register_tree_sitter_inputs(&crate_root);
             println!(
                 "cargo:rerun-if-changed={}",
@@ -239,35 +197,10 @@ fn export_tree_sitter_assets(metadata: &Value) {
             continue;
         }
 
-        let Some((crate_root, manifest)) = select_asset_root(source, None, None) else {
-            println!(
-                "cargo:warning=未找到 tree-sitter 依赖目录，跳过语言资产导出: {}",
-                source.package_name
-            );
-            continue;
-        };
-
-        register_tree_sitter_inputs(&crate_root);
         println!(
-            "cargo:rerun-if-changed={}",
-            crate_root.join(source.manifest_relative).display()
+            "cargo:warning=未找到 tree-sitter 依赖目录，跳过语言资产导出: {}",
+            source.package_name
         );
-
-        let language_root = languages_root.join(&manifest.language_id);
-        copy_asset_to(
-            &crate_root,
-            source.manifest_relative,
-            &language_root,
-            "editor/asset-manifest.json",
-        );
-        copy_asset(&crate_root, &manifest.highlights_query, &language_root);
-        copy_asset(&crate_root, &manifest.parser_wasm, &language_root);
-
-        if let Some(bundle) = manifest.completion_bundle.as_deref() {
-            copy_asset(&crate_root, bundle, &language_root);
-        }
-
-        exported_manifests.push(manifest);
     }
 
     let index_path = languages_root.join("index.json");
