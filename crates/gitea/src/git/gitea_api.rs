@@ -68,7 +68,7 @@ impl GiteaApiClient {
             return Err("必须提供用户名和密码".into());
         }
 
-        let client = Client::new();
+        let client = Client::builder().no_proxy().build()?;
 
         let req = CreateTagRequest {
             tag_name: tag_name.to_string(),
@@ -109,7 +109,7 @@ impl GiteaApiClient {
         }
         
         // 创建HTTP客户端
-        let client = Client::new();
+        let client = Client::builder().no_proxy().build()?;
         
         // 准备最小化请求数据
         let req = CreateRepoRequest {
@@ -148,10 +148,10 @@ impl GiteaApiClient {
             return Err("必须提供用户名和密码".into());
         }
 
-        let client = Client::new();
+        let client = Client::builder().no_proxy().build()?;
         let url = format!("{}/api/v1/repos/{}/{}", self.base_url, self.user_name, repo_name);
         let response = client
-            .get(url)
+            .get(&url)
             .basic_auth(&self.user_name, Some(&self.password))
             .send()
             .await?;
@@ -162,8 +162,27 @@ impl GiteaApiClient {
             Ok(None)
         } else {
             let status = response.status();
+            let response_headers = response
+                .headers()
+                .iter()
+                .filter(|(name, _)| {
+                    matches!(
+                        name.as_str(),
+                        "server" | "via" | "x-cache" | "content-type" | "content-length"
+                    )
+                })
+                .map(|(name, value)| format!("{}={}", name, value.to_str().unwrap_or("<invalid>")))
+                .collect::<Vec<_>>()
+                .join(",");
             let text = response.text().await?;
-            Err(format!("查询远程仓库失败: {} - {}", status, text).into())
+            Err(format!(
+                "查询远程仓库失败: url={}, status={}, headers=[{}], body={}",
+                url,
+                status,
+                response_headers,
+                text
+            )
+            .into())
         }
     }
 
@@ -174,7 +193,7 @@ impl GiteaApiClient {
             return Err("必须提供用户名和密码".into());
         }
 
-        let client = Client::new();
+        let client = Client::builder().no_proxy().build()?;
         let url = format!("{}/api/v1/repos/{}/{}", self.base_url, self.user_name, repo_name);
 
         let response = client

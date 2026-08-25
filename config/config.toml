@@ -23,7 +23,7 @@ url = "sqlite://db/station.db"
 # ssl_mode = "prefer"
 
 [gitea]
-base_url = "http://localhost:3000"
+base_url = "http://127.0.0.1:3000"
 username = "gitea"
 password = "12345678"
 # 启动时双仓库同步策略：gitea / local
