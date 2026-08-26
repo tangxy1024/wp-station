@@ -4,7 +4,7 @@ use crate::common::{
 };
 
 #[tokio::test]
-async fn test_init_default_configs_is_idempotent_for_project_files() {
+async fn test_init_default_configs_preserves_existing_managed_project() {
     setup_db().await;
     let infra_root = test_infra_root();
     let models_root = test_models_root();
@@ -15,9 +15,16 @@ async fn test_init_default_configs_is_idempotent_for_project_files() {
     init_default_configs_to_test_layout();
     let wparse = infra_root.join("conf/wparse.toml");
     let knowdb = models_root.join("models/knowledge/knowdb.toml");
-    assert!(wparse.is_file(), "wparse default should be restored");
-    assert!(knowdb.is_file(), "knowdb default should be restored");
+    assert!(
+        !wparse.exists(),
+        "existing infra repository should not backfill a deliberately removed file"
+    );
+    assert!(
+        !knowdb.exists(),
+        "existing models repository should not backfill a deliberately removed file"
+    );
 
+    init_default_configs_to_test_layout();
     std::fs::write(&wparse, "user-edited").expect("edit default config");
     init_default_configs_to_test_layout();
     let content = std::fs::read_to_string(&wparse).expect("read edited config");

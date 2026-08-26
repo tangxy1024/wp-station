@@ -6,6 +6,9 @@ use wp_station::utils::{
 
 #[tokio::test]
 async fn test_sql_query_returns_fields() {
+    setup_db().await;
+    unload_knowledge();
+    load_knowledge(&test_project_layout()).expect("load knowledge before query");
     let result = sql_query("SELECT 1 as value").await.expect("sql query");
     if let Some(field) = result.first() {
         assert_eq!(field.get_name(), "value");
@@ -14,6 +17,9 @@ async fn test_sql_query_returns_fields() {
 
 #[tokio::test]
 async fn test_sql_knowdb_list_handles_empty_state() {
+    setup_db().await;
+    unload_knowledge();
+    load_knowledge(&test_project_layout()).expect("load knowledge before listing tables");
     let list = sql_knowdb_list().await.expect("knowdb list");
     assert!(list.iter().all(|name| !name.is_empty()));
 }

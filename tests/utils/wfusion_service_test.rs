@@ -98,6 +98,7 @@ fn mock_device(ip: &str, port: i32) -> Device {
         token: "123456".to_string(),
         client_version: None,
         config_version: None,
+        health_error: None,
         last_release_id: None,
         last_seen_at: None,
         created_at: Utc::now(),

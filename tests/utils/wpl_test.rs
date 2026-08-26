@@ -54,7 +54,7 @@ fn test_record_to_fields_assigns_sequential_numbers() {
 fn test_wpl_formatter_formats_code() {
     let formatter = WplFormatter::new();
     let messy = "package test { rule sample { ( digit:status, chars:message ) } }";
-    let formatted = formatter.format_content(messy).expect("format wpl content");
+    let formatted = formatter.format(messy).expect("format wpl content");
     assert!(formatted.contains("package test"));
     assert!(
         formatted
@@ -77,9 +77,7 @@ fn test_wpl_formatter_handles_annotations_and_comments() {
             }
         }
     "#;
-    let formatted = formatter
-        .format_content(source)
-        .expect("format annotated wpl");
+    let formatted = formatter.format(source).expect("format annotated wpl");
     assert!(formatted.contains("#[tag(example)]"));
     assert!(formatted.contains("chars:name"));
     assert!(formatted.contains("raw(\"value\")"));
@@ -90,7 +88,7 @@ fn test_wpl_formatter_handles_raw_strings_and_quotes() {
     let formatter = WplFormatter::new();
     let source =
         r##"package raw_demo { rule sample { ( chars:"value,with,comma", r#"raw(content)"# ) } }"##;
-    let formatted = formatter.format_content(source).expect("format raw string");
+    let formatted = formatter.format(source).expect("format raw string");
     assert!(formatted.contains("raw_demo"));
     assert!(formatted.contains("raw(content)"));
 }
@@ -99,7 +97,7 @@ fn test_wpl_formatter_handles_raw_strings_and_quotes() {
 fn test_wpl_formatter_format_content_or_original_on_error() {
     let formatter = WplFormatter::new();
     let source = "package bad { rule broken { ( digit:id ";
-    let output = formatter.format_content_or_original(source);
+    let output = formatter.format_or_original(source);
     assert_eq!(output, source);
 }
 
@@ -113,9 +111,7 @@ fn test_wpl_formatter_preserves_raw_functions() {
             }
         }
     "#;
-    let formatted = formatter
-        .format_content(source)
-        .expect("format raw functions");
+    let formatted = formatter.format(source).expect("format raw functions");
     assert!(formatted.contains("symbol(\"a|b|c\")"));
     assert!(formatted.contains("f_chars_in(\"abc\")"));
 }
@@ -123,7 +119,7 @@ fn test_wpl_formatter_preserves_raw_functions() {
 #[test]
 fn test_wpl_formatter_reports_unbalanced_brackets() {
     let formatter = WplFormatter::new();
-    let result = formatter.format_content("package demo { rule broken { ( digit:id } }");
+    let result = formatter.format("package demo { rule broken { ( digit:id } }");
     assert!(result.is_err());
 }
 
@@ -136,7 +132,7 @@ fn test_wpl_formatter_formats_project_samples() {
 
     for path in samples {
         let content = std::fs::read_to_string(&path).expect("read wpl sample");
-        let formatted = formatter.format_content_or_original(&content);
+        let formatted = formatter.format_or_original(&content);
         assert!(!formatted.is_empty(), "empty formatted output for {path:?}");
     }
 }

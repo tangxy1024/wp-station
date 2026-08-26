@@ -163,14 +163,17 @@ max = 10
         .uri("/api/debug/wfusion-editor/parse")
         .set_json(serde_json::json!({
             "events_ndjson": "{\"_stream\":\"netflow\",\"sip\":\"10.0.0.99\",\"dip\":\"192.168.1.10\",\"dport\":22,\"bytes_out\":100,\"protocol\":\"tcp\",\"event_time\":1700000000000000000}\n{\"_stream\":\"auth_events\",\"sip\":\"10.0.0.99\",\"dip\":\"192.168.1.10\",\"dport\":22,\"service\":\"ssh\",\"user\":\"root\",\"result\":\"success\",\"event_time\":1700000001000000000}\n{\"_stream\":\"netflow\",\"sip\":\"10.0.0.99\",\"dip\":\"192.168.1.10\",\"dport\":22,\"bytes_out\":50000,\"protocol\":\"tcp\",\"event_time\":1700000002000000000}",
-            "wfs": "window conn_events {\n    stream = \"netflow\"\n    time = event_time\n    over = 30m\n    fields {\n        sip: ip\n        dip: ip\n        dport: digit\n        bytes_out: digit\n        protocol: chars\n        event_time: time\n    }\n}\n\nwindow auth_events {\n    stream = \"auth_events\"\n    time = event_time\n    over = 30m\n    fields {\n        sip: ip\n        dip: ip\n        dport: digit\n        service: chars\n        user: chars\n        result: chars\n        event_time: time\n    }\n}\n\nwindow security_alerts {\n    over = 0\n    fields {\n        sip: ip\n        dip: ip\n        alert_type: chars\n        detail: chars\n    }\n}",
+            "wfs": "window conn_events {\n    stream_tag = \"netflow\"\n    time = event_time\n    over = 30m\n    fields {\n        sip: ip\n        dip: ip\n        dport: digit\n        bytes_out: digit\n        protocol: chars\n        event_time: time\n    }\n}\n\nwindow auth_events {\n    stream_tag = \"auth_events\"\n    time = event_time\n    over = 30m\n    fields {\n        sip: ip\n        dip: ip\n        dport: digit\n        service: chars\n        user: chars\n        result: chars\n        event_time: time\n    }\n}\n\nwindow security_alerts {\n    over = 0\n    fields {\n        sip: ip\n        dip: ip\n        alert_type: chars\n        detail: chars\n    }\n}",
             "wfl": "rule rat_propagation {\n    events {\n        scan  : conn_events && (dport == 22 || dport == 445 || dport == 3389) && bytes_out < 1000\n        login : auth_events && result == \"success\"\n        xfer  : conn_events && bytes_out >= 10000\n    }\n    match<sip,dip:5m> {\n        on event {\n            scan | count >= 1;\n            login | count >= 1;\n            xfer | count >= 1;\n        }\n    } -> score(95.0)\n    entity(ip, scan.sip)\n    yield security_alerts (\n        sip = scan.sip,\n        dip = scan.dip,\n        alert_type = \"rat_propagation\",\n        detail = \"scan -> login -> xfer\"\n    )\n    limits { max_memory = \"64MB\"; max_instances = 10000; on_exceed = throttle; }\n}"
         }))
         .to_request();
     let wfusion_parse_resp = test::call_service(&app, wfusion_parse_req).await;
     assert_eq!(wfusion_parse_resp.status(), StatusCode::OK);
     let wfusion_parse_body: serde_json::Value = test::read_body_json(wfusion_parse_resp).await;
-    assert_eq!(wfusion_parse_body["success"], true);
+    assert_eq!(
+        wfusion_parse_body["success"], true,
+        "unexpected wfusion parse response: {wfusion_parse_body}"
+    );
     assert_eq!(wfusion_parse_body["summary"]["match_count"], 1);
     assert_eq!(
         wfusion_parse_body["alerts"]
@@ -189,7 +192,7 @@ max = 10
         .uri("/api/debug/wfusion-editor/parse")
         .set_json(serde_json::json!({
             "events_ndjson": "",
-            "wfs": "window conn_events { stream = \"netflow\" time = event_time over = 30m fields { event_time: time sip: ip dip: ip } }",
+            "wfs": "window conn_events { stream_tag = \"netflow\" time = event_time over = 30m fields { event_time: time sip: ip dip: ip } }",
             "wfl": "rule broken { events { a : conn_events } }"
         }))
         .to_request();
@@ -199,7 +202,7 @@ max = 10
     assert_eq!(wfusion_invalid_body["success"], false);
     assert!(wfusion_invalid_body["stage"].as_str().is_some());
     let first_diagnostic = &wfusion_invalid_body["diagnostics"][0];
-    assert_eq!(first_diagnostic["category"], "rule");
+    assert_eq!(first_diagnostic["category"], "syntax");
     assert_eq!(first_diagnostic["file"], "rules/editor.wfl");
     assert!(first_diagnostic["line"].as_u64().is_some());
     assert!(first_diagnostic["column"].as_u64().is_some());
