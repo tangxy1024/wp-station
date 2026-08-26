@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use crate::common::{setup_db, test_infra_root};
 use wp_station::constants::sandbox::OUTPUT_PATHS;
 use wp_station::server::Setting;
-use wp_station::server::sandbox::analyze::{RuntimeMetrics, finalize_conclusion};
+use wp_station::server::sandbox::analyze::{
+    RuntimeMetrics, analyse_runtime_output, finalize_conclusion,
+};
 use wp_station::utils::SystemKind;
 use wp_station::utils::sandbox::{SandboxWorkspace, collect_output_checks, command_version_output};
 
@@ -429,4 +431,36 @@ fn finalize_conclusion_respects_runtime_analysis_result() {
     assert!(conclusion.passed);
     assert_eq!(conclusion.input_count, 50);
     assert_eq!(conclusion.runtime_output_count, 5);
+}
+
+#[test]
+fn wparse_runtime_output_accepts_at_least_wpgen_count() {
+    let cases = [(1, 2, false), (2, 2, true), (3, 2, true)];
+
+    for (output_count, wpgen_count, expected_passed) in cases {
+        let base = temp_dir("wparse-output-count");
+        for (relative, _) in OUTPUT_PATHS {
+            let path = base.join(relative);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(path, "").unwrap();
+        }
+
+        let all_json = base.join("data/out_dat/all.json");
+        let output = vec!["{}"; output_count].join("\n");
+        fs::write(all_json, output).unwrap();
+        let daemon_stdout = base.join("wparse.log");
+        fs::write(&daemon_stdout, "").unwrap();
+
+        let analysis =
+            analyse_runtime_output(SystemKind::Wparse, &base, &daemon_stdout, wpgen_count)
+                .expect("分析 wparse 输出成功");
+        assert_eq!(
+            analysis.passed, expected_passed,
+            "all.json={output_count}，wpgen={wpgen_count}"
+        );
+
+        fs::remove_dir_all(base).unwrap();
+    }
 }
