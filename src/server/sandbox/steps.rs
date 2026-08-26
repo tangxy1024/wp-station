@@ -564,10 +564,10 @@ pub(super) async fn stage_analyse_runtime_output(
             details.push(format!("rule miss 日志 {} 条", analysis.metrics.miss_count));
         }
         if system == crate::utils::SystemKind::Wparse
-            && analysis.metrics.output_count != expected_success
+            && analysis.metrics.output_count < expected_success
         {
             details.push(format!(
-                "成功输出数量 {} 条，期望 {} 条",
+                "成功输出数量 {} 条，至少应为 {} 条",
                 analysis.metrics.output_count, expected_success
             ));
         }

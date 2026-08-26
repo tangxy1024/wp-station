@@ -18,6 +18,7 @@ fn cleanup_rule(rule_type: RuleType, file: &str) {
     match rule_type {
         RuleType::Wpl => remove_project_path(format!("models/wpl/{file}")),
         RuleType::Oml => remove_project_path(format!("models/oml/{file}")),
+        RuleType::Windows => remove_project_path("models/windows.toml"),
         RuleType::Schema => remove_project_path(format!("models/schemas/{file}")),
         RuleType::Rule => remove_project_path(format!("models/rules/{file}")),
         RuleType::Scenarios => remove_project_path(format!("models/scenarios/{file}")),
@@ -362,7 +363,7 @@ async fn test_validate_rule_logic_uses_unsaved_wpl_content_in_temp_dir() {
         SystemKind::Wparse,
         RuleType::Wpl,
         format!("{file}/parse.wpl"),
-        Some("package demo { rule a { chars:message } }".to_string()),
+        Some("package demo { rule a { ( chars:message ) } }".to_string()),
     )
     .await
     .expect("validate unsaved content");

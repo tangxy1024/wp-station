@@ -1,6 +1,6 @@
 use std::fs;
 
-use wp_station::server::ProjectLayout;
+use wp_station::server::RepoLayout;
 use wp_station::utils::{
     SystemKind, load_integration_rule_overview_from_layout,
     load_integration_runtime_overview_from_layout,
@@ -16,14 +16,15 @@ fn write_file(path: &std::path::Path, content: &str) {
 #[test]
 fn test_load_integration_runtime_overview_extracts_source_and_sink_details() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
-    let layout = ProjectLayout {
+    let layout = RepoLayout {
         models_root: temp_dir.path().join("project_models"),
         infra_root: temp_dir.path().join("project_infra"),
+        connectors_root: temp_dir.path().join("shared_connectors"),
     };
 
     write_file(
         &layout
-            .infra_root
+            .connectors_root
             .join("connectors/source.d/10-syslog-udp.toml"),
         r#"
 id = "syslog_udp_src"
@@ -39,7 +40,7 @@ header_mode = "strip"
     );
     write_file(
         &layout
-            .infra_root
+            .connectors_root
             .join("connectors/sink.d/02-file-json.toml"),
         r#"
 id = "file_json_sink"
@@ -114,9 +115,10 @@ file = "all.json"
 #[test]
 fn test_load_integration_rule_overview_extracts_device_and_log_types() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
-    let layout = ProjectLayout {
+    let layout = RepoLayout {
         models_root: temp_dir.path().join("project_models"),
         infra_root: temp_dir.path().join("project_infra"),
+        connectors_root: temp_dir.path().join("shared_connectors"),
     };
 
     write_file(
@@ -171,9 +173,10 @@ package ignore_pkg {
 #[test]
 fn test_load_wfusion_integration_rule_overview_extracts_wfs_and_wfl_counts() {
     let temp_dir = tempfile::tempdir().expect("create temp dir");
-    let layout = ProjectLayout {
+    let layout = RepoLayout {
         models_root: temp_dir.path().join("project_models"),
         infra_root: temp_dir.path().join("project_infra"),
+        connectors_root: temp_dir.path().join("shared_connectors"),
     };
 
     write_file(

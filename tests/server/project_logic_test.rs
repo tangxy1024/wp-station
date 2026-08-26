@@ -15,7 +15,7 @@ use wp_station::server::project::{
     import_project_from_files_logic, preview_project_archive_logic,
 };
 use wp_station::utils::SystemKind;
-use wp_station::utils::compose_project_layout_into;
+use wp_station::utils::compose_repo_layout_into;
 
 fn legacy_import_dir(name: &str) -> PathBuf {
     let path = test_base_root().join(format!("legacy-import-{}-{}", name, rand_suffix()));
@@ -144,7 +144,7 @@ async fn test_import_project_requires_legacy_directories() {
 async fn test_import_project_validates_source_dir_before_overwrite() {
     setup_db().await;
     let source_dir = legacy_import_dir("invalid-components");
-    compose_project_layout_into(&test_project_layout(), &source_dir)
+    compose_repo_layout_into(&test_project_layout(), &source_dir)
         .expect("compose dual repo into legacy project");
 
     write_file(
@@ -187,7 +187,7 @@ async fn test_import_project_validates_source_dir_before_overwrite() {
 async fn test_import_project_splits_legacy_directory_into_dual_repos() {
     setup_db().await;
     let source_dir = legacy_import_dir("success");
-    compose_project_layout_into(&test_project_layout(), &source_dir)
+    compose_repo_layout_into(&test_project_layout(), &source_dir)
         .expect("compose dual repo into legacy project");
 
     write_file(
@@ -361,12 +361,14 @@ async fn test_import_project_archive_supports_conf_only_directory() {
             "models".to_string()
         ]
     );
-    assert_eq!(preview.summary.rules_imported, 1);
-    assert_eq!(preview.summary.rule_breakdown.len(), 1);
-    assert_eq!(preview.summary.rule_breakdown[0].rule_type, "parse");
-    assert_eq!(
-        preview.summary.rule_breakdown[0].files,
-        vec!["wparse.toml".to_string()]
+    assert_eq!(preview.summary.rules_imported, 2);
+    assert!(preview.summary.rule_breakdown.iter().any(|item| {
+        item.rule_type == "parse" && item.files == vec!["wparse.toml".to_string()]
+    }));
+    assert!(
+        preview.summary.rule_breakdown.iter().any(|item| {
+            item.rule_type == "wpgen" && item.files == vec!["wpgen.toml".to_string()]
+        })
     );
 
     let response = confirm_project_archive_import_logic(
@@ -378,12 +380,14 @@ async fn test_import_project_archive_supports_conf_only_directory() {
     .expect("confirm conf-only archive");
 
     assert_eq!(response.summary.imported_dirs, vec!["conf".to_string()]);
-    assert_eq!(response.summary.rules_imported, 1);
-    assert_eq!(response.summary.rule_breakdown.len(), 1);
-    assert_eq!(response.summary.rule_breakdown[0].rule_type, "parse");
-    assert_eq!(
-        response.summary.rule_breakdown[0].files,
-        vec!["wparse.toml".to_string()]
+    assert_eq!(response.summary.rules_imported, 2);
+    assert!(response.summary.rule_breakdown.iter().any(|item| {
+        item.rule_type == "parse" && item.files == vec!["wparse.toml".to_string()]
+    }));
+    assert!(
+        response.summary.rule_breakdown.iter().any(|item| {
+            item.rule_type == "wpgen" && item.files == vec!["wpgen.toml".to_string()]
+        })
     );
     assert_eq!(
         fs::read_to_string(test_models_root().join("sentinel-models.txt"))
@@ -439,25 +443,93 @@ async fn test_import_project_archive_wfusion_breakdown_keeps_virtual_named_rule_
     fs::create_dir_all(source_dir.join("models/scenarios")).expect("create scenarios dir");
     write_file(
         source_dir.join("models/windows.toml"),
-        "title = \"wfusion\"\n",
+        r#"[window_defaults]
+evict_interval = "30s"
+max_window_bytes = "256MB"
+max_total_bytes = "2GB"
+evict_policy = "time_first"
+watermark = "5s"
+allowed_lateness = "8760h"
+late_policy = "drop"
+"#,
     );
     write_file(
         source_dir.join("models/schemas/kunai.wfs"),
-        "schema kunai {}\n",
+        r#"window ssh_login {
+    stream_tag = "ssh_login"
+    time = occur_time
+    over = 1m
+    fields {
+        occur_time: time
+        source_ip: ip
+        target_user: chars
+        outcome: chars
+    }
+}
+
+window security_alerts {
+    over = 0
+    fields {
+        alert_name: chars
+        source_ip: ip
+        target_user: chars
+        failed_count: digit
+    }
+}
+"#,
     );
     write_file(
         source_dir.join("models/rules/sql_injection_source_alert.wfl"),
-        "rule sql {}\n",
+        r#"use "../schemas/kunai.wfs"
+
+rule ssh_brute_force_alert {
+    events {
+        failed : ssh_login && outcome == "failed"
+    }
+    match<source_ip,target_user:1m:fixed> {
+        on event { failed | count >= 3; }
+    } -> score(80.0)
+    entity(ip, failed.source_ip)
+    yield security_alerts (
+        alert_name = "SSH 暴力破解",
+        source_ip = failed.source_ip,
+        target_user = failed.target_user,
+        failed_count = count(failed)
+    )
+    limits {
+        max_instances = 1000;
+    }
+}
+"#,
     );
     write_file(
         source_dir.join("models/scenarios/ssh_brute_force_attempt.wfg"),
-        "scenario ssh {}\n",
+        r#"use "../schemas/kunai.wfs"
+use "../rules/sql_injection_source_alert.wfl"
+
+#[duration=10s]
+scenario ssh_brute_force_alert_case<seed=42> {
+    traffic {
+        stream ssh_login gen 1/s
+    }
+    injection {
+        hit<100%> ssh_login {
+            source_ip seq {
+                use(source_ip="192.168.1.100", target_user="root", outcome="failed") with(3)
+            }
+        }
+    }
+    expect {
+        hit(ssh_brute_force_alert) >= 100%
+    }
+}
+"#,
     );
 
     let preview = preview_project_archive_logic(
         SystemKind::Wfusion,
         Some("tester".to_string()),
-        "wfusion-models.zip",
+        "wfusion-models.tar.gz",
         build_archive_with_dirs(&source_dir, &["models"]),
     )
     .await

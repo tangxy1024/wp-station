@@ -15,6 +15,16 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use strum::{AsRefStr, Display, EnumString};
 
+/// 测试进程可通过该变量将项目仓库重定向到隔离目录，避免集成测试改写真实仓库。
+const TEST_WORKSPACE_ROOT_ENV: &str = "WP_STATION_TEST_WORKSPACE_ROOT";
+
+fn project_workspace_root() -> PathBuf {
+    std::env::var_os(TEST_WORKSPACE_ROOT_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Setting::workspace_root().clone())
+}
+
 /// 当前平台支持的固定系统类型。
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Display, EnumString, AsRefStr,
@@ -83,7 +93,7 @@ pub fn repo_name(system: SystemKind, area: ProjectArea) -> &'static str {
 
 /// 根据 system 解析固定目录布局。
 pub fn layout_for_system(system: SystemKind) -> SystemProjectLayout {
-    let root = Setting::workspace_root().join(DIR_GITEA_ROOT);
+    let root = project_workspace_root().join(DIR_GITEA_ROOT);
     SystemProjectLayout {
         system,
         models_root: root.join(repo_name(system, ProjectArea::Models)),
@@ -93,7 +103,7 @@ pub fn layout_for_system(system: SystemKind) -> SystemProjectLayout {
 
 /// 返回共享 connectors 仓库根目录。
 pub fn shared_connectors_root() -> PathBuf {
-    Setting::workspace_root()
+    project_workspace_root()
         .join(DIR_GITEA_ROOT)
         .join(REPO_SHARED_CONNECTORS)
 }

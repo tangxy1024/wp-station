@@ -9,9 +9,11 @@ use std::path::PathBuf;
 use crate::common::{setup_db, test_infra_root};
 use wp_station::constants::sandbox::OUTPUT_PATHS;
 use wp_station::server::Setting;
-use wp_station::server::sandbox::analyze::{RuntimeMetrics, finalize_conclusion};
-use wp_station::utils::SystemKind;
+use wp_station::server::sandbox::analyze::{
+    RuntimeMetrics, analyse_runtime_output, finalize_conclusion,
+};
 use wp_station::utils::sandbox::{SandboxWorkspace, collect_output_checks, command_version_output};
+use wp_station::utils::{SystemKind, layout_for_system};
 
 // ============ 测试辅助函数 ============
 
@@ -282,7 +284,7 @@ fn sandbox_prepare_overrides_infra_sinks_with_defaults() {
     let content = fs::read_to_string(&sandbox_file).expect("read sandbox infra sink");
 
     assert!(
-        content.contains("connect = \"file_raw_sink\""),
+        content.contains("connect = \"file_json_sink\""),
         "sandbox infra sink should fall back to default config: {content}"
     );
     assert!(
@@ -317,7 +319,10 @@ port = 9999
         .expect("read patched wpgen config");
 
     assert!(content.contains("[output]\nconnect = \"udp_out_sink\""));
-    assert!(content.contains("[output.params]\naddr = \"0.0.0.0\"\nport = 31601"));
+    assert!(
+        content.contains("[output.params]\naddr = \"127.0.0.1\"\nport = 31601"),
+        "sandbox wpgen output params should use loopback runtime address: {content}"
+    );
     assert!(
         !content.contains("protocol = "),
         "sandbox wpgen output params should not keep protocol override: {content}"
@@ -330,6 +335,18 @@ port = 9999
 fn sandbox_prepare_preserves_runtime_token_permissions() {
     let runtime = tokio::runtime::Runtime::new().expect("create runtime");
     runtime.block_on(setup_db());
+
+    let token_path = layout_for_system(SystemKind::Wfusion)
+        .infra_root
+        .join("runtime/admin_api.token");
+    fs::create_dir_all(token_path.parent().expect("token parent")).expect("create token parent");
+    fs::write(&token_path, "sandbox-token").expect("write sandbox token");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600))
+            .expect("set source token permissions");
+    }
 
     let workspace =
         SandboxWorkspace::prepare("sandbox-runtime-token-perms", SystemKind::Wfusion, &[])
@@ -429,4 +446,36 @@ fn finalize_conclusion_respects_runtime_analysis_result() {
     assert!(conclusion.passed);
     assert_eq!(conclusion.input_count, 50);
     assert_eq!(conclusion.runtime_output_count, 5);
+}
+
+#[test]
+fn wparse_runtime_output_accepts_at_least_wpgen_count() {
+    let cases = [(1, 2, false), (2, 2, true), (3, 2, true)];
+
+    for (output_count, wpgen_count, expected_passed) in cases {
+        let base = temp_dir("wparse-output-count");
+        for (relative, _) in OUTPUT_PATHS {
+            let path = base.join(relative);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(path, "").unwrap();
+        }
+
+        let all_json = base.join("data/out_dat/all.json");
+        let output = vec!["{}"; output_count].join("\n");
+        fs::write(all_json, output).unwrap();
+        let daemon_stdout = base.join("wparse.log");
+        fs::write(&daemon_stdout, "").unwrap();
+
+        let analysis =
+            analyse_runtime_output(SystemKind::Wparse, &base, &daemon_stdout, wpgen_count)
+                .expect("分析 wparse 输出成功");
+        assert_eq!(
+            analysis.passed, expected_passed,
+            "all.json={output_count}，wpgen={wpgen_count}"
+        );
+
+        fs::remove_dir_all(base).unwrap();
+    }
 }

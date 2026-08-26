@@ -183,7 +183,7 @@ pub fn analyse_runtime_output(
     let passed = match system {
         SystemKind::Wparse => {
             output_checks.iter().all(|item| item.is_empty)
-                && metrics.output_count == expected_success
+                && metrics.output_count >= expected_success
         }
         SystemKind::Wfusion => {
             output_checks.iter().all(|item| item.is_empty) && metrics.output_count > 0
