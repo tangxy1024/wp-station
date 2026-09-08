@@ -12,7 +12,6 @@ use self::wfusion_replay::replay_events as replay_wfusion_events;
 use crate::error::AppError;
 use crate::utils::warp_check_record;
 use serde::{Deserialize, Serialize};
-use simple_log::log;
 use std::io::BufReader;
 use std::path::Path;
 use std::sync::Arc;
@@ -185,7 +184,6 @@ pub async fn debug_parse_logic(
     rules: String,
     logs: String,
 ) -> Result<RecordResponseRaw, AppError> {
-
     let first_log = logs
         .lines()
         .map(str::trim)
