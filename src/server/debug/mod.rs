@@ -12,6 +12,7 @@ use self::wfusion_replay::replay_events as replay_wfusion_events;
 use crate::error::AppError;
 use crate::utils::warp_check_record;
 use serde::{Deserialize, Serialize};
+use simple_log::log;
 use std::io::BufReader;
 use std::path::Path;
 use std::sync::Arc;
@@ -184,8 +185,15 @@ pub async fn debug_parse_logic(
     rules: String,
     logs: String,
 ) -> Result<RecordResponseRaw, AppError> {
+
+    let first_log = logs
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
+
     // 调用 warp_check_record 获取 DataRecord
-    let record = warp_check_record(&rules, &logs)?;
+    let record = warp_check_record(&rules, first_log)?;
 
     // 存入 SharedRecord，供后续转换使用
     let mut record_guard = shared_record.lock().await;
