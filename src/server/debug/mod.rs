@@ -100,6 +100,7 @@ pub struct DebugWfusionRuleEditorParseRequest {
 pub struct RecordResponseRaw {
     pub fields: DataRecord,
     pub format_json: String,
+    pub multiple_logs: bool,
 }
 
 /// 知识库状态列表项。
@@ -187,11 +188,11 @@ pub async fn debug_parse_logic(
     let first_log = logs
         .lines()
         .map(str::trim)
-        .find(|line| !line.is_empty())
-        .unwrap_or("");
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
 
     // 调用 warp_check_record 获取 DataRecord
-    let record = warp_check_record(&rules, first_log)?;
+    let record = warp_check_record(&rules, first_log.first().unwrap_or(&""))?;
 
     // 存入 SharedRecord，供后续转换使用
     let mut record_guard = shared_record.lock().await;
@@ -205,6 +206,7 @@ pub async fn debug_parse_logic(
     Ok(RecordResponseRaw {
         fields: record,
         format_json: json_string,
+        multiple_logs: first_log.len() > 1,
     })
 }
 
@@ -226,6 +228,7 @@ pub async fn debug_transform_logic(
     Ok(RecordResponseRaw {
         fields: transformed,
         format_json: json_string,
+        multiple_logs: false,
     })
 }
 
